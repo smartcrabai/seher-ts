@@ -1,20 +1,26 @@
-import { runAgent as runAgentImpl } from "./_stubs/agent.ts";
-import { parseArgs as parseArgsImpl } from "./_stubs/cli.ts";
-import { checkLimit as checkLimitImpl } from "./_stubs/codexbar.ts";
-import { loadSettings as loadSettingsImpl } from "./_stubs/config.ts";
-import {
-	filterAgents as filterAgentsImpl,
-	sortByPriority as sortByPriorityImpl,
-} from "./_stubs/priority.ts";
-import { collectPrompt as collectPromptImpl } from "./_stubs/prompt.ts";
-import { sleepUntil as sleepUntilImpl } from "./_stubs/sleep.ts";
-import type { AgentStatus, PriorityRule } from "./_stubs/types.ts";
-import { startWebServer as startWebServerImpl } from "./_stubs/web.ts";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { runAgent as runAgentImpl } from "./agent/runner.ts";
+import { parseArgs as parseArgsImpl } from "./cli/args.ts";
+import { resolvePrompt as resolvePromptImpl } from "./cli/prompt.ts";
+import { checkLimit as checkLimitImpl } from "./codexbar/limit.ts";
+import { loadSettings as loadSettingsImpl } from "./config/load.ts";
+import { filterAgents as filterAgentsImpl } from "./priority/filter.ts";
+import { sortByPriority as sortByPriorityImpl } from "./priority/sort.ts";
 import { scanCandidates } from "./scan.ts";
+import { sleepUntil as sleepUntilImpl } from "./sleep/sleepUntil.ts";
+import type {
+	AgentConfig,
+	AgentStatus,
+	PriorityRule,
+	ProviderConfig,
+} from "./types.ts";
+import { startWebServer as startWebServerImpl } from "./web/server.ts";
 
 /**
  * Dependency-injection seam for tests. All collaborators resolve through this
- * object so `runSeher` can be exercised without touching the real stubs.
+ * object so `runSeher` can be exercised without touching real subprocesses
+ * or the filesystem.
  */
 export interface RunSeherDeps {
 	parseArgs: typeof parseArgsImpl;
@@ -22,7 +28,7 @@ export interface RunSeherDeps {
 	filterAgents: typeof filterAgentsImpl;
 	sortByPriority: typeof sortByPriorityImpl;
 	checkLimit: typeof checkLimitImpl;
-	collectPrompt: typeof collectPromptImpl;
+	resolvePrompt: typeof resolvePromptImpl;
 	runAgent: typeof runAgentImpl;
 	sleepUntil: typeof sleepUntilImpl;
 	startWebServer: typeof startWebServerImpl;
@@ -37,7 +43,7 @@ const defaultDeps: RunSeherDeps = {
 	filterAgents: filterAgentsImpl,
 	sortByPriority: sortByPriorityImpl,
 	checkLimit: checkLimitImpl,
-	collectPrompt: collectPromptImpl,
+	resolvePrompt: resolvePromptImpl,
 	runAgent: runAgentImpl,
 	sleepUntil: sleepUntilImpl,
 	startWebServer: startWebServerImpl,
@@ -67,7 +73,10 @@ export async function runSeher(
 	}
 
 	if (args.guiConfig) {
-		await deps.startWebServer(settings);
+		await deps.startWebServer({
+			settingsPath: resolveSettingsPath(args.config),
+			openBrowser: true,
+		});
 		return 0;
 	}
 
@@ -80,17 +89,21 @@ export async function runSeher(
 	const sorted = deps.sortByPriority(
 		filtered,
 		settings.priority,
-		args.model,
+		args.model ?? null,
 		deps.now(),
 	);
 
 	if (args.json) {
 		const statuses: AgentStatus[] = [];
 		for (const agent of sorted) {
-			const limit = await deps.checkLimit(agent.provider ?? agent.command);
+			const providerName = resolveProviderName(agent);
+			const limit =
+				providerName === null
+					? ({ kind: "not_limited" } as const)
+					: await deps.checkLimit(providerName);
 			statuses.push({
 				command: agent.command,
-				provider: agent.provider,
+				provider: providerName,
 				limit,
 			});
 		}
@@ -103,13 +116,21 @@ export async function runSeher(
 		return 1;
 	}
 
-	const prompt = await deps.collectPrompt(args.trailing);
+	const prompt = await deps.resolvePrompt({ trailing: args.trailing });
+	const trailingArgs =
+		args.trailing.length > 0
+			? args.trailing
+			: prompt !== null && prompt.length > 0
+				? [prompt]
+				: [];
 
 	let rescans = 0;
 	while (true) {
-		const scan = await scanCandidates(sorted, (agent) =>
-			deps.checkLimit(agent.provider ?? agent.command),
-		);
+		const scan = await scanCandidates(sorted, async (agent) => {
+			const providerName = resolveProviderName(agent);
+			if (providerName === null) return { kind: "not_limited" as const };
+			return deps.checkLimit(providerName);
+		});
 
 		if (scan.kind === "available") {
 			const agent = sorted[scan.index];
@@ -119,9 +140,8 @@ export async function runSeher(
 			}
 			const result = await deps.runAgent(agent, {
 				model: args.model,
-				trailingArgs: args.trailing,
+				trailingArgs,
 				quiet: args.quiet,
-				prompt,
 			});
 			return result.exitCode;
 		}
@@ -147,6 +167,32 @@ export async function runSeher(
 	}
 }
 
+function resolveProviderName(agent: AgentConfig): string | null {
+	switch (agent.provider.kind) {
+		case "explicit":
+			return agent.provider.name;
+		case "inferred":
+			return agent.command;
+		case "none":
+			return null;
+	}
+}
+
+function providerLabel(provider: ProviderConfig): string {
+	switch (provider.kind) {
+		case "explicit":
+			return provider.name;
+		case "inferred":
+			return "(inferred)";
+		case "none":
+			return "(none)";
+	}
+}
+
+function resolveSettingsPath(explicit: string | undefined): string {
+	return explicit ?? join(homedir(), ".config", "seher", "settings.jsonc");
+}
+
 function printPriorityOrder(
 	rules: PriorityRule[],
 	stdout: (line: string) => void,
@@ -161,9 +207,8 @@ function printPriorityOrder(
 		const r = sorted[i];
 		if (r === undefined) continue;
 		const model = r.model ?? "(none)";
-		const provider = r.provider ?? "(none)";
 		stdout(
-			`  ${i + 1}. [priority=${String(r.priority).padStart(3)}] command=${r.command} provider=${provider} model=${model}`,
+			`  ${i + 1}. [priority=${String(r.priority).padStart(3)}] command=${r.command} provider=${providerLabel(r.provider)} model=${model}`,
 		);
 	}
 }
