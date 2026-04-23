@@ -2,9 +2,13 @@
   "name": "seher-ts",
   "module": "index.ts",
   "type": "module",
+  "bin": {
+    "seher": "./src/index.ts"
+  },
   "scripts": {
     "lint": "biome check ./src",
-    "lint:fix": "biome check --write --unsafe ./src"
+    "lint:fix": "biome check --write --unsafe ./src",
+    "start": "bun run src/index.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.12",
