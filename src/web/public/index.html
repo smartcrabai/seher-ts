@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>seher config editor</title>
+		<style>
+			:root {
+				color-scheme: light dark;
+				font-family: system-ui, -apple-system, sans-serif;
+			}
+			body {
+				margin: 0;
+				padding: 1.5rem;
+				max-width: 960px;
+				margin-inline: auto;
+			}
+			h1 {
+				margin-top: 0;
+				font-size: 1.25rem;
+			}
+			textarea {
+				width: 100%;
+				min-height: 60vh;
+				font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+				font-size: 0.875rem;
+				padding: 0.75rem;
+				box-sizing: border-box;
+				border: 1px solid #8884;
+				border-radius: 6px;
+			}
+			.toolbar {
+				display: flex;
+				gap: 0.5rem;
+				margin-bottom: 0.75rem;
+				align-items: center;
+			}
+			button {
+				padding: 0.4rem 0.9rem;
+				border: 1px solid #8884;
+				border-radius: 6px;
+				background: #8881;
+				cursor: pointer;
+				font: inherit;
+			}
+			button:hover {
+				background: #8883;
+			}
+			#status {
+				margin-left: auto;
+				font-size: 0.875rem;
+				opacity: 0.8;
+			}
+			#status.error {
+				color: #d33;
+			}
+			#status.ok {
+				color: #2a7;
+			}
+			footer {
+				margin-top: 1rem;
+				font-size: 0.875rem;
+				opacity: 0.8;
+			}
+		</style>
+	</head>
+	<body>
+		<h1>seher config editor</h1>
+		<div class="toolbar">
+			<button id="save" type="button">Save</button>
+			<button id="reload" type="button">Reload</button>
+			<span id="status"></span>
+		</div>
+		<textarea id="settings" spellcheck="false"></textarea>
+		<footer>
+			<a href="/api/schema">schema</a>
+		</footer>
+		<script type="module">
+			const textarea = document.getElementById("settings");
+			const status = document.getElementById("status");
+			const saveBtn = document.getElementById("save");
+			const reloadBtn = document.getElementById("reload");
+
+			function setStatus(msg, kind) {
+				status.textContent = msg;
+				status.className = kind ?? "";
+			}
+
+			async function load() {
+				setStatus("loading...");
+				try {
+					const res = await fetch("/api/settings");
+					const body = await res.json();
+					if (!res.ok) throw new Error(body.error ?? res.statusText);
+					textarea.value = JSON.stringify(body, null, 2);
+					setStatus("loaded", "ok");
+				} catch (err) {
+					setStatus(`load failed: ${err.message}`, "error");
+				}
+			}
+
+			async function save() {
+				setStatus("saving...");
+				try {
+					JSON.parse(textarea.value);
+				} catch (err) {
+					setStatus(`invalid JSON: ${err.message}`, "error");
+					return;
+				}
+				try {
+					const res = await fetch("/api/settings", {
+						method: "PUT",
+						headers: { "content-type": "application/json" },
+						body: textarea.value,
+					});
+					const body = await res.json();
+					if (!res.ok) throw new Error(body.error ?? res.statusText);
+					setStatus("saved", "ok");
+				} catch (err) {
+					setStatus(`save failed: ${err.message}`, "error");
+				}
+			}
+
+			saveBtn.addEventListener("click", save);
+			reloadBtn.addEventListener("click", load);
+			load();
+		</script>
+	</body>
+</html>
