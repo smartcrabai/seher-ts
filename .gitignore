@@ -41,4 +41,7 @@ coverage/
 # Temporary files
 *.tmp
 *.temp
-.cache/.claude/worktrees/
+.cache/
+
+# Claude Code worktrees
+.claude/worktrees/
