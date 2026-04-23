@@ -4,9 +4,7 @@
   "type": "module",
   "scripts": {
     "lint": "biome check ./src",
-    "lint:fix": "biome check --write --unsafe ./src",
-    "test": "bun test",
-    "start": "bun run src/index.ts"
+    "lint:fix": "biome check --write --unsafe ./src"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.12",
@@ -16,10 +14,7 @@
     "typescript": "^5.0.0 || ^6.0.0"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "latest",
-    "@openai/codex-sdk": "latest",
     "@typescript/native-preview": "^7.0.0-dev.20260422.1",
-    "commander": "^12.1.0",
-    "jsonc-parser": "^3.3.1"
+    "jsonc-parser": "^3"
   }
 }
