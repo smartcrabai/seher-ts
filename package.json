@@ -1,0 +1,19 @@
+{
+  "name": "seher-ts",
+  "module": "index.ts",
+  "type": "module",
+  "scripts": {
+    "lint": "biome check ./src",
+    "lint:fix": "biome check --write --unsafe ./src"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.12",
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0 || ^6.0.0"
+  },
+  "dependencies": {
+    "@typescript/native-preview": "^7.0.0-dev.20260422.1"
+  }
+}
