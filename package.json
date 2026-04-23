@@ -14,7 +14,8 @@
     "typescript": "^5.0.0 || ^6.0.0"
   },
   "dependencies": {
-    "@typescript/native-preview": "^7.0.0-dev.20260422.1",
-    "commander": "^12"
+    "@anthropic-ai/sdk": "^0.90.0",
+    "@openai/codex-sdk": "^0.123.0",
+    "@typescript/native-preview": "^7.0.0-dev.20260422.1"
   }
 }
