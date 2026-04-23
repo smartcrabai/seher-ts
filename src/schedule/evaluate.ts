@@ -1,4 +1,4 @@
-import type { ScheduleRule } from "./types.ts";
+import type { ScheduleRule } from "../types.ts";
 
 function parseRange(s: string): [number, number] | null {
 	const idx = s.indexOf("-");

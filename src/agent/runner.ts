@@ -1,6 +1,6 @@
+import type { AgentConfig } from "../types.ts";
 import { applyArgMaps, resolveArgs } from "./args.ts";
 import { buildEnv } from "./env.ts";
-import type { AgentConfig } from "./types.ts";
 
 export interface RunAgentOptions {
 	model?: string;

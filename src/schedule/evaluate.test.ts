@@ -1,7 +1,22 @@
 import { describe, expect, test } from "bun:test";
+import type { AgentConfig, PriorityRule } from "../types.ts";
 import { isScheduleActive } from "./evaluate.ts";
 import { agentIsUsable, priorityRuleMatches } from "./ruleMatch.ts";
-import type { AgentConfig, PriorityRule } from "./types.ts";
+
+function makeAgent(overrides: Partial<AgentConfig> = {}): AgentConfig {
+	return {
+		command: "claude",
+		args: [],
+		models: null,
+		arg_maps: {},
+		env: null,
+		provider: { kind: "inferred" },
+		pre_command: [],
+		active: null,
+		inactive: null,
+		...overrides,
+	};
+}
 
 function at(year: number, monthIndex: number, day: number, hour: number): Date {
 	return new Date(year, monthIndex, day, hour, 0, 0, 0);
@@ -88,12 +103,7 @@ describe("isScheduleActive", () => {
 });
 
 describe("agentIsUsable", () => {
-	const base: AgentConfig = {
-		command: "claude",
-		provider: { kind: "inferred" },
-		active: null,
-		inactive: null,
-	};
+	const base: AgentConfig = makeAgent();
 
 	test("no active/inactive => always usable", () => {
 		expect(agentIsUsable(base, at(2024, 0, 1, 9))).toBe(true);
@@ -123,12 +133,7 @@ describe("agentIsUsable", () => {
 });
 
 describe("priorityRuleMatches", () => {
-	const agent: AgentConfig = {
-		command: "claude",
-		provider: { kind: "inferred" },
-		active: null,
-		inactive: null,
-	};
+	const agent: AgentConfig = makeAgent();
 
 	test("matches on command + provider + null model", () => {
 		const rule: PriorityRule = {

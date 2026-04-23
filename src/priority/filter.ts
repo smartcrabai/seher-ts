@@ -1,5 +1,5 @@
 import { resolveProvider } from "../schedule/ruleMatch.ts";
-import type { AgentConfig } from "../schedule/types.ts";
+import type { AgentConfig } from "../types.ts";
 
 export interface FilterOptions {
 	command?: string;

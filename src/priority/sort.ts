@@ -1,5 +1,5 @@
 import { priorityRuleMatches } from "../schedule/ruleMatch.ts";
-import type { AgentConfig, PriorityRule } from "../schedule/types.ts";
+import type { AgentConfig, PriorityRule } from "../types.ts";
 
 function scheduleSpecificity(rule: PriorityRule): number {
 	return (rule.weekdays ? 1 : 0) + (rule.hours ? 1 : 0);

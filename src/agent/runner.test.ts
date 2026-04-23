@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
+import type { AgentConfig } from "../types.ts";
 import { runAgent, shouldAutoRerun } from "./runner.ts";
-import type { AgentConfig } from "./types.ts";
 
 function makeAgent(overrides: Partial<AgentConfig> = {}): AgentConfig {
 	return {
@@ -11,6 +11,8 @@ function makeAgent(overrides: Partial<AgentConfig> = {}): AgentConfig {
 		env: null,
 		provider: { kind: "none" },
 		pre_command: [],
+		active: null,
+		inactive: null,
 		...overrides,
 	};
 }
