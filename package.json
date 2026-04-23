@@ -8,6 +8,7 @@
   "scripts": {
     "lint": "biome check ./src",
     "lint:fix": "biome check --write --unsafe ./src",
+    "test": "bun test",
     "start": "bun run src/index.ts"
   },
   "devDependencies": {
@@ -20,6 +21,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
     "@openai/codex-sdk": "^0.123.0",
-    "@typescript/native-preview": "^7.0.0-dev.20260422.1"
+    "@typescript/native-preview": "^7.0.0-dev.20260422.1",
+    "commander": "^12.1.0",
+    "jsonc-parser": "^3.3.1"
   }
 }
