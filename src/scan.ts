@@ -1,11 +1,11 @@
-import type { Agent, AgentLimit } from "./_stubs/types.ts";
+import type { AgentLimit } from "./types.ts";
 
 export type ScanResult =
 	| { kind: "available"; index: number }
 	| { kind: "all_limited"; minReset: Date }
 	| { kind: "no_agents" };
 
-export type CheckLimitFn = (agent: Agent, index: number) => Promise<AgentLimit>;
+export type CheckLimitFn<A> = (agent: A, index: number) => Promise<AgentLimit>;
 
 /**
  * Scan the agents in priority order. Returns the first `not_limited` agent,
@@ -14,9 +14,9 @@ export type CheckLimitFn = (agent: Agent, index: number) => Promise<AgentLimit>;
  *
  * Ported from Rust `cli::scan_candidates`.
  */
-export async function scanCandidates(
-	agents: Agent[],
-	checkLimit: CheckLimitFn,
+export async function scanCandidates<A>(
+	agents: A[],
+	checkLimit: CheckLimitFn<A>,
 ): Promise<ScanResult> {
 	if (agents.length === 0) {
 		return { kind: "no_agents" };
@@ -30,16 +30,12 @@ export async function scanCandidates(
 		try {
 			limit = await checkLimit(agent, i);
 		} catch {
-			// Errors are treated like "unknown" -- skip, matching Rust behavior
-			// where Err(_) is ignored and the loop continues.
 			continue;
 		}
 		if (limit.kind === "not_limited") {
 			return { kind: "available", index: i };
 		}
-		if (limit.resetTime !== undefined) {
-			resets.push(limit.resetTime);
-		}
+		resets.push(limit.resetTime);
 	}
 
 	if (resets.length === 0) {

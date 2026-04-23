@@ -1,14 +1,39 @@
 import { describe, expect, mock, test } from "bun:test";
+import { type RunSeherDeps, runSeher } from "./main.ts";
 import type {
-	Agent,
+	AgentConfig,
 	AgentLimit,
 	PriorityRule,
+	ProviderConfig,
 	Settings,
-} from "./_stubs/types.ts";
-import { type RunSeherDeps, runSeher } from "./main.ts";
+} from "./types.ts";
 
-function mkAgent(command: string, provider?: string): Agent {
-	return { command, provider, config: { command, provider } };
+const INFERRED: ProviderConfig = { kind: "inferred" };
+const NO_PROVIDER: ProviderConfig = { kind: "none" };
+
+function mkAgent(
+	command: string,
+	provider: ProviderConfig = INFERRED,
+): AgentConfig {
+	return {
+		command,
+		args: [],
+		models: null,
+		arg_maps: {},
+		env: null,
+		provider,
+		pre_command: [],
+		active: null,
+		inactive: null,
+	};
+}
+
+function mkPriority(
+	command: string,
+	priority: number,
+	model: string | null = null,
+): PriorityRule {
+	return { command, provider: INFERRED, model, priority };
 }
 
 interface DepsBuildInput {
@@ -18,7 +43,7 @@ interface DepsBuildInput {
 	runAgent?: RunSeherDeps["runAgent"];
 	sleepUntil?: RunSeherDeps["sleepUntil"];
 	startWebServer?: RunSeherDeps["startWebServer"];
-	collectPrompt?: RunSeherDeps["collectPrompt"];
+	resolvePrompt?: RunSeherDeps["resolvePrompt"];
 }
 
 function buildDeps(input: DepsBuildInput = {}): {
@@ -28,12 +53,12 @@ function buildDeps(input: DepsBuildInput = {}): {
 } {
 	const stdout: string[] = [];
 	const stderr: string[] = [];
-	const parsed = {
+	const parsed: ReturnType<RunSeherDeps["parseArgs"]> = {
 		quiet: false,
 		json: false,
 		priority: false,
 		guiConfig: false,
-		trailing: [] as string[],
+		trailing: [],
 		...input.parsed,
 	};
 	const deps: RunSeherDeps = {
@@ -41,11 +66,11 @@ function buildDeps(input: DepsBuildInput = {}): {
 		loadSettings: mock(
 			async () => input.settings ?? { agents: [], priority: [] },
 		),
-		filterAgents: mock((agents: Agent[]) => agents),
-		sortByPriority: mock((agents: Agent[]) => agents),
+		filterAgents: mock((agents: AgentConfig[]) => agents),
+		sortByPriority: mock((agents: AgentConfig[]) => agents),
 		checkLimit:
 			input.checkLimit ?? mock(async () => ({ kind: "not_limited" as const })),
-		collectPrompt: input.collectPrompt ?? mock(async () => null),
+		resolvePrompt: input.resolvePrompt ?? mock(async () => null),
 		runAgent: input.runAgent ?? mock(async () => ({ exitCode: 0 })),
 		sleepUntil: input.sleepUntil ?? mock(async () => {}),
 		startWebServer: input.startWebServer ?? mock(async () => {}),
@@ -63,18 +88,12 @@ function buildDeps(input: DepsBuildInput = {}): {
 describe("runSeher", () => {
 	test("--priority prints priority order and exits 0", async () => {
 		const priority: PriorityRule[] = [
-			{ command: "claude", priority: 100 },
-			{ command: "codex", priority: 50 },
+			mkPriority("claude", 100),
+			mkPriority("codex", 50),
 		];
 		const { deps, stdout } = buildDeps({
 			settings: { agents: [], priority },
-			parsed: {
-				priority: true,
-				quiet: false,
-				json: false,
-				guiConfig: false,
-				trailing: [],
-			},
+			parsed: { priority: true },
 		});
 
 		const code = await runSeher([], deps);
@@ -86,19 +105,16 @@ describe("runSeher", () => {
 	});
 
 	test("--json outputs JSON-formatted agent statuses", async () => {
-		const agents = [mkAgent("claude", "anthropic"), mkAgent("codex", "openai")];
-		const checkLimit = mock(async (_p: string | undefined) => ({
+		const agents = [
+			mkAgent("claude", { kind: "explicit", name: "anthropic" }),
+			mkAgent("codex", { kind: "explicit", name: "openai" }),
+		];
+		const checkLimit = mock(async (_p: string) => ({
 			kind: "not_limited" as const,
 		})) as unknown as RunSeherDeps["checkLimit"];
 		const { deps, stdout } = buildDeps({
 			settings: { agents, priority: [] },
-			parsed: {
-				json: true,
-				quiet: false,
-				priority: false,
-				guiConfig: false,
-				trailing: [],
-			},
+			parsed: { json: true },
 			checkLimit,
 		});
 
@@ -109,7 +125,9 @@ describe("runSeher", () => {
 		expect(Array.isArray(parsed)).toBe(true);
 		expect(parsed).toHaveLength(2);
 		expect(parsed[0].command).toBe("claude");
+		expect(parsed[0].provider).toBe("anthropic");
 		expect(parsed[1].command).toBe("codex");
+		expect(parsed[1].provider).toBe("openai");
 	});
 
 	test("runs the first available agent and returns its exit code", async () => {
@@ -123,7 +141,9 @@ describe("runSeher", () => {
 		const code = await runSeher([], deps);
 		expect(code).toBe(42);
 		expect(runAgent).toHaveBeenCalledTimes(1);
-		const callArgs = (runAgent.mock.calls as unknown as [Agent, unknown][])[0];
+		const callArgs = (
+			runAgent.mock.calls as unknown as [AgentConfig, unknown][]
+		)[0];
 		expect(callArgs?.[0]?.command).toBe("claude");
 	});
 
@@ -141,13 +161,7 @@ describe("runSeher", () => {
 		const runAgent = mock(async () => ({ exitCode: 0 }));
 		const { deps } = buildDeps({
 			settings: { agents, priority: [] },
-			parsed: {
-				quiet: true,
-				json: false,
-				priority: false,
-				guiConfig: false,
-				trailing: [],
-			},
+			parsed: { quiet: true },
 			checkLimit,
 			sleepUntil,
 			runAgent,
@@ -173,13 +187,7 @@ describe("runSeher", () => {
 		const runAgent = mock(async () => ({ exitCode: 0 }));
 		const { deps } = buildDeps({
 			settings: { agents, priority: [] },
-			parsed: {
-				quiet: true,
-				json: false,
-				priority: false,
-				guiConfig: false,
-				trailing: [],
-			},
+			parsed: { quiet: true },
 			checkLimit,
 			sleepUntil,
 			runAgent,
@@ -193,18 +201,16 @@ describe("runSeher", () => {
 	test("--gui-config starts the web server and exits 0", async () => {
 		const startWebServer = mock(async () => {});
 		const { deps } = buildDeps({
-			parsed: {
-				guiConfig: true,
-				quiet: false,
-				priority: false,
-				json: false,
-				trailing: [],
-			},
+			parsed: { guiConfig: true },
 			startWebServer,
 		});
 		const code = await runSeher([], deps);
 		expect(code).toBe(0);
 		expect(startWebServer).toHaveBeenCalledTimes(1);
+		const callArgs = (
+			startWebServer.mock.calls as unknown as [{ settingsPath: string }][]
+		)[0];
+		expect(callArgs?.[0]?.settingsPath).toMatch(/settings\.jsonc$/);
 	});
 
 	test("returns 1 with stderr message when no agents are available after filter", async () => {
@@ -214,5 +220,22 @@ describe("runSeher", () => {
 		const code = await runSeher([], deps);
 		expect(code).toBe(1);
 		expect(stderr.join("\n")).toContain("No agents match");
+	});
+
+	test("agents with provider.kind='none' skip checkLimit and run directly", async () => {
+		const agents = [mkAgent("fallback", NO_PROVIDER)];
+		const checkLimit = mock(async () => ({
+			kind: "not_limited" as const,
+		})) as unknown as RunSeherDeps["checkLimit"];
+		const runAgent = mock(async () => ({ exitCode: 7 }));
+		const { deps } = buildDeps({
+			settings: { agents, priority: [] },
+			checkLimit,
+			runAgent,
+		});
+		const code = await runSeher([], deps);
+		expect(code).toBe(7);
+		expect(checkLimit).toHaveBeenCalledTimes(0);
+		expect(runAgent).toHaveBeenCalledTimes(1);
 	});
 });
