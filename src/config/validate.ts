@@ -4,7 +4,7 @@ import type {
 	ProviderConfig,
 	ScheduleRule,
 	Settings,
-} from "./types.ts";
+} from "../types.ts";
 
 export class ConfigValidationError extends Error {
 	constructor(message: string) {

@@ -1,13 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentConfig } from "../schedule/types.ts";
+import type { AgentConfig } from "../types.ts";
 import { filterAgents } from "./filter.ts";
 
 function makeAgent(command: string, providerName?: string): AgentConfig {
 	return {
 		command,
+		args: [],
+		models: null,
+		arg_maps: {},
+		env: null,
 		provider: providerName
 			? { kind: "explicit", name: providerName }
 			: { kind: "inferred" },
+		pre_command: [],
 		active: null,
 		inactive: null,
 	};

@@ -1,5 +1,5 @@
+import type { AgentConfig, PriorityRule, ProviderConfig } from "../types.ts";
 import { isScheduleActive } from "./evaluate.ts";
-import type { AgentConfig, PriorityRule, ProviderConfig } from "./types.ts";
 
 function commandToProvider(command: string): string | null {
 	switch (command) {

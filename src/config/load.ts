@@ -1,8 +1,8 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { type ParseError, parse, printParseErrorCode } from "jsonc-parser";
+import type { Settings } from "../types.ts";
 import { defaultSettings } from "./defaults.ts";
-import type { Settings } from "./types.ts";
 import { ConfigValidationError, validateSettings } from "./validate.ts";
 
 export class ConfigLoadError extends Error {

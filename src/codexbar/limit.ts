@@ -1,4 +1,4 @@
-import type { AgentLimit } from "./agentLimit.ts";
+import type { AgentLimit } from "../types.ts";
 import { type RunCodexBarUsageOptions, runCodexBarUsage } from "./client.ts";
 import type { CodexBarUsageResponse, CodexBarWindow } from "./types.ts";
 
