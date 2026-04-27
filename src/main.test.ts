@@ -58,6 +58,8 @@ function buildDeps(input: DepsBuildInput = {}): {
 		json: false,
 		priority: false,
 		guiConfig: false,
+		help: false,
+		version: false,
 		trailing: [],
 		...input.parsed,
 	};
@@ -220,6 +222,27 @@ describe("runSeher", () => {
 		const code = await runSeher([], deps);
 		expect(code).toBe(1);
 		expect(stderr.join("\n")).toContain("No agents match");
+	});
+
+	test("--help prints captured help text and exits 0 without loading settings", async () => {
+		const loadSettings = mock(async () => ({ agents: [], priority: [] }));
+		const { deps, stdout } = buildDeps({
+			parsed: { help: true, output: "Usage: seher [options]\n" },
+		});
+		deps.loadSettings = loadSettings;
+		const code = await runSeher([], deps);
+		expect(code).toBe(0);
+		expect(stdout.join("\n")).toContain("Usage: seher");
+		expect(loadSettings).toHaveBeenCalledTimes(0);
+	});
+
+	test("--version prints captured version text and exits 0", async () => {
+		const { deps, stdout } = buildDeps({
+			parsed: { version: true, output: "0.1.0\n" },
+		});
+		const code = await runSeher([], deps);
+		expect(code).toBe(0);
+		expect(stdout.join("\n")).toContain("0.1.0");
 	});
 
 	test("agents with provider.kind='none' skip checkLimit and run directly", async () => {

@@ -65,6 +65,14 @@ export async function runSeher(
 ): Promise<number> {
 	const deps: RunSeherDeps = { ...defaultDeps, ...overrides };
 	const args = deps.parseArgs(argv);
+
+	if (args.help || args.version) {
+		if (args.output !== undefined) {
+			deps.stdout(args.output.replace(/\n$/, ""));
+		}
+		return 0;
+	}
+
 	const settings = await deps.loadSettings(args.config);
 
 	if (args.priority) {

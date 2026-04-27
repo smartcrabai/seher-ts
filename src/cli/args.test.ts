@@ -84,4 +84,30 @@ describe("parseArgs", () => {
 		const result = parseArgs(["--", "--foo", "bar"]);
 		expect(result.trailing).toEqual(["--foo", "bar"]);
 	});
+
+	test("-h sets help and captures help text", () => {
+		const result = parseArgs(["-h"]);
+		expect(result.help).toBe(true);
+		expect(result.version).toBe(false);
+		expect(result.output ?? "").toContain("Usage: seher");
+	});
+
+	test("--help sets help and captures help text", () => {
+		const result = parseArgs(["--help"]);
+		expect(result.help).toBe(true);
+		expect(result.output ?? "").toContain("--help");
+	});
+
+	test("-v sets version and captures the version string", () => {
+		const result = parseArgs(["-v"]);
+		expect(result.version).toBe(true);
+		expect(result.help).toBe(false);
+		expect(result.output ?? "").toMatch(/\d+\.\d+\.\d+/);
+	});
+
+	test("--version sets version and captures the version string", () => {
+		const result = parseArgs(["--version"]);
+		expect(result.version).toBe(true);
+		expect(result.output ?? "").toMatch(/\d+\.\d+\.\d+/);
+	});
 });
