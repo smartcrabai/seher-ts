@@ -1,4 +1,20 @@
+import { type ParseError, parse, printParseErrorCode } from "jsonc-parser";
 import { validateSettings } from "./validate.ts";
+
+function parseJsonc(text: string): unknown {
+	const errors: ParseError[] = [];
+	const value = parse(text, errors, {
+		allowTrailingComma: true,
+		disallowComments: false,
+	});
+	if (errors.length > 0) {
+		const details = errors
+			.map((e) => `${printParseErrorCode(e.error)} at offset ${e.offset}`)
+			.join("; ");
+		throw new Error(details);
+	}
+	return value;
+}
 
 function jsonResponse(data: unknown, status = 200): Response {
 	return new Response(JSON.stringify(data, null, 2), {
@@ -30,7 +46,7 @@ async function readJsonFile(
 		return errorResponse(500, errMessage(err));
 	}
 	try {
-		return jsonResponse(JSON.parse(text));
+		return jsonResponse(parseJsonc(text));
 	} catch (err) {
 		return errorResponse(500, `invalid JSON in ${path}: ${errMessage(err)}`);
 	}
