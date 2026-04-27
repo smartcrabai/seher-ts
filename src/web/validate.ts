@@ -1,10 +1,11 @@
 export type Settings = {
+	$schema?: string;
 	agents?: unknown[];
 	priority?: unknown[];
 	[key: string]: unknown;
 };
 
-const ALLOWED_TOP_LEVEL_KEYS = new Set(["agents", "priority"]);
+const ALLOWED_TOP_LEVEL_KEYS = new Set(["$schema", "agents", "priority"]);
 
 export type ValidationResult =
 	| { ok: true; value: Settings }
@@ -19,6 +20,9 @@ export function validateSettings(input: unknown): ValidationResult {
 		if (!ALLOWED_TOP_LEVEL_KEYS.has(key)) {
 			return { ok: false, error: `unknown top-level key: ${key}` };
 		}
+	}
+	if (obj.$schema !== undefined && typeof obj.$schema !== "string") {
+		return { ok: false, error: "$schema must be a string" };
 	}
 	if (obj.agents !== undefined && !Array.isArray(obj.agents)) {
 		return { ok: false, error: "agents must be an array" };

@@ -75,24 +75,44 @@ export async function runCodexBarUsage(
 		throw err;
 	}
 
-	let timedOut = false;
-	const timeoutHandle = setTimeout(() => {
-		timedOut = true;
-		try {
-			proc.kill("SIGTERM");
-		} catch {
-			// best effort
-		}
-	}, timeoutMs);
-
-	const [stdout, stderr, exitCode] = await Promise.all([
+	// Race process completion against the timeout. We bail out as soon as the
+	// timer fires rather than awaiting stdout/stderr — under sh -> sleep,
+	// SIGTERM/SIGKILL on the shell may leave an orphaned child holding the
+	// stream file descriptors open, which would hang readAll().
+	let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+	const completion = Promise.all([
 		readAll(proc.stdout as ReadableStream<Uint8Array> | null),
 		readAll(proc.stderr as ReadableStream<Uint8Array> | null),
 		proc.exited,
-	]);
-	clearTimeout(timeoutHandle);
+	]).then(
+		([stdout, stderr, exitCode]) =>
+			({ kind: "exited", stdout, stderr, exitCode }) as const,
+	);
+	const timeoutPromise = new Promise<{ kind: "timeout" }>((resolve) => {
+		timeoutHandle = setTimeout(() => {
+			try {
+				proc.kill("SIGKILL");
+			} catch {
+				// best effort
+			}
+			resolve({ kind: "timeout" });
+		}, timeoutMs);
+	});
+	const result = await Promise.race([completion, timeoutPromise]);
+	if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
 
-	if (timedOut || exitCode === TIMEOUT_EXIT_CODE) {
+	if (result.kind === "timeout") {
+		// Drain streams so they can be GC'd; ignore failures.
+		completion.catch(() => {});
+		throw new CodexBarTimeoutError(
+			`codexbar usage timed out after ${timeoutMs}ms (provider=${provider})`,
+			"",
+		);
+	}
+
+	const { stdout, stderr, exitCode } = result;
+
+	if (exitCode === TIMEOUT_EXIT_CODE) {
 		throw new CodexBarTimeoutError(
 			`codexbar usage timed out after ${timeoutMs}ms (provider=${provider})`,
 			stderr,

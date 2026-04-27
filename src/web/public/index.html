@@ -4,87 +4,981 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<title>seher config editor</title>
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link
+			href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600&family=Fira+Code:wght@400;500&display=swap"
+			rel="stylesheet"
+		/>
 		<style>
 			:root {
-				color-scheme: light dark;
-				font-family: system-ui, -apple-system, sans-serif;
+				--bg: #060b14;
+				--s0: #091220;
+				--s1: #0d1929;
+				--s2: #121f32;
+				--bd: #1a2d42;
+				--bd2: #253d58;
+				--t0: #7a9ab8;
+				--t1: #c0d4e8;
+				--t2: #e0eeff;
+				--teal: #00c9a7;
+				--teal-d: rgba(0, 201, 167, 0.12);
+				--amber: #ffc857;
+				--amber-d: rgba(255, 200, 87, 0.1);
+				--red: #ff5a5f;
+				--red-d: rgba(255, 90, 95, 0.1);
+				--green: #05d69e;
+				--green-d: rgba(5, 214, 158, 0.1);
+			}
+			*,
+			*::before,
+			*::after {
+				box-sizing: border-box;
+				margin: 0;
+				padding: 0;
+			}
+			html {
+				scroll-behavior: smooth;
 			}
 			body {
-				margin: 0;
-				padding: 1.5rem;
-				max-width: 960px;
-				margin-inline: auto;
-			}
-			h1 {
-				margin-top: 0;
-				font-size: 1.25rem;
-			}
-			textarea {
-				width: 100%;
-				min-height: 60vh;
-				font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-				font-size: 0.875rem;
-				padding: 0.75rem;
-				box-sizing: border-box;
-				border: 1px solid #8884;
-				border-radius: 6px;
-			}
-			.toolbar {
+				font-family: "Outfit", system-ui, sans-serif;
+				background: var(--bg);
+				color: var(--t1);
+				min-height: 100vh;
 				display: flex;
-				gap: 0.5rem;
-				margin-bottom: 0.75rem;
+				flex-direction: column;
+				overflow-x: auto;
+			}
+
+			/* Header */
+			.header {
+				position: sticky;
+				top: 0;
+				z-index: 50;
+				background: rgba(6, 11, 20, 0.9);
+				backdrop-filter: blur(14px);
+				border-bottom: 1px solid var(--bd);
+				display: flex;
 				align-items: center;
+				padding: 0 1.5rem;
+				height: 52px;
+				gap: 1rem;
 			}
-			button {
-				padding: 0.4rem 0.9rem;
-				border: 1px solid #8884;
-				border-radius: 6px;
-				background: #8881;
-				cursor: pointer;
-				font: inherit;
+			.logo {
+				font-family: "Fira Code", monospace;
+				font-weight: 500;
+				font-size: 0.95rem;
+				color: var(--teal);
+				letter-spacing: 0.05em;
+				display: flex;
+				align-items: center;
+				gap: 0.55rem;
 			}
-			button:hover {
-				background: #8883;
+			.logo-dot {
+				width: 7px;
+				height: 7px;
+				border-radius: 50%;
+				background: var(--teal);
+				box-shadow: 0 0 6px var(--teal);
+				animation: blink 2.4s ease-in-out infinite;
 			}
-			#status {
+			@keyframes blink {
+				0%,
+				100% {
+					opacity: 1;
+					box-shadow: 0 0 6px var(--teal);
+				}
+				50% {
+					opacity: 0.45;
+					box-shadow: 0 0 2px var(--teal);
+				}
+			}
+			.logo-sep {
+				color: var(--bd2);
+				margin: 0 0.1rem;
+			}
+			.header-label {
+				font-size: 0.68rem;
+				font-weight: 400;
+				text-transform: uppercase;
+				letter-spacing: 0.13em;
+				color: var(--t0);
+			}
+			.header-right {
 				margin-left: auto;
-				font-size: 0.875rem;
-				opacity: 0.8;
+				display: flex;
+				align-items: center;
+				gap: 0.75rem;
+			}
+
+			/* Buttons */
+			button {
+				cursor: pointer;
+				font-family: "Outfit", sans-serif;
+				font-weight: 500;
+				border-radius: 5px;
+				border: 1px solid transparent;
+				transition: all 0.15s ease;
+				line-height: 1;
+				white-space: nowrap;
+			}
+			.btn-primary {
+				padding: 0.38rem 1.05rem;
+				font-size: 0.8rem;
+				background: var(--amber);
+				color: #1a0d00;
+				border-color: var(--amber);
+			}
+			.btn-primary:hover {
+				background: #ffd47a;
+				box-shadow: 0 0 18px rgba(255, 200, 87, 0.4);
+			}
+			.btn-primary:disabled {
+				opacity: 0.5;
+				cursor: not-allowed;
+				box-shadow: none;
+			}
+			.btn-edit {
+				padding: 0.22rem 0.62rem;
+				font-size: 0.7rem;
+				color: var(--teal);
+				background: var(--teal-d);
+				border-color: rgba(0, 201, 167, 0.28);
+			}
+			.btn-edit:hover {
+				background: rgba(0, 201, 167, 0.2);
+				border-color: var(--teal);
+				box-shadow: 0 0 8px rgba(0, 201, 167, 0.2);
+			}
+			.btn-del {
+				padding: 0.22rem 0.62rem;
+				font-size: 0.7rem;
+				color: var(--red);
+				background: var(--red-d);
+				border-color: rgba(255, 90, 95, 0.28);
+			}
+			.btn-del:hover {
+				background: rgba(255, 90, 95, 0.2);
+				border-color: var(--red);
+			}
+			.btn-save {
+				padding: 0.22rem 0.62rem;
+				font-size: 0.7rem;
+				color: var(--green);
+				background: var(--green-d);
+				border-color: rgba(5, 214, 158, 0.28);
+			}
+			.btn-save:hover {
+				background: rgba(5, 214, 158, 0.2);
+				border-color: var(--green);
+			}
+			.btn-cancel {
+				padding: 0.22rem 0.62rem;
+				font-size: 0.7rem;
+				color: var(--t0);
+				background: transparent;
+				border-color: var(--bd);
+			}
+			.btn-cancel:hover {
+				color: var(--t1);
+				border-color: var(--bd2);
+				background: var(--s1);
+			}
+			.btn-add {
+				padding: 0.38rem 1.1rem;
+				font-size: 0.78rem;
+				color: var(--amber);
+				background: transparent;
+				border: 1px dashed rgba(255, 200, 87, 0.38);
+			}
+			.btn-add:hover {
+				background: var(--amber-d);
+				border-color: var(--amber);
+			}
+			.btn-ghost {
+				padding: 0.38rem 0.9rem;
+				font-size: 0.78rem;
+				color: var(--t0);
+				background: transparent;
+				border: 1px solid var(--bd);
+			}
+			.btn-ghost:hover {
+				color: var(--t1);
+				border-color: var(--bd2);
+				background: var(--s1);
+			}
+
+			/* Status badge */
+			#status {
+				display: inline-flex;
+				align-items: center;
+				gap: 0.35rem;
+				padding: 0.28rem 0.72rem;
+				border-radius: 4px;
+				font-size: 0.73rem;
+				font-weight: 500;
+				background: var(--green-d);
+				color: var(--green);
+				border: 1px solid rgba(5, 214, 158, 0.28);
+				opacity: 0;
+				pointer-events: none;
+				transition: opacity 0.2s ease;
+			}
+			#status.show {
+				opacity: 1;
 			}
 			#status.error {
-				color: #d33;
+				background: var(--red-d);
+				color: var(--red);
+				border-color: rgba(255, 90, 95, 0.28);
 			}
-			#status.ok {
-				color: #2a7;
+			.dirty-dot {
+				width: 7px;
+				height: 7px;
+				border-radius: 50%;
+				background: var(--amber);
+				box-shadow: 0 0 6px var(--amber);
+				display: none;
 			}
-			footer {
-				margin-top: 1rem;
-				font-size: 0.875rem;
-				opacity: 0.8;
+			.dirty-dot.show {
+				display: inline-block;
+			}
+
+			/* Layout */
+			.main {
+				padding: 1.25rem 1.5rem;
+				flex: 1;
+				min-width: 0;
+			}
+			.table-wrap {
+				border: 1px solid var(--bd);
+				border-radius: 8px;
+				overflow: auto;
+				background: var(--s0);
+			}
+			.empty {
+				padding: 2.5rem 1.5rem;
+				color: var(--t0);
+				text-align: center;
+				font-size: 0.85rem;
+			}
+
+			/* Table */
+			table {
+				width: 100%;
+				border-collapse: collapse;
+				font-size: 0.77rem;
+			}
+			thead {
+				background: var(--s2);
+				position: sticky;
+				top: 0;
+				z-index: 10;
+				border-bottom: 1px solid var(--bd2);
+			}
+			th {
+				padding: 0.52rem 0.82rem;
+				font-size: 0.63rem;
+				font-weight: 600;
+				text-transform: uppercase;
+				letter-spacing: 0.11em;
+				color: var(--t0);
+				white-space: nowrap;
+				text-align: left;
+				border-right: 1px solid var(--bd);
+			}
+			th:last-child {
+				border-right: none;
+			}
+			th button.th-sort {
+				background: none;
+				border: none;
+				color: inherit;
+				font: inherit;
+				text-transform: inherit;
+				letter-spacing: inherit;
+				padding: 0;
+				cursor: pointer;
+				display: inline-flex;
+				align-items: center;
+				gap: 0.25rem;
+			}
+			th button.th-sort:hover {
+				color: var(--teal);
+			}
+			.th-sorted {
+				color: var(--teal);
+			}
+			tbody tr {
+				border-bottom: 1px solid var(--bd);
+				transition: background 0.1s;
+			}
+			tbody tr:last-child {
+				border-bottom: none;
+			}
+			tbody tr:hover {
+				background: rgba(255, 255, 255, 0.016);
+			}
+			tbody tr.editing {
+				background: rgba(255, 200, 87, 0.04);
+				box-shadow: inset 3px 0 0 var(--amber);
+			}
+			td {
+				padding: 0.48rem 0.82rem;
+				vertical-align: top;
+				border-right: 1px solid var(--bd);
+				color: var(--t1);
+			}
+			td:last-child {
+				border-right: none;
+			}
+			td.unavail {
+				color: var(--bd2);
+				text-align: center;
+			}
+			td.prio {
+				text-align: center;
+				font-family: "Fira Code", monospace;
+				font-size: 0.7rem;
+				color: var(--teal);
+				font-weight: 500;
+			}
+			td.prio.zero {
+				color: var(--bd2);
+			}
+			td.actions {
+				white-space: nowrap;
+			}
+			.actions-wrap {
+				display: flex;
+				gap: 0.35rem;
+				align-items: center;
+			}
+
+			/* Content cells */
+			pre {
+				margin: 0;
+				white-space: pre-wrap;
+				word-break: break-all;
+				font-family: "Fira Code", monospace;
+				font-size: 0.7rem;
+				color: var(--t1);
+				line-height: 1.55;
+			}
+			.cmd-chip {
+				font-family: "Fira Code", monospace;
+				font-size: 0.7rem;
+				background: var(--teal-d);
+				color: var(--teal);
+				border: 1px solid rgba(0, 201, 167, 0.22);
+				border-radius: 4px;
+				padding: 0.14rem 0.52rem;
+				display: inline-block;
+				white-space: nowrap;
+			}
+			.prov-text {
+				font-family: "Fira Code", monospace;
+				font-size: 0.7rem;
+				color: var(--t0);
+			}
+
+			/* Inputs */
+			input,
+			textarea {
+				background: var(--bg);
+				border: 1px solid var(--bd);
+				border-radius: 4px;
+				color: var(--t1);
+				font-family: "Fira Code", monospace;
+				font-size: 0.7rem;
+				padding: 0.3rem 0.5rem;
+				width: 100%;
+				transition:
+					border-color 0.15s,
+					box-shadow 0.15s;
+				resize: vertical;
+			}
+			input:focus,
+			textarea:focus {
+				outline: none;
+				border-color: var(--amber);
+				box-shadow: 0 0 0 2px rgba(255, 200, 87, 0.15);
+			}
+			input[name="command"] {
+				min-width: 96px;
+			}
+			input[name="provider"] {
+				min-width: 78px;
+			}
+			input[data-prio] {
+				width: 56px;
+				text-align: center;
+			}
+			textarea {
+				min-width: 110px;
+			}
+
+			/* Footer */
+			.footer {
+				padding: 0.9rem 1.5rem;
+				border-top: 1px solid var(--bd);
+				display: flex;
+				align-items: center;
+				gap: 0.75rem;
+			}
+			.footer-spacer {
+				flex: 1;
+			}
+			.footer-link {
+				color: var(--t0);
+				text-decoration: none;
+				font-size: 0.75rem;
+			}
+			.footer-link:hover {
+				color: var(--teal);
+			}
+
+			/* Scrollbar */
+			::-webkit-scrollbar {
+				width: 6px;
+				height: 6px;
+			}
+			::-webkit-scrollbar-track {
+				background: var(--bg);
+			}
+			::-webkit-scrollbar-thumb {
+				background: var(--bd2);
+				border-radius: 3px;
+			}
+			::-webkit-scrollbar-thumb:hover {
+				background: var(--t0);
 			}
 		</style>
 	</head>
 	<body>
-		<h1>seher config editor</h1>
-		<div class="toolbar">
-			<button id="save" type="button">Save</button>
-			<button id="reload" type="button">Reload</button>
-			<span id="status"></span>
+		<header class="header">
+			<div class="logo">
+				<span class="logo-dot"></span>
+				seher config editor
+			</div>
+			<span class="logo-sep">/</span>
+			<span class="header-label">Config Editor</span>
+			<div class="header-right">
+				<span id="dirty" class="dirty-dot" title="unsaved changes"></span>
+				<span id="status"></span>
+				<button id="reload-btn" class="btn-ghost" type="button">Reload</button>
+				<button id="save-btn" class="btn-primary" type="button">
+					Save to Disk
+				</button>
+			</div>
+		</header>
+		<main class="main">
+			<div id="table-wrap" class="table-wrap"></div>
+		</main>
+		<div class="footer">
+			<button id="add-btn" class="btn-add" type="button">+ Add Agent</button>
+			<div class="footer-spacer"></div>
+			<a class="footer-link" href="/api/schema" target="_blank" rel="noopener"
+				>schema</a
+			>
 		</div>
-		<textarea id="settings" spellcheck="false"></textarea>
-		<footer>
-			<a href="/api/schema">schema</a>
-		</footer>
 		<script type="module">
-			const textarea = document.getElementById("settings");
-			const status = document.getElementById("status");
-			const saveBtn = document.getElementById("save");
-			const reloadBtn = document.getElementById("reload");
+			const state = {
+				settings: { agents: [], priority: [], $schema: undefined },
+				editingIdx: null,
+				sortBy: null,
+				dirty: false,
+				loaded: false,
+			};
+
+			const tableWrap = document.getElementById("table-wrap");
+			const statusEl = document.getElementById("status");
+			const dirtyEl = document.getElementById("dirty");
+			const saveBtn = document.getElementById("save-btn");
+			const reloadBtn = document.getElementById("reload-btn");
+			const addBtn = document.getElementById("add-btn");
+
+			function escapeHtml(s) {
+				return String(s ?? "")
+					.replace(/&/g, "&amp;")
+					.replace(/</g, "&lt;")
+					.replace(/>/g, "&gt;")
+					.replace(/"/g, "&quot;");
+			}
+
+			function fmtVec(v) {
+				return Array.isArray(v) ? v.join("\n") : "";
+			}
+			function parseVec(s) {
+				return (s ?? "")
+					.split("\n")
+					.map((l) => l.trim())
+					.filter((l) => l.length > 0);
+			}
+			function fmtMap(m) {
+				if (!m) return "";
+				return Object.entries(m)
+					.map(([k, v]) => `${k}=${v}`)
+					.sort()
+					.join("\n");
+			}
+			function parseMap(s) {
+				const out = {};
+				for (const line of (s ?? "").split("\n")) {
+					const t = line.trim();
+					if (!t) continue;
+					const eq = t.indexOf("=");
+					if (eq < 0) continue;
+					out[t.slice(0, eq).trim()] = t.slice(eq + 1).trim();
+				}
+				return out;
+			}
+			function fmtArgMaps(m) {
+				if (!m) return "";
+				return Object.entries(m)
+					.map(([k, v]) => `${k}=${(v ?? []).join(" ")}`)
+					.sort()
+					.join("\n");
+			}
+			function parseArgMaps(s) {
+				const out = {};
+				for (const line of (s ?? "").split("\n")) {
+					const t = line.trim();
+					if (!t) continue;
+					const eq = t.indexOf("=");
+					if (eq < 0) continue;
+					const key = t.slice(0, eq).trim();
+					const rest = t.slice(eq + 1).trim();
+					out[key] = rest.length > 0 ? rest.split(/\s+/) : [];
+				}
+				return out;
+			}
+			function nonEmptyMap(m) {
+				return m && Object.keys(m).length > 0 ? m : null;
+			}
+			function parseProvider(s) {
+				const t = (s ?? "").trim();
+				if (t === "") return { kind: "inferred" };
+				if (t === "null") return { kind: "none" };
+				return { kind: "explicit", name: t };
+			}
+			function fmtProvider(p) {
+				if (!p || p.kind === "inferred") return "";
+				if (p.kind === "none") return "null";
+				return p.name;
+			}
+			function providerEqual(a, b) {
+				if (a.kind !== b.kind) return false;
+				if (a.kind === "explicit") return a.name === b.name;
+				return true;
+			}
+			// Tri-state: field absent -> inferred, null -> none, string -> explicit.
+			function readProviderField(raw) {
+				if (!("provider" in raw)) return { kind: "inferred" };
+				const p = raw.provider;
+				if (p === null) return { kind: "none" };
+				if (typeof p === "string") return { kind: "explicit", name: p };
+				if (p && typeof p === "object" && "kind" in p) return p;
+				return { kind: "inferred" };
+			}
+			function writeProviderField(out, p) {
+				if (p.kind === "explicit") out.provider = p.name;
+				else if (p.kind === "none") out.provider = null;
+			}
+
+			const COMMAND_TO_PROVIDER = {
+				claude: "claude",
+				codex: "codex",
+				copilot: "copilot",
+				glm: "glm",
+				zai: "zai",
+				"kimi-k2": "kimi-k2",
+				warp: "warp",
+				kiro: "kiro",
+			};
+			function resolveProvider(command, provider) {
+				if (provider.kind === "explicit") return provider.name;
+				if (provider.kind === "none") return null;
+				return COMMAND_TO_PROVIDER[command] ?? null;
+			}
+			function parseRange(s) {
+				const idx = s.indexOf("-");
+				if (idx < 0) return null;
+				const a = Number(s.slice(0, idx));
+				const b = Number(s.slice(idx + 1));
+				if (!Number.isInteger(a) || !Number.isInteger(b)) return null;
+				return [a, b];
+			}
+			function weekdayInRanges(weekday, ranges) {
+				if (!ranges) return true;
+				return ranges.some((wd) => {
+					const r = parseRange(wd);
+					if (!r) return false;
+					return weekday >= r[0] && weekday <= r[1];
+				});
+			}
+			function isScheduleActive(rule, now) {
+				const hour = now.getHours();
+				const wd = now.getDay();
+				if (rule.hours) {
+					return rule.hours.some((s) => {
+						const r = parseRange(s);
+						if (!r) return false;
+						const [start, end] = r;
+						if (hour >= start && hour < end) {
+							return weekdayInRanges(wd, rule.weekdays);
+						}
+						if (end > 24) {
+							const shifted = hour + 24;
+							if (shifted >= start && shifted < end) {
+								return weekdayInRanges((wd + 6) % 7, rule.weekdays);
+							}
+						}
+						return false;
+					});
+				}
+				return weekdayInRanges(wd, rule.weekdays);
+			}
+			function priorityRuleMatches(rule, agent, selectedModel, now) {
+				if (rule.command !== agent.command) return false;
+				if (
+					resolveProvider(rule.command, rule.provider) !==
+					resolveProvider(agent.command, agent.provider)
+				)
+					return false;
+				if (rule.model !== selectedModel) return false;
+				return isScheduleActive(
+					{ weekdays: rule.weekdays, hours: rule.hours },
+					now,
+				);
+			}
+			function scheduleSpecificity(rule) {
+				return (rule.weekdays ? 1 : 0) + (rule.hours ? 1 : 0);
+			}
+			function priorityForAgent(priorities, agent, selectedModel, now) {
+				let best = null;
+				for (const r of priorities) {
+					if (!priorityRuleMatches(r, agent, selectedModel, now)) continue;
+					if (best === null || scheduleSpecificity(r) > scheduleSpecificity(best))
+						best = r;
+				}
+				return best ? best.priority : 0;
+			}
+			function priorityValue(settings, agent, modelKey, now) {
+				if (modelKey === "(none)")
+					return priorityForAgent(settings.priority, agent, null, now);
+				if (
+					agent.models &&
+					Object.hasOwn(agent.models, modelKey)
+				) {
+					return priorityForAgent(settings.priority, agent, modelKey, now);
+				}
+				if (agent.models) return null;
+				return priorityForAgent(settings.priority, agent, modelKey, now);
+			}
+			function collectModelKeys(settings) {
+				const set = new Set();
+				for (const a of settings.agents)
+					if (a.models) for (const k of Object.keys(a.models)) set.add(k);
+				for (const r of settings.priority) if (r.model) set.add(r.model);
+				const arr = [...set].sort();
+				arr.push("(none)");
+				return arr;
+			}
+
+			function upsertPriority(settings, command, provider, modelKey, value) {
+				const idx = settings.priority.findIndex(
+					(r) =>
+						r.command === command &&
+						providerEqual(r.provider, provider) &&
+						r.model === modelKey &&
+						!r.weekdays &&
+						!r.hours,
+				);
+				const rule = {
+					command,
+					provider,
+					model: modelKey,
+					priority: value,
+				};
+				if (idx >= 0) settings.priority[idx] = rule;
+				else settings.priority.push(rule);
+			}
+			function removePriority(settings, command, provider, modelKey) {
+				settings.priority = settings.priority.filter(
+					(r) =>
+						!(
+							r.command === command &&
+							providerEqual(r.provider, provider) &&
+							r.model === modelKey &&
+							!r.weekdays &&
+							!r.hours
+						),
+				);
+			}
 
 			function setStatus(msg, kind) {
-				status.textContent = msg;
-				status.className = kind ?? "";
+				statusEl.textContent = msg;
+				statusEl.className = "";
+				if (kind === "error") statusEl.classList.add("error");
+				if (msg) {
+					statusEl.classList.add("show");
+					if (kind !== "error") {
+						clearTimeout(setStatus._t);
+						setStatus._t = setTimeout(() => {
+							statusEl.classList.remove("show");
+						}, 2400);
+					}
+				} else {
+					statusEl.classList.remove("show");
+				}
 			}
+			function setDirty(d) {
+				state.dirty = d;
+				dirtyEl.classList.toggle("show", d);
+			}
+
+			function render() {
+				if (!state.loaded) {
+					tableWrap.innerHTML = '<div class="empty">loading...</div>';
+					return;
+				}
+				const settings = state.settings;
+				const modelKeys = collectModelKeys(settings);
+				const now = new Date();
+
+				if (settings.agents.length === 0) {
+					tableWrap.innerHTML =
+						'<div class="empty">No agents configured. Use "Add Agent" to create one.</div>';
+					return;
+				}
+
+				const indexed = settings.agents.map((a, i) => {
+					const sortVal =
+						state.sortBy === null
+							? 0
+							: (priorityValue(settings, a, state.sortBy, now) ?? -Infinity);
+					return { a, i, sortVal };
+				});
+				if (state.sortBy !== null) {
+					indexed.sort((x, y) => y.sortVal - x.sortVal);
+				}
+
+				const thead = renderThead(modelKeys);
+				const tbody = indexed
+					.map(({ a, i }) =>
+						i === state.editingIdx
+							? renderEditRow(i, a, settings, modelKeys, now)
+							: renderViewRow(i, a, settings, modelKeys, now),
+					)
+					.join("");
+
+				tableWrap.innerHTML = `<table>
+					<thead>${thead}</thead>
+					<tbody>${tbody}</tbody>
+				</table>`;
+			}
+
+			function renderThead(modelKeys) {
+				const modelCols = modelKeys
+					.map((mk) => {
+						const sorted = state.sortBy === mk;
+						const cls = sorted ? "th-sorted" : "";
+						const marker = sorted ? " ▾" : "";
+						return `<th class="${cls}"><button class="th-sort" data-sort="${escapeHtml(mk)}">${escapeHtml(mk)}${marker}</button></th>`;
+					})
+					.join("");
+				return `<tr>
+					<th>command</th>
+					<th>provider</th>
+					<th>args</th>
+					<th>models</th>
+					<th>env</th>
+					<th>pre_command</th>
+					<th>arg_maps</th>
+					${modelCols}
+					<th>actions</th>
+				</tr>`;
+			}
+
+			function formatAgentFields(agent) {
+				return {
+					command: escapeHtml(agent.command),
+					provider: escapeHtml(fmtProvider(agent.provider)),
+					args: escapeHtml(fmtVec(agent.args)),
+					models: escapeHtml(fmtMap(agent.models)),
+					env: escapeHtml(fmtMap(agent.env)),
+					pre: escapeHtml(fmtVec(agent.pre_command)),
+					argMaps: escapeHtml(fmtArgMaps(agent.arg_maps)),
+				};
+			}
+
+			function renderViewRow(idx, agent, settings, modelKeys, now) {
+				const f = formatAgentFields(agent);
+				const prioCells = modelKeys
+					.map((mk) => {
+						const v = priorityValue(settings, agent, mk, now);
+						if (v === null) return '<td class="unavail">-</td>';
+						const cls = v === 0 ? "prio zero" : "prio";
+						return `<td class="${cls}">${v}</td>`;
+					})
+					.join("");
+
+				return `<tr data-idx="${idx}">
+					<td><span class="cmd-chip">${f.command}</span></td>
+					<td><span class="prov-text">${f.provider}</span></td>
+					<td><pre>${f.args}</pre></td>
+					<td><pre>${f.models}</pre></td>
+					<td><pre>${f.env}</pre></td>
+					<td><pre>${f.pre}</pre></td>
+					<td><pre>${f.argMaps}</pre></td>
+					${prioCells}
+					<td class="actions"><div class="actions-wrap">
+						<button class="btn-edit" data-action="edit" data-idx="${idx}">Edit</button>
+						<button class="btn-del" data-action="delete" data-idx="${idx}">Del</button>
+					</div></td>
+				</tr>`;
+			}
+
+			function renderEditRow(idx, agent, settings, modelKeys, now) {
+				const f = formatAgentFields(agent);
+				const prioInputs = modelKeys
+					.map((mk) => {
+						const v = priorityValue(settings, agent, mk, now);
+						if (v === null) return '<td class="unavail">-</td>';
+						const val = v === 0 ? "" : String(v);
+						return `<td><input data-prio="${escapeHtml(mk)}" value="${escapeHtml(val)}" placeholder="0"></td>`;
+					})
+					.join("");
+
+				return `<tr class="editing" data-idx="${idx}" data-edit="1">
+					<td><input name="command" value="${f.command}" placeholder="command"></td>
+					<td><input name="provider" value="${f.provider}" placeholder="(inferred)"></td>
+					<td><textarea name="args" rows="3">${f.args}</textarea></td>
+					<td><textarea name="models" rows="3">${f.models}</textarea></td>
+					<td><textarea name="env" rows="3">${f.env}</textarea></td>
+					<td><textarea name="pre_command" rows="3">${f.pre}</textarea></td>
+					<td><textarea name="arg_maps" rows="3">${f.argMaps}</textarea></td>
+					${prioInputs}
+					<td class="actions"><div class="actions-wrap">
+						<button class="btn-save" data-action="save" data-idx="${idx}">Save</button>
+						<button class="btn-cancel" data-action="cancel" data-idx="${idx}">Cancel</button>
+					</div></td>
+				</tr>`;
+			}
+
+			const ACTION_HANDLERS = {
+				edit: (idx) => {
+					state.editingIdx = idx;
+					render();
+				},
+				cancel: () => {
+					state.editingIdx = null;
+					render();
+				},
+				delete: (idx) => {
+					if (!confirm(`Delete agent at row ${idx + 1}?`)) return;
+					state.settings.agents.splice(idx, 1);
+					if (state.editingIdx === idx) state.editingIdx = null;
+					setDirty(true);
+					render();
+				},
+				save: (idx, btn) => commitEdit(idx, btn.closest("tr")),
+			};
+
+			tableWrap.addEventListener("click", (ev) => {
+				const sortBtn = ev.target.closest("[data-sort]");
+				if (sortBtn) {
+					const key = sortBtn.getAttribute("data-sort");
+					state.sortBy = state.sortBy === key ? null : key;
+					render();
+					return;
+				}
+				const actionBtn = ev.target.closest("[data-action]");
+				if (actionBtn) {
+					const handler = ACTION_HANDLERS[actionBtn.getAttribute("data-action")];
+					if (handler) handler(Number(actionBtn.getAttribute("data-idx")), actionBtn);
+				}
+			});
+
+			function commitEdit(idx, row) {
+				const get = (sel) => {
+					const el = row.querySelector(sel);
+					return el ? el.value : "";
+				};
+				const original = state.settings.agents[idx];
+				if (!original) return;
+
+				const command = get('[name="command"]').trim();
+				const provider = parseProvider(get('[name="provider"]'));
+				const args = parseVec(get('[name="args"]'));
+				const models = nonEmptyMap(parseMap(get('[name="models"]')));
+				const env = nonEmptyMap(parseMap(get('[name="env"]')));
+				const pre_command = parseVec(get('[name="pre_command"]'));
+				const arg_maps = parseArgMaps(get('[name="arg_maps"]'));
+
+				// Preserve fields that aren't surfaced in the table UI.
+				const updated = {
+					...original,
+					command,
+					provider,
+					args,
+					models,
+					env,
+					pre_command,
+					arg_maps,
+				};
+				state.settings.agents[idx] = updated;
+
+				row.querySelectorAll("input[data-prio]").forEach((input) => {
+					const mk = input.getAttribute("data-prio");
+					const modelKey = mk === "(none)" ? null : mk;
+					const raw = (input.value ?? "").trim();
+					if (raw === "" || raw === "0") {
+						removePriority(state.settings, command, provider, modelKey);
+					} else {
+						const n = Number(raw);
+						if (Number.isFinite(n) && Number.isInteger(n)) {
+							upsertPriority(state.settings, command, provider, modelKey, n);
+						}
+					}
+				});
+
+				state.editingIdx = null;
+				setDirty(true);
+				render();
+			}
+
+			function newAgent() {
+				return {
+					command: "new-agent",
+					args: [],
+					models: null,
+					arg_maps: {},
+					env: null,
+					provider: { kind: "inferred" },
+					pre_command: [],
+					active: null,
+					inactive: null,
+				};
+			}
+
+			addBtn.addEventListener("click", () => {
+				state.settings.agents.push(newAgent());
+				state.editingIdx = state.settings.agents.length - 1;
+				setDirty(true);
+				render();
+			});
+
+			reloadBtn.addEventListener("click", async () => {
+				if (
+					state.dirty &&
+					!confirm("Discard unsaved changes and reload from disk?")
+				)
+					return;
+				await load();
+			});
+
+			saveBtn.addEventListener("click", save);
 
 			async function load() {
 				setStatus("loading...");
@@ -92,37 +986,128 @@
 					const res = await fetch("/api/settings");
 					const body = await res.json();
 					if (!res.ok) throw new Error(body.error ?? res.statusText);
-					textarea.value = JSON.stringify(body, null, 2);
-					setStatus("loaded", "ok");
+					state.settings = normalizeSettings(body);
+					state.editingIdx = null;
+					state.loaded = true;
+					setDirty(false);
+					render();
+					setStatus("loaded ✓");
 				} catch (err) {
 					setStatus(`load failed: ${err.message}`, "error");
 				}
 			}
 
 			async function save() {
-				setStatus("saving...");
-				try {
-					JSON.parse(textarea.value);
-				} catch (err) {
-					setStatus(`invalid JSON: ${err.message}`, "error");
+				if (state.editingIdx !== null) {
+					setStatus("finish editing the row first", "error");
 					return;
 				}
+				saveBtn.disabled = true;
+				setStatus("saving...");
 				try {
+					const body = serializeSettings(state.settings);
 					const res = await fetch("/api/settings", {
 						method: "PUT",
 						headers: { "content-type": "application/json" },
-						body: textarea.value,
+						body: JSON.stringify(body),
 					});
-					const body = await res.json();
-					if (!res.ok) throw new Error(body.error ?? res.statusText);
-					setStatus("saved", "ok");
+					const data = await res.json();
+					if (!res.ok) throw new Error(data.error ?? res.statusText);
+					setDirty(false);
+					setStatus("saved ✓");
 				} catch (err) {
 					setStatus(`save failed: ${err.message}`, "error");
+				} finally {
+					saveBtn.disabled = false;
 				}
 			}
 
-			saveBtn.addEventListener("click", save);
-			reloadBtn.addEventListener("click", load);
+			// Convert raw JSON into the in-memory shape used by render().
+			function normalizeSettings(raw) {
+				const out = { agents: [], priority: [], $schema: undefined };
+				if (raw && typeof raw.$schema === "string") {
+					out.$schema = raw.$schema;
+				}
+				if (raw && Array.isArray(raw.agents)) {
+					out.agents = raw.agents.map(normalizeAgent);
+				}
+				if (raw && Array.isArray(raw.priority)) {
+					out.priority = raw.priority.map(normalizePriority);
+				}
+				return out;
+			}
+			function normalizeAgent(raw) {
+				const a = { ...raw };
+				a.command = typeof a.command === "string" ? a.command : "";
+				a.args = Array.isArray(a.args) ? a.args.slice() : [];
+				a.models =
+					a.models && typeof a.models === "object" && !Array.isArray(a.models)
+						? { ...a.models }
+						: null;
+				a.arg_maps =
+					a.arg_maps && typeof a.arg_maps === "object"
+						? { ...a.arg_maps }
+						: {};
+				a.env =
+					a.env && typeof a.env === "object" && !Array.isArray(a.env)
+						? { ...a.env }
+						: null;
+				a.pre_command = Array.isArray(a.pre_command) ? a.pre_command.slice() : [];
+				a.active = a.active ?? null;
+				a.inactive = a.inactive ?? null;
+				a.provider = readProviderField(raw);
+				return a;
+			}
+			function normalizePriority(raw) {
+				const r = { ...raw };
+				r.command = typeof r.command === "string" ? r.command : "";
+				r.priority = typeof r.priority === "number" ? r.priority : 0;
+				if (r.model === undefined) r.model = null;
+				r.provider = readProviderField(raw);
+				return r;
+			}
+
+			function serializeSettings(s) {
+				const out = {};
+				if (typeof s.$schema === "string") out.$schema = s.$schema;
+				out.priority = s.priority.map(serializePriority);
+				out.agents = s.agents.map(serializeAgent);
+				return out;
+			}
+			function serializeAgent(a) {
+				const out = { command: a.command };
+				writeProviderField(out, a.provider);
+				if (a.args && a.args.length > 0) out.args = a.args;
+				if (a.models) out.models = a.models;
+				if (a.arg_maps && Object.keys(a.arg_maps).length > 0)
+					out.arg_maps = a.arg_maps;
+				if (a.env) out.env = a.env;
+				if (a.pre_command && a.pre_command.length > 0)
+					out.pre_command = a.pre_command;
+				if (a.active) out.active = a.active;
+				if (a.inactive) out.inactive = a.inactive;
+				if (a.openrouter_management_key !== undefined)
+					out.openrouter_management_key = a.openrouter_management_key;
+				if (a.glm_api_key !== undefined) out.glm_api_key = a.glm_api_key;
+				if (a.sdk !== undefined) out.sdk = a.sdk;
+				return out;
+			}
+			function serializePriority(r) {
+				const out = { command: r.command, priority: r.priority };
+				writeProviderField(out, r.provider);
+				if (r.model !== null && r.model !== undefined) out.model = r.model;
+				if (r.weekdays) out.weekdays = r.weekdays;
+				if (r.hours) out.hours = r.hours;
+				return out;
+			}
+
+			window.addEventListener("beforeunload", (ev) => {
+				if (state.dirty) {
+					ev.preventDefault();
+					ev.returnValue = "";
+				}
+			});
+
 			load();
 		</script>
 	</body>
