@@ -100,4 +100,4 @@ can treat them interchangeably.
 
 ## License
 
-Apache-2.0 OR MIT, matching the upstream Rust project. See [`LICENSE`](./LICENSE).
+Apache-2.0. See [`LICENSE`](./LICENSE).
