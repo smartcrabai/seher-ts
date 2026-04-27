@@ -107,8 +107,9 @@ export async function runCodexBarUsage(
 		);
 	}
 
+	let parsed: unknown;
 	try {
-		return JSON.parse(stdout) as CodexBarUsageResponse;
+		parsed = JSON.parse(stdout);
 	} catch (err) {
 		throw new CodexBarError(
 			`failed to parse codexbar JSON output: ${(err as Error).message}`,
@@ -116,4 +117,24 @@ export async function runCodexBarUsage(
 			stderr,
 		);
 	}
+
+	// codexbar emits a JSON array (one entry per provider) even when
+	// --provider selects a single one — unwrap to the matching entry.
+	if (!Array.isArray(parsed)) {
+		throw new CodexBarError(
+			`codexbar returned a non-array JSON payload (provider=${provider})`,
+			exitCode,
+			stderr,
+		);
+	}
+	const entries = parsed as CodexBarUsageResponse[];
+	const match = entries.find((e) => e.provider === provider);
+	if (!match) {
+		throw new CodexBarError(
+			`codexbar returned no entry for provider=${provider}`,
+			exitCode,
+			stderr,
+		);
+	}
+	return match;
 }

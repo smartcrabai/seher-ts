@@ -41,17 +41,50 @@ describe("runCodexBarUsage", () => {
 		};
 		const bin = writeScript(
 			"ok.sh",
-			`cat <<'JSON'\n${JSON.stringify(payload)}\nJSON`,
+			`cat <<'JSON'\n${JSON.stringify([payload])}\nJSON`,
 		);
 		const result = await runCodexBarUsage("codex", { binPath: bin });
 		expect(result).toEqual(payload);
+	});
+
+	test("unwraps the entry matching the requested provider", async () => {
+		const payload = [
+			{ provider: "claude", usage: { primary: null } },
+			{
+				provider: "codex",
+				usage: {
+					primary: {
+						usedPercent: 7,
+						windowMinutes: 60,
+						resetsAt: "2026-04-23T12:00:00Z",
+					},
+				},
+			},
+		];
+		const bin = writeScript(
+			"multi.sh",
+			`cat <<'JSON'\n${JSON.stringify(payload)}\nJSON`,
+		);
+		const result = await runCodexBarUsage("codex", { binPath: bin });
+		expect(result).toEqual(payload[1]);
+	});
+
+	test("throws CodexBarError when no entry matches the requested provider", async () => {
+		const payload = [{ provider: "claude", usage: { primary: null } }];
+		const bin = writeScript(
+			"nomatch.sh",
+			`cat <<'JSON'\n${JSON.stringify(payload)}\nJSON`,
+		);
+		await expect(
+			runCodexBarUsage("codex", { binPath: bin }),
+		).rejects.toBeInstanceOf(CodexBarError);
 	});
 
 	test("passes provider and account options as CLI arguments", async () => {
 		const argsFile = join(workDir, "args.txt");
 		const bin = writeScript(
 			"args.sh",
-			`printf '%s\\n' "$@" > "${argsFile}"; printf '{"provider":"codex","usage":{}}'`,
+			`printf '%s\\n' "$@" > "${argsFile}"; printf '[{"provider":"codex","usage":{}}]'`,
 		);
 		await runCodexBarUsage("codex", {
 			binPath: bin,
