@@ -40,6 +40,20 @@ describe("validateSettings", () => {
 		const result = validateSettings({ agents: [], priority: [] });
 		expect(result.ok).toBe(true);
 	});
+
+	test("accepts $schema string for editor support", () => {
+		const result = validateSettings({
+			$schema: "https://example.com/schema.json",
+			agents: [],
+			priority: [],
+		});
+		expect(result.ok).toBe(true);
+	});
+
+	test("rejects non-string $schema", () => {
+		const result = validateSettings({ $schema: 42, agents: [] });
+		expect(result.ok).toBe(false);
+	});
 });
 
 describe("getSettings", () => {
