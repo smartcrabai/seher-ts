@@ -19,7 +19,12 @@ export interface SeherStreamChunk {
 	raw: unknown;
 }
 
-export interface SeherSDK {
+/**
+ * Common contract implemented by the per-provider SDK classes (`ClaudeSDK`,
+ * `CodexSDK`). The public entry point `SeherSDK` (in `seherSdk.ts`) is a
+ * higher-level class that wraps one of these instances.
+ */
+export interface SeherSDKInstance {
 	readonly kind: SdkKind;
 	run(opts: SeherRunOptions): Promise<SeherRunResult>;
 	stream(opts: SeherRunOptions): AsyncIterable<SeherStreamChunk>;
