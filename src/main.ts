@@ -7,7 +7,12 @@ import { checkLimit as checkLimitImpl } from "./codexbar/limit.ts";
 import { loadSettings as loadSettingsImpl } from "./config/load.ts";
 import { filterAgents as filterAgentsImpl } from "./priority/filter.ts";
 import { sortByPriority as sortByPriorityImpl } from "./priority/sort.ts";
-import { scanCandidates } from "./scan.ts";
+import {
+	AllAgentsLimitedError,
+	NoMatchingAgentError,
+	providerNameOf,
+	resolveAgent as resolveAgentImpl,
+} from "./sdk/resolve.ts";
 import { sleepUntil as sleepUntilImpl } from "./sleep/sleepUntil.ts";
 import type {
 	AgentConfig,
@@ -31,6 +36,7 @@ export interface RunSeherDeps {
 	resolvePrompt: typeof resolvePromptImpl;
 	runAgent: typeof runAgentImpl;
 	sleepUntil: typeof sleepUntilImpl;
+	resolveAgent: typeof resolveAgentImpl;
 	startWebServer: typeof startWebServerImpl;
 	now: () => Date;
 	stdout: (line: string) => void;
@@ -46,6 +52,7 @@ const defaultDeps: RunSeherDeps = {
 	resolvePrompt: resolvePromptImpl,
 	runAgent: runAgentImpl,
 	sleepUntil: sleepUntilImpl,
+	resolveAgent: resolveAgentImpl,
 	startWebServer: startWebServerImpl,
 	now: () => new Date(),
 	stdout: (line) => {
@@ -104,7 +111,7 @@ export async function runSeher(
 	if (args.json) {
 		const statuses: AgentStatus[] = [];
 		for (const agent of sorted) {
-			const providerName = resolveProviderName(agent);
+			const providerName = providerNameOf(agent);
 			const limit =
 				providerName === null
 					? ({ kind: "not_limited" } as const)
@@ -132,58 +139,42 @@ export async function runSeher(
 				? [prompt]
 				: [];
 
-	let rescans = 0;
-	while (true) {
-		const scan = await scanCandidates(sorted, async (agent) => {
-			const providerName = resolveProviderName(agent);
-			if (providerName === null) return { kind: "not_limited" as const };
-			return deps.checkLimit(providerName);
+	let agent: AgentConfig;
+	try {
+		agent = await deps.resolveAgent({
+			sortedAgents: sorted,
+			maxRescans: MAX_RESCAN_ATTEMPTS,
+			checkLimit: deps.checkLimit,
+			sleepUntil: deps.sleepUntil,
+			quiet: args.quiet,
+			onSleep: (until) => {
+				if (!args.quiet) {
+					deps.stdout(
+						`All agents limited. Sleeping until ${until.toISOString()}...`,
+					);
+				}
+			},
 		});
-
-		if (scan.kind === "available") {
-			const agent = sorted[scan.index];
-			if (agent === undefined) {
-				deps.stderr("Internal error: scan returned out-of-range index");
-				return 1;
-			}
-			const result = await deps.runAgent(agent, {
-				model: args.model,
-				trailingArgs,
-				quiet: args.quiet,
-			});
-			return result.exitCode;
-		}
-
-		if (scan.kind === "no_agents") {
-			deps.stderr("No available agents");
-			return 1;
-		}
-
-		if (rescans >= MAX_RESCAN_ATTEMPTS) {
+	} catch (err) {
+		if (err instanceof AllAgentsLimitedError) {
 			if (!args.quiet) {
 				deps.stderr("All agents limited after retry; giving up.");
 			}
 			return 1;
 		}
-		if (!args.quiet) {
-			deps.stdout(
-				`All agents limited. Sleeping until ${scan.minReset.toISOString()}...`,
-			);
+		if (err instanceof NoMatchingAgentError) {
+			deps.stderr(err.message);
+			return 1;
 		}
-		await deps.sleepUntil(scan.minReset, { quiet: args.quiet });
-		rescans += 1;
+		throw err;
 	}
-}
 
-function resolveProviderName(agent: AgentConfig): string | null {
-	switch (agent.provider.kind) {
-		case "explicit":
-			return agent.provider.name;
-		case "inferred":
-			return agent.command;
-		case "none":
-			return null;
-	}
+	const result = await deps.runAgent(agent, {
+		model: args.model,
+		trailingArgs,
+		quiet: args.quiet,
+	});
+	return result.exitCode;
 }
 
 function providerLabel(provider: ProviderConfig): string {

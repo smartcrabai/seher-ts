@@ -3,7 +3,7 @@ import type {
 	SdkKind,
 	SeherRunOptions,
 	SeherRunResult,
-	SeherSDK,
+	SeherSDKInstance,
 	SeherStreamChunk,
 } from "./types.ts";
 
@@ -40,7 +40,7 @@ function extractFinalText(result: unknown): string {
 	return "";
 }
 
-export class CodexSDK implements SeherSDK {
+export class CodexSDK implements SeherSDKInstance {
 	readonly kind: SdkKind = "codex";
 	private readonly config: CodexSDKConfig;
 	private _client: Codex | null = null;

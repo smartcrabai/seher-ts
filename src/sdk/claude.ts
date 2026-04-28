@@ -3,7 +3,7 @@ import type {
 	SdkKind,
 	SeherRunOptions,
 	SeherRunResult,
-	SeherSDK,
+	SeherSDKInstance,
 	SeherStreamChunk,
 } from "./types.ts";
 
@@ -29,7 +29,7 @@ function extractText(content: unknown): string {
 	return parts.join("");
 }
 
-export class ClaudeSDK implements SeherSDK {
+export class ClaudeSDK implements SeherSDKInstance {
 	readonly kind: SdkKind = "claude";
 	private readonly config: ClaudeSDKConfig;
 	private _client: Anthropic | null = null;

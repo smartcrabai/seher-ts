@@ -1,14 +1,20 @@
 export { ClaudeSDK, type ClaudeSDKConfig } from "./claude.ts";
 export { CodexSDK, type CodexSDKConfig } from "./codex.ts";
 export {
-	type CreateSDKConfig,
-	createSDK,
-	createSDKFromAgent,
-} from "./factory.ts";
+	AllAgentsLimitedError,
+	NoMatchingAgentError,
+	type ResolveAgentOptions,
+	resolveAgent,
+} from "./resolve.ts";
+export {
+	SeherSDK,
+	type SeherSDKConfig,
+	type SeherSDKOptions,
+} from "./seherSdk.ts";
 export type {
 	SdkKind,
 	SeherRunOptions,
 	SeherRunResult,
-	SeherSDK,
+	SeherSDKInstance,
 	SeherStreamChunk,
 } from "./types.ts";

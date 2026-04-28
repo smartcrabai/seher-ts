@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import { type RunSeherDeps, runSeher } from "./main.ts";
+import { resolveAgent } from "./sdk/resolve.ts";
 import type {
 	AgentConfig,
 	AgentLimit,
@@ -75,6 +76,7 @@ function buildDeps(input: DepsBuildInput = {}): {
 		resolvePrompt: input.resolvePrompt ?? mock(async () => null),
 		runAgent: input.runAgent ?? mock(async () => ({ exitCode: 0 })),
 		sleepUntil: input.sleepUntil ?? mock(async () => {}),
+		resolveAgent,
 		startWebServer: input.startWebServer ?? mock(async () => {}),
 		now: () => new Date("2025-01-01T00:00:00Z"),
 		stdout: (line) => {
