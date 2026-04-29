@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
+    "@github/copilot-sdk": "^0.3.0",
     "@openai/codex-sdk": "^0.123.0",
     "@typescript/native-preview": "^7.0.0-dev.20260422.1",
     "commander": "^12.1.0",

@@ -245,14 +245,18 @@ function parseAgent(value: unknown, index: number): AgentConfig {
 		);
 	}
 
-	let sdk: "claude" | "codex" | null | undefined;
+	let sdk: "claude" | "codex" | "copilot" | null | undefined;
 	if ("sdk" in value && value.sdk !== undefined) {
 		if (value.sdk === null) {
 			sdk = null;
-		} else if (value.sdk === "claude" || value.sdk === "codex") {
+		} else if (
+			value.sdk === "claude" ||
+			value.sdk === "codex" ||
+			value.sdk === "copilot"
+		) {
 			sdk = value.sdk;
 		} else {
-			fail(`${label}.sdk must be "claude", "codex", or null`);
+			fail(`${label}.sdk must be "claude", "codex", "copilot", or null`);
 		}
 	}
 
