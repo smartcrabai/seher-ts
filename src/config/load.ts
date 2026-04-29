@@ -1,3 +1,4 @@
+import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { type ParseError, parse, printParseErrorCode } from "jsonc-parser";
@@ -12,17 +13,25 @@ export class ConfigLoadError extends Error {
 	}
 }
 
+async function fileExists(path: string): Promise<boolean> {
+	try {
+		const s = await stat(path);
+		return s.isFile();
+	} catch {
+		return false;
+	}
+}
+
 async function readIfExists(path: string): Promise<string | null> {
-	const file = Bun.file(path);
-	if (!(await file.exists())) return null;
-	return await file.text();
+	if (!(await fileExists(path))) return null;
+	return await readFile(path, "utf8");
 }
 
 async function resolveDefaultPath(): Promise<string | null> {
 	const dir = join(homedir(), ".config", "seher");
 	for (const name of ["settings.jsonc", "settings.json"]) {
 		const p = join(dir, name);
-		if (await Bun.file(p).exists()) return p;
+		if (await fileExists(p)) return p;
 	}
 	return null;
 }

@@ -1,30 +1,66 @@
 {
   "name": "seher-ts",
   "version": "0.1.0",
-  "module": "index.ts",
-  "type": "module",
-  "bin": {
-    "seher": "./src/index.ts"
+  "description": "TypeScript SDK and CLI that resolves the highest-priority coding agent (Claude / Codex / Copilot / Kimi) based on usage limits",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/smartcrabai/seher-ts.git"
   },
+  "homepage": "https://github.com/smartcrabai/seher-ts#readme",
+  "bugs": {
+    "url": "https://github.com/smartcrabai/seher-ts/issues"
+  },
+  "type": "module",
+  "main": "./dist/sdk/index.js",
+  "module": "./dist/sdk/index.js",
+  "types": "./dist/sdk/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/sdk/index.d.ts",
+      "import": "./dist/sdk/index.js"
+    },
+    "./sdk": {
+      "types": "./dist/sdk/index.d.ts",
+      "import": "./dist/sdk/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && bun run scripts/rewrite-dts-extensions.ts dist",
     "lint": "biome check ./src",
     "lint:fix": "biome check --write --unsafe ./src",
     "test": "bun test",
-    "start": "bun run src/index.ts"
+    "start": "bun run src/index.ts",
+    "prepublishOnly": "bun run build && bun test"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.12",
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@typescript/native-preview": "^7.0.0-dev.20260422.1",
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "typescript": "^5.0.0 || ^6.0.0"
+  },
+  "peerDependenciesMeta": {
+    "typescript": {
+      "optional": true
+    }
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
     "@github/copilot-sdk": "^0.3.0",
     "@moonshot-ai/kimi-agent-sdk": "^0.1.8",
     "@openai/codex-sdk": "^0.123.0",
-    "@typescript/native-preview": "^7.0.0-dev.20260422.1",
     "commander": "^12.1.0",
     "jsonc-parser": "^3.3.1",
     "zod": "^4.3.6"

@@ -41,7 +41,7 @@ export async function sleepUntil(
 			}
 
 			const step = Math.min(remaining, 1000);
-			await Bun.sleep(step);
+			await new Promise<void>((resolve) => setTimeout(resolve, step));
 		}
 	} finally {
 		if (!quiet) {
