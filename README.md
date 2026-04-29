@@ -13,6 +13,7 @@ first-party SDKs via the shared `SeherSdk` interface:
 
 - `@anthropic-ai/sdk` for Claude agents (`"sdk": "claude"`).
 - `@openai/codex-sdk` for Codex agents (`"sdk": "codex"`).
+- `@github/copilot-sdk` for GitHub Copilot agents (`"sdk": "copilot"`).
 
 ## Install
 
@@ -80,6 +81,9 @@ Each agent entry may opt into an SDK-backed runner with the `sdk` field:
 
 		// Drive this Codex agent through @openai/codex-sdk.
 		{ "command": "codex", "sdk": "codex" },
+
+		// Drive this Copilot agent through @github/copilot-sdk.
+		{ "command": "copilot", "sdk": "copilot" },
 
 		// Omit `sdk` to spawn the CLI binary directly (default behaviour).
 		{ "command": "opencode" },

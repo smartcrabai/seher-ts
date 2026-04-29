@@ -155,17 +155,19 @@ describe("validateSettings", () => {
 		expect(() => validateSettings({ agents: {} })).toThrow(/settings\.agents/);
 	});
 
-	test("sdk accepts claude/codex/null, rejects others", () => {
+	test("sdk accepts claude/codex/copilot/null, rejects others", () => {
 		const s = validateSettings({
 			agents: [
 				{ command: "a", sdk: "claude" },
 				{ command: "b", sdk: "codex" },
-				{ command: "c", sdk: null },
+				{ command: "c", sdk: "copilot" },
+				{ command: "d", sdk: null },
 			],
 		});
 		expect(s.agents[0]?.sdk).toBe("claude");
 		expect(s.agents[1]?.sdk).toBe("codex");
-		expect(s.agents[2]?.sdk).toBeNull();
+		expect(s.agents[2]?.sdk).toBe("copilot");
+		expect(s.agents[3]?.sdk).toBeNull();
 		expect(() =>
 			validateSettings({ agents: [{ command: "x", sdk: "other" }] }),
 		).toThrow(/sdk/);

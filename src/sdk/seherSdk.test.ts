@@ -58,6 +58,29 @@ mock.module("@openai/codex-sdk", () => {
 	return { Codex: MockCodex };
 });
 
+const copilotConstructorOpts: Array<Record<string, unknown>> = [];
+const copilotPrompts: unknown[] = [];
+mock.module("@github/copilot-sdk", () => {
+	class MockCopilotClient {
+		constructor(opts: Record<string, unknown> = {}) {
+			copilotConstructorOpts.push(opts);
+		}
+		async start() {}
+		async createSession(_config: Record<string, unknown>) {
+			return {
+				on: () => () => {},
+				send: async () => {},
+				sendAndWait: async (opts: Record<string, unknown>) => {
+					copilotPrompts.push(opts);
+					return { data: { content: "copilot reply" } };
+				},
+				disconnect: async () => {},
+			};
+		}
+	}
+	return { CopilotClient: MockCopilotClient, approveAll: () => {} };
+});
+
 const { SeherSDK } = await import("./seherSdk.ts");
 const { AllAgentsLimitedError } = await import("./resolve.ts");
 
@@ -88,6 +111,8 @@ describe("SeherSDK class", () => {
 		claudeStreamCalls.length = 0;
 		codexConstructorOpts.length = 0;
 		codexCreates.length = 0;
+		copilotConstructorOpts.length = 0;
+		copilotPrompts.length = 0;
 	});
 
 	test("kind=claude: synchronous construction, run dispatches to ClaudeSDK", async () => {
@@ -106,6 +131,29 @@ describe("SeherSDK class", () => {
 		expect(result.kind).toBe("codex");
 		expect(result.text).toBe("codex reply");
 		expect(codexCreates.length).toBe(1);
+	});
+
+	test("kind=copilot: synchronous construction, run dispatches to CopilotSDK", async () => {
+		const sdk = new SeherSDK({ kind: "copilot", gitHubToken: "tok" });
+		expect(sdk.kind).toBe("copilot");
+		const result = await sdk.run({ prompt: "hi" });
+		expect(result.kind).toBe("copilot");
+		expect(result.text).toBe("copilot reply");
+		expect(copilotPrompts).toEqual([{ prompt: "hi" }]);
+	});
+
+	test("kind unset: resolves to copilot when sdk field is set", async () => {
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			resolveOverrides: {
+				sortedAgents: [mkAgent("copilot", { sdk: "copilot" })],
+				checkLimit,
+			},
+		});
+		const result = await sdk.run({ prompt: "hi" });
+		expect(result.kind).toBe("copilot");
 	});
 
 	test("kind unset: resolves to claude when settings only have a claude agent", async () => {
