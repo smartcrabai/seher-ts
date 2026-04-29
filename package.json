@@ -22,9 +22,11 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
     "@github/copilot-sdk": "^0.3.0",
+    "@moonshot-ai/kimi-agent-sdk": "^0.1.8",
     "@openai/codex-sdk": "^0.123.0",
     "@typescript/native-preview": "^7.0.0-dev.20260422.1",
     "commander": "^12.1.0",
-    "jsonc-parser": "^3.3.1"
+    "jsonc-parser": "^3.3.1",
+    "zod": "^4.3.6"
   }
 }

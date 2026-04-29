@@ -1,4 +1,4 @@
-export type SdkKind = "claude" | "codex" | "copilot";
+export type SdkKind = "claude" | "codex" | "copilot" | "kimi";
 
 export interface SeherRunOptions {
 	prompt: string;

@@ -1,6 +1,7 @@
 export { ClaudeSDK, type ClaudeSDKConfig } from "./claude.ts";
 export { CodexSDK, type CodexSDKConfig } from "./codex.ts";
 export { CopilotSDK, type CopilotSDKConfig } from "./copilot.ts";
+export { KimiSDK, type KimiSDKConfig } from "./kimi.ts";
 export {
 	AllAgentsLimitedError,
 	NoMatchingAgentError,
