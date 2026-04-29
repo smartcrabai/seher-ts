@@ -58,6 +58,35 @@ mock.module("@openai/codex-sdk", () => {
 	return { Codex: MockCodex };
 });
 
+const kimiSessionOpts: Array<Record<string, unknown>> = [];
+const kimiPrompts: unknown[] = [];
+mock.module("@moonshot-ai/kimi-agent-sdk", () => {
+	function createSession(options: Record<string, unknown>) {
+		kimiSessionOpts.push(options);
+		return {
+			prompt(content: unknown) {
+				kimiPrompts.push(content);
+				const events = [
+					{
+						type: "ContentPart",
+						payload: { type: "text", text: "kimi reply" },
+					},
+				];
+				const result = { status: "finished", steps: 1 };
+				return {
+					[Symbol.asyncIterator]: async function* () {
+						for (const e of events) yield e;
+						return result;
+					},
+					result: Promise.resolve(result),
+				};
+			},
+			close: async () => {},
+		};
+	}
+	return { createSession };
+});
+
 const copilotConstructorOpts: Array<Record<string, unknown>> = [];
 const copilotPrompts: unknown[] = [];
 mock.module("@github/copilot-sdk", () => {
@@ -113,6 +142,8 @@ describe("SeherSDK class", () => {
 		codexCreates.length = 0;
 		copilotConstructorOpts.length = 0;
 		copilotPrompts.length = 0;
+		kimiSessionOpts.length = 0;
+		kimiPrompts.length = 0;
 	});
 
 	test("kind=claude: synchronous construction, run dispatches to ClaudeSDK", async () => {
@@ -140,6 +171,31 @@ describe("SeherSDK class", () => {
 		expect(result.kind).toBe("copilot");
 		expect(result.text).toBe("copilot reply");
 		expect(copilotPrompts).toEqual([{ prompt: "hi" }]);
+	});
+
+	test("kind=kimi: synchronous construction, run dispatches to KimiSDK", async () => {
+		const sdk = new SeherSDK({ kind: "kimi", workDir: "/tmp/proj" });
+		expect(sdk.kind).toBe("kimi");
+		const result = await sdk.run({ prompt: "hi" });
+		expect(result.kind).toBe("kimi");
+		expect(result.text).toBe("kimi reply");
+		expect(kimiPrompts).toEqual(["hi"]);
+		const opts = kimiSessionOpts[0] as { workDir?: string };
+		expect(opts?.workDir).toBe("/tmp/proj");
+	});
+
+	test("kind unset: resolves to kimi when sdk field is set", async () => {
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			resolveOverrides: {
+				sortedAgents: [mkAgent("kimi", { sdk: "kimi" })],
+				checkLimit,
+			},
+		});
+		const result = await sdk.run({ prompt: "hi" });
+		expect(result.kind).toBe("kimi");
 	});
 
 	test("kind unset: resolves to copilot when sdk field is set", async () => {

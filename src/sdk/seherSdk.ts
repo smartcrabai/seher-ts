@@ -2,6 +2,7 @@ import type { AgentConfig } from "../types.ts";
 import { ClaudeSDK, type ClaudeSDKConfig } from "./claude.ts";
 import { CodexSDK, type CodexSDKConfig } from "./codex.ts";
 import { CopilotSDK, type CopilotSDKConfig } from "./copilot.ts";
+import { KimiSDK, type KimiSDKConfig } from "./kimi.ts";
 import {
 	AllAgentsLimitedError,
 	NoMatchingAgentError,
@@ -18,7 +19,8 @@ import type {
 
 export type SeherSDKConfig = ClaudeSDKConfig &
 	CodexSDKConfig &
-	CopilotSDKConfig;
+	CopilotSDKConfig &
+	KimiSDKConfig;
 
 export interface SeherSDKOptions extends SeherSDKConfig {
 	/** When provided, skip auto-resolution and use this provider directly. */
@@ -62,12 +64,14 @@ function buildInstance(
 			return new CodexSDK(config);
 		case "copilot":
 			return new CopilotSDK(config);
+		case "kimi":
+			return new KimiSDK(config);
 	}
 }
 
 /**
  * Public entry point for the Seher SDK. Either provide an explicit
- * `kind: "claude" | "codex" | "copilot"` to behave as a thin wrapper around the
+ * `kind: "claude" | "codex" | "copilot" | "kimi"` to behave as a thin wrapper around the
  * matching provider SDK, or omit `kind` to have Seher auto-select an
  * agent from the user's settings file (mirroring CLI behavior, including
  * CodexBar `limited` checks and sleep-until-reset on rate limits).
@@ -161,7 +165,7 @@ export class SeherSDK {
 		const agent = await resolveAgent(resolveOpts);
 		if (agent.sdk === undefined || agent.sdk === null) {
 			throw new Error(
-				`Resolved agent "${agent.command}" has no \`sdk\` field set; cannot create an SDK instance. Set \`sdk: "claude"\`, \`sdk: "codex"\`, or \`sdk: "copilot"\` on the agent in settings.jsonc.`,
+				`Resolved agent "${agent.command}" has no \`sdk\` field set; cannot create an SDK instance. Set \`sdk: "claude"\`, \`sdk: "codex"\`, \`sdk: "copilot"\`, or \`sdk: "kimi"\` on the agent in settings.jsonc.`,
 			);
 		}
 		this.resolvedAgent = agent;

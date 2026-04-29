@@ -119,8 +119,8 @@
         },
         "sdk": {
           "type": ["string", "null"],
-          "enum": ["claude", "codex", "copilot", null],
-          "description": "If set, drives this agent through the named SDK (\"claude\" for @anthropic-ai/sdk, \"codex\" for @openai/codex-sdk, \"copilot\" for @github/copilot-sdk) instead of spawning the CLI binary directly."
+          "enum": ["claude", "codex", "copilot", "kimi", null],
+          "description": "If set, drives this agent through the named SDK (\"claude\" for @anthropic-ai/sdk, \"codex\" for @openai/codex-sdk, \"copilot\" for @github/copilot-sdk, \"kimi\" for @moonshot-ai/kimi-agent-sdk) instead of spawning the CLI binary directly."
         }
       },
       "allOf": [

@@ -19,7 +19,7 @@ export type ProviderConfig =
 	| { kind: "none" };
 
 /** Which SDK to drive this agent with, when invoked via the SDK surface. */
-export type SdkKind = "claude" | "codex" | "copilot";
+export type SdkKind = "claude" | "codex" | "copilot" | "kimi";
 
 /**
  * Weekday / hour range schedule.
