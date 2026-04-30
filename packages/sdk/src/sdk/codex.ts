@@ -1,4 +1,4 @@
-import { Codex } from "@openai/codex-sdk";
+import { type ApprovalMode, Codex, type SandboxMode } from "@openai/codex-sdk";
 import { joinSystemPrompt } from "./text.ts";
 import type {
 	SdkKind,
@@ -11,7 +11,15 @@ import type {
 export interface CodexSDKConfig {
 	apiKey?: string;
 	defaultModel?: string;
+	sandboxMode?: SandboxMode;
+	approvalPolicy?: ApprovalMode;
 }
+
+// seher-ts delegates safety to the caller, so default to maximally permissive.
+const DEFAULT_SANDBOX_MODE: SandboxMode = "danger-full-access";
+const DEFAULT_APPROVAL_POLICY: ApprovalMode = "never";
+
+type CodexThreadOptions = NonNullable<Parameters<Codex["startThread"]>[0]>;
 
 type ThreadItemLike = { type?: string; text?: string };
 type RunResultLike = {
@@ -60,7 +68,10 @@ export class CodexSDK implements SeherSDKInstance {
 	}
 
 	private startThread(opts: SeherRunOptions) {
-		const threadOpts: { model?: string } = {};
+		const threadOpts: CodexThreadOptions = {
+			sandboxMode: this.config.sandboxMode ?? DEFAULT_SANDBOX_MODE,
+			approvalPolicy: this.config.approvalPolicy ?? DEFAULT_APPROVAL_POLICY,
+		};
 		const model = opts.model ?? this.config.defaultModel;
 		if (model !== undefined) threadOpts.model = model;
 		return this.client.startThread(threadOpts);
