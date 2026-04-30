@@ -34,6 +34,7 @@
 				"claude",
 				"codex",
 				"copilot",
+				"cursor",
 				"openrouter",
 				"glm",
 				"opencode-go",
@@ -127,8 +128,16 @@
 				},
 				"sdk": {
 					"type": ["string", "null"],
-					"enum": ["claude", "codex", "copilot", "kimi", null],
-					"description": "If set, drives this agent through the named SDK (\"claude\" for @anthropic-ai/sdk, \"codex\" for @openai/codex-sdk, \"copilot\" for @github/copilot-sdk, \"kimi\" for @moonshot-ai/kimi-agent-sdk) instead of spawning the CLI binary directly."
+					"enum": [
+						"claude",
+						"codex",
+						"copilot",
+						"kimi",
+						"opencode",
+						"cursor",
+						null
+					],
+					"description": "If set, drives this agent through the named SDK (\"claude\" for @anthropic-ai/sdk, \"codex\" for @openai/codex-sdk, \"copilot\" for @github/copilot-sdk, \"kimi\" for @moonshot-ai/kimi-agent-sdk, \"opencode\" for @opencode-ai/sdk, \"cursor\" for @cursor/sdk) instead of spawning the CLI binary directly."
 				}
 			},
 			"allOf": [

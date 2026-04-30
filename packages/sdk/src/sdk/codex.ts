@@ -1,4 +1,5 @@
 import { Codex } from "@openai/codex-sdk";
+import { joinSystemPrompt } from "./text.ts";
 import type {
 	SdkKind,
 	SeherRunOptions,
@@ -66,12 +67,8 @@ export class CodexSDK implements SeherSDKInstance {
 	}
 
 	async run(opts: SeherRunOptions): Promise<SeherRunResult> {
-		const prompt =
-			opts.systemPrompt !== undefined
-				? `${opts.systemPrompt}\n\n${opts.prompt}`
-				: opts.prompt;
 		const thread = this.startThread(opts);
-		const result = await thread.run(prompt);
+		const result = await thread.run(joinSystemPrompt(opts));
 		const text = extractFinalText(result);
 		return { text, kind: this.kind, raw: result };
 	}

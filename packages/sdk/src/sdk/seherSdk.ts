@@ -2,7 +2,9 @@ import type { AgentConfig } from "../types.ts";
 import { ClaudeSDK, type ClaudeSDKConfig } from "./claude.ts";
 import { CodexSDK, type CodexSDKConfig } from "./codex.ts";
 import { CopilotSDK, type CopilotSDKConfig } from "./copilot.ts";
+import { CursorSDK, type CursorSDKConfig } from "./cursor.ts";
 import { KimiSDK, type KimiSDKConfig } from "./kimi.ts";
+import { OpencodeSDK, type OpencodeSDKConfig } from "./opencode.ts";
 import {
 	AllAgentsLimitedError,
 	NoMatchingAgentError,
@@ -20,7 +22,9 @@ import type {
 export type SeherSDKConfig = ClaudeSDKConfig &
 	CodexSDKConfig &
 	CopilotSDKConfig &
-	KimiSDKConfig;
+	CursorSDKConfig &
+	KimiSDKConfig &
+	OpencodeSDKConfig;
 
 export interface SeherSDKOptions extends SeherSDKConfig {
 	/** When provided, skip auto-resolution and use this provider directly. */
@@ -66,15 +70,20 @@ function buildInstance(
 			return new CopilotSDK(config);
 		case "kimi":
 			return new KimiSDK(config);
+		case "opencode":
+			return new OpencodeSDK(config);
+		case "cursor":
+			return new CursorSDK(config);
 	}
 }
 
 /**
  * Public entry point for the Seher SDK. Either provide an explicit
- * `kind: "claude" | "codex" | "copilot" | "kimi"` to behave as a thin wrapper around the
- * matching provider SDK, or omit `kind` to have Seher auto-select an
- * agent from the user's settings file (mirroring CLI behavior, including
- * CodexBar `limited` checks and sleep-until-reset on rate limits).
+ * `kind: "claude" | "codex" | "copilot" | "kimi" | "opencode" | "cursor"` to
+ * behave as a thin wrapper around the matching provider SDK, or omit `kind`
+ * to have Seher auto-select an agent from the user's settings file
+ * (mirroring CLI behavior, including CodexBar `limited` checks and
+ * sleep-until-reset on rate limits).
  *
  * Not declared as `implements SeherSDKInstance` because `kind` throws when
  * auto-resolution has not yet run, which would violate the interface
@@ -165,7 +174,7 @@ export class SeherSDK {
 		const agent = await resolveAgent(resolveOpts);
 		if (agent.sdk === undefined || agent.sdk === null) {
 			throw new Error(
-				`Resolved agent "${agent.command}" has no \`sdk\` field set; cannot create an SDK instance. Set \`sdk: "claude"\`, \`sdk: "codex"\`, \`sdk: "copilot"\`, or \`sdk: "kimi"\` on the agent in settings.jsonc.`,
+				`Resolved agent "${agent.command}" has no \`sdk\` field set; cannot create an SDK instance. Set \`sdk: "claude" | "codex" | "copilot" | "kimi" | "opencode" | "cursor"\` on the agent in settings.jsonc.`,
 			);
 		}
 		this.resolvedAgent = agent;

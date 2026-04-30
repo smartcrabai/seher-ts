@@ -1,4 +1,5 @@
 import { createSession } from "@moonshot-ai/kimi-agent-sdk";
+import { joinSystemPrompt } from "./text.ts";
 import type {
 	SdkKind,
 	SeherRunOptions,
@@ -61,11 +62,7 @@ export class KimiSDK implements SeherSDKInstance {
 			typeof createSession
 		>[0];
 		const session = createSession(sessionOpts) as unknown as KimiSession;
-		const prompt =
-			opts.systemPrompt !== undefined
-				? `${opts.systemPrompt}\n\n${opts.prompt}`
-				: opts.prompt;
-		const turn = session.prompt(prompt);
+		const turn = session.prompt(joinSystemPrompt(opts));
 		return { session, turn };
 	}
 
