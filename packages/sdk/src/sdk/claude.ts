@@ -34,7 +34,10 @@ export class ClaudeSDK implements SeherSDKInstance {
 	private buildOptions(opts: SeherRunOptions): Options {
 		const permissionMode =
 			this.config.permissionMode ?? DEFAULT_PERMISSION_MODE;
-		const options: Options = { permissionMode };
+		const options: Options = {
+			permissionMode,
+			settingSources: ["user", "project"],
+		};
 		if (permissionMode === "bypassPermissions") {
 			options.allowDangerouslySkipPermissions = true;
 		}

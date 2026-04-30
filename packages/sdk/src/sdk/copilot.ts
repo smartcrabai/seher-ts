@@ -74,6 +74,7 @@ export class CopilotSDK implements SeherSDKInstance {
 		const sessionConfig: Record<string, unknown> = {
 			model: opts.model ?? this.config.defaultModel ?? DEFAULT_MODEL,
 			onPermissionRequest: approveAll,
+			enableConfigDiscovery: true,
 		};
 		if (streaming) sessionConfig.streaming = true;
 		if (opts.systemPrompt !== undefined) {
