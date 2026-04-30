@@ -43,6 +43,15 @@ export interface OpencodeSDKConfig {
 const DEFAULT_PROVIDER_ID = "anthropic";
 const DEFAULT_MODEL_ID = "claude-sonnet-4-20250514";
 
+// seher-ts delegates safety to the caller, so default to maximally permissive.
+const DEFAULT_PERMISSION = {
+	edit: "allow",
+	bash: "allow",
+	webfetch: "allow",
+	doom_loop: "allow",
+	external_directory: "allow",
+} as const satisfies NonNullable<OpencodeConfig["permission"]>;
+
 function parseModel(
 	model: string,
 	fallbackProvider: string,
@@ -109,8 +118,11 @@ export class OpencodeSDK implements SeherSDKInstance {
 			if (this.config.hostname !== undefined)
 				startOpts.hostname = this.config.hostname;
 			if (this.config.port !== undefined) startOpts.port = this.config.port;
-			if (this.config.config !== undefined)
-				startOpts.config = this.config.config;
+			const userConfig = this.config.config ?? {};
+			startOpts.config = {
+				...userConfig,
+				permission: userConfig.permission ?? DEFAULT_PERMISSION,
+			};
 			const result = await createOpencode(startOpts);
 			this._client = result.client;
 			this._server = result.server;

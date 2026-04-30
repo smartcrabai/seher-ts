@@ -2,41 +2,46 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { AgentConfig, AgentLimit, ProviderConfig } from "../types.ts";
 
 // --- Mock the underlying provider SDKs so no real network calls happen. ---
-const claudeConstructorOpts: Array<Record<string, unknown>> = [];
-const claudeCreates: Array<Record<string, unknown>> = [];
-const claudeStreamCalls: Array<Record<string, unknown>> = [];
-mock.module("@anthropic-ai/sdk", () => {
-	class MockAnthropic {
-		messages: {
-			create: (params: Record<string, unknown>) => Promise<unknown>;
-			stream: (params: Record<string, unknown>) => AsyncIterable<unknown>;
+const claudeQueryCalls: Array<{ prompt: unknown; options: unknown }> = [];
+mock.module("@anthropic-ai/claude-agent-sdk", () => {
+	function query(params: { prompt: unknown; options?: unknown }) {
+		claudeQueryCalls.push({ prompt: params.prompt, options: params.options });
+		return {
+			async *[Symbol.asyncIterator]() {
+				yield {
+					type: "assistant",
+					message: { content: [{ type: "text", text: "claude " }] },
+					parent_tool_use_id: null,
+					uuid: "u",
+					session_id: "s",
+				};
+				yield {
+					type: "assistant",
+					message: { content: [{ type: "text", text: "stream" }] },
+					parent_tool_use_id: null,
+					uuid: "u",
+					session_id: "s",
+				};
+				yield {
+					type: "result",
+					subtype: "success",
+					result: "claude reply",
+					uuid: "u",
+					session_id: "s",
+					is_error: false,
+					duration_ms: 0,
+					duration_api_ms: 0,
+					num_turns: 1,
+					stop_reason: "end_turn",
+					total_cost_usd: 0,
+					usage: {},
+					modelUsage: {},
+					permission_denials: [],
+				};
+			},
 		};
-		constructor(opts: Record<string, unknown> = {}) {
-			claudeConstructorOpts.push(opts);
-			this.messages = {
-				create: async (params) => {
-					claudeCreates.push(params);
-					return { content: [{ type: "text", text: "claude reply" }] };
-				},
-				stream: (params) => {
-					claudeStreamCalls.push(params);
-					return {
-						async *[Symbol.asyncIterator]() {
-							yield {
-								type: "content_block_delta",
-								delta: { type: "text_delta", text: "claude " },
-							};
-							yield {
-								type: "content_block_delta",
-								delta: { type: "text_delta", text: "stream" },
-							};
-						},
-					};
-				},
-			};
-		}
 	}
-	return { default: MockAnthropic };
+	return { query };
 });
 
 const codexConstructorOpts: Array<Record<string, unknown>> = [];
@@ -205,9 +210,7 @@ function mkAgent(
 
 describe("SeherSDK class", () => {
 	beforeEach(() => {
-		claudeConstructorOpts.length = 0;
-		claudeCreates.length = 0;
-		claudeStreamCalls.length = 0;
+		claudeQueryCalls.length = 0;
 		codexConstructorOpts.length = 0;
 		codexCreates.length = 0;
 		copilotConstructorOpts.length = 0;
@@ -226,7 +229,7 @@ describe("SeherSDK class", () => {
 		const result = await sdk.run({ prompt: "hi" });
 		expect(result.kind).toBe("claude");
 		expect(result.text).toBe("claude reply");
-		expect(claudeCreates.length).toBe(1);
+		expect(claudeQueryCalls.length).toBe(1);
 	});
 
 	test("kind=codex: synchronous construction, run dispatches to CodexSDK", async () => {
@@ -424,7 +427,7 @@ describe("SeherSDK class", () => {
 			expect(chunk.kind).toBe("claude");
 		}
 		expect(deltas.join("")).toBe("claude stream");
-		expect(claudeStreamCalls.length).toBe(1);
+		expect(claudeQueryCalls.length).toBe(1);
 	});
 
 	test("stream() triggers auto-resolution when kind is unset", async () => {
@@ -476,11 +479,12 @@ describe("SeherSDK class", () => {
 			baseURL: "https://example.test",
 		});
 		await sdk.run({ prompt: "hi" });
-		expect(claudeConstructorOpts.length).toBe(1);
-		expect(claudeConstructorOpts[0]).toEqual({
-			apiKey: "claude-key",
-			baseURL: "https://example.test",
-		});
+		expect(claudeQueryCalls.length).toBe(1);
+		const opts = claudeQueryCalls[0]?.options as {
+			env?: Record<string, string>;
+		};
+		expect(opts.env?.ANTHROPIC_API_KEY).toBe("claude-key");
+		expect(opts.env?.ANTHROPIC_BASE_URL).toBe("https://example.test");
 	});
 
 	test("apiKey is forwarded to CodexSDK on auto-resolution", async () => {

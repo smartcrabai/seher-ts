@@ -1,4 +1,8 @@
-import Anthropic from "@anthropic-ai/sdk";
+import {
+	type Options,
+	type PermissionMode,
+	query,
+} from "@anthropic-ai/claude-agent-sdk";
 import { extractTextBlocks } from "./text.ts";
 import type {
 	SdkKind,
@@ -12,76 +16,74 @@ export interface ClaudeSDKConfig {
 	apiKey?: string;
 	baseURL?: string;
 	defaultModel?: string;
+	/** Permission mode for the Claude agent. `"auto"` uses a model classifier. */
+	permissionMode?: PermissionMode;
+	cwd?: string;
 }
 
-const DEFAULT_MODEL = "claude-sonnet-4-6";
-const DEFAULT_MAX_TOKENS = 1024;
+const DEFAULT_PERMISSION_MODE: PermissionMode = "auto";
 
 export class ClaudeSDK implements SeherSDKInstance {
 	readonly kind: SdkKind = "claude";
 	private readonly config: ClaudeSDKConfig;
-	private _client: Anthropic | null = null;
 
 	constructor(config: ClaudeSDKConfig = {}) {
 		this.config = config;
 	}
 
-	private get client(): Anthropic {
-		if (this._client === null) {
-			const opts: { apiKey?: string; baseURL?: string } = {};
-			if (this.config.apiKey !== undefined) opts.apiKey = this.config.apiKey;
-			if (this.config.baseURL !== undefined) opts.baseURL = this.config.baseURL;
-			this._client = new Anthropic(opts);
+	private buildOptions(opts: SeherRunOptions): Options {
+		const permissionMode =
+			this.config.permissionMode ?? DEFAULT_PERMISSION_MODE;
+		const options: Options = { permissionMode };
+		if (permissionMode === "bypassPermissions") {
+			options.allowDangerouslySkipPermissions = true;
 		}
-		return this._client;
-	}
-
-	private buildParams(opts: SeherRunOptions) {
-		const params: {
-			model: string;
-			max_tokens: number;
-			messages: Array<{ role: "user"; content: string }>;
-			system?: string;
-		} = {
-			model: opts.model ?? this.config.defaultModel ?? DEFAULT_MODEL,
-			max_tokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
-			messages: [{ role: "user", content: opts.prompt }],
-		};
+		const model = opts.model ?? this.config.defaultModel;
+		if (model !== undefined) options.model = model;
 		if (opts.systemPrompt !== undefined) {
-			params.system = opts.systemPrompt;
+			options.systemPrompt = opts.systemPrompt;
 		}
-		return params;
+		if (this.config.cwd !== undefined) options.cwd = this.config.cwd;
+
+		const env: Record<string, string> = {};
+		if (this.config.apiKey !== undefined) {
+			env.ANTHROPIC_API_KEY = this.config.apiKey;
+		}
+		if (this.config.baseURL !== undefined) {
+			env.ANTHROPIC_BASE_URL = this.config.baseURL;
+		}
+		if (Object.keys(env).length > 0) options.env = env;
+
+		return options;
 	}
 
 	async run(opts: SeherRunOptions): Promise<SeherRunResult> {
-		const params = this.buildParams(opts);
-		const response = await this.client.messages.create(params);
-		const text = extractTextBlocks((response as { content?: unknown }).content);
-		return { text, kind: this.kind, raw: response };
+		const q = query({ prompt: opts.prompt, options: this.buildOptions(opts) });
+		let text = "";
+		let raw: unknown;
+		for await (const message of q) {
+			if (message.type === "result") {
+				raw = message;
+				if (message.subtype === "success") text = message.result;
+				break;
+			}
+		}
+		return { text, kind: this.kind, raw };
 	}
 
 	stream(opts: SeherRunOptions): AsyncIterable<SeherStreamChunk> {
-		const params = this.buildParams(opts);
-		const client = this.client;
-		const kind = this.kind;
+		const self = this;
 		return {
 			async *[Symbol.asyncIterator]() {
-				const s = client.messages.stream(params);
-				for await (const event of s as AsyncIterable<unknown>) {
-					const ev = event as {
-						type?: string;
-						delta?: { type?: string; text?: string };
-					};
-					let delta = "";
-					if (
-						ev.type === "content_block_delta" &&
-						ev.delta &&
-						ev.delta.type === "text_delta" &&
-						typeof ev.delta.text === "string"
-					) {
-						delta = ev.delta.text;
-					}
-					yield { kind, delta, raw: event };
+				const q = query({
+					prompt: opts.prompt,
+					options: self.buildOptions(opts),
+				});
+				for await (const message of q) {
+					if (message.type !== "assistant") continue;
+					const delta = extractTextBlocks(message.message.content);
+					if (delta.length === 0) continue;
+					yield { kind: self.kind, delta, raw: message };
 				}
 			},
 		};
