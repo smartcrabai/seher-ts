@@ -1,4 +1,6 @@
-import { approveAll, CopilotClient } from "@github/copilot-sdk";
+import { approveAll, CopilotClient, defineTool } from "@github/copilot-sdk";
+import type { z } from "zod";
+import type { SeherTool } from "./tools.ts";
 import type {
 	SdkKind,
 	SeherRunOptions,
@@ -12,6 +14,24 @@ export interface CopilotSDKConfig {
 	cliPath?: string;
 	cliUrl?: string;
 	defaultModel?: string;
+	/**
+	 * In-process tools registered via SeherSDK. Forwarded as `sessionConfig.tools`
+	 * to the Copilot CLI.
+	 */
+	tools?: SeherTool<z.ZodObject<z.ZodRawShape>>[];
+}
+
+function toCopilotTool(t: SeherTool<z.ZodObject<z.ZodRawShape>>) {
+	return defineTool(t.name, {
+		description: t.description,
+		// zod v4 ZodObject duck-types to copilot-sdk's ZodSchema (it exposes a
+		// `toJSONSchema()` method). The structural match isn't visible to TS, so
+		// we go through `unknown` and back.
+		parameters: t.parameters as unknown as Record<string, unknown>,
+		handler: async (args: unknown) => {
+			return t.handler(args as never);
+		},
+	});
 }
 
 const DEFAULT_MODEL = "gpt-5";
@@ -38,11 +58,16 @@ type ClientLike = {
 export class CopilotSDK implements SeherSDKInstance {
 	readonly kind: SdkKind = "copilot";
 	private readonly config: CopilotSDKConfig;
+	private readonly tools: ReturnType<typeof toCopilotTool>[] | undefined;
 	private _client: ClientLike | null = null;
 	private _starting: Promise<ClientLike> | null = null;
 
 	constructor(config: CopilotSDKConfig = {}) {
 		this.config = config;
+		this.tools =
+			config.tools !== undefined && config.tools.length > 0
+				? config.tools.map(toCopilotTool)
+				: undefined;
 	}
 
 	private async getClient(): Promise<ClientLike> {
@@ -80,6 +105,7 @@ export class CopilotSDK implements SeherSDKInstance {
 		if (opts.systemPrompt !== undefined) {
 			sessionConfig.systemMessage = { append: opts.systemPrompt };
 		}
+		if (this.tools !== undefined) sessionConfig.tools = this.tools;
 		return client.createSession(sessionConfig);
 	}
 

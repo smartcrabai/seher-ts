@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+	mockClaudeTool,
+	mockCreateSdkMcpServer,
+} from "./__test__/mockProviderTools.ts";
 
 const queryCalls: Array<{ prompt: unknown; options: Record<string, unknown> }> =
 	[];
@@ -17,7 +21,11 @@ mock.module("@anthropic-ai/claude-agent-sdk", () => {
 			},
 		};
 	}
-	return { query };
+	return {
+		query,
+		tool: mockClaudeTool,
+		createSdkMcpServer: mockCreateSdkMcpServer,
+	};
 });
 
 const { ClaudeSDK } = await import("./claude.ts");
@@ -174,5 +182,44 @@ describe("ClaudeSDK", () => {
 			deltas.push(chunk.delta);
 		}
 		expect(deltas).toEqual(["Hel", "lo"]);
+	});
+
+	test("tools are forwarded as an SDK MCP server in mcpServers", async () => {
+		const { z } = await import("zod");
+		queryMessages = [successResult("ok")];
+
+		const echo = {
+			name: "echo",
+			description: "Echo input",
+			parameters: z.object({ msg: z.string() }),
+			handler: async ({ msg }: { msg: string }) => `echoed: ${msg}`,
+		};
+		const sdk = new ClaudeSDK({ tools: [echo] });
+		await sdk.run({ prompt: "p" });
+
+		const opts = lastCall().options;
+		const mcpServers = opts.mcpServers as Record<
+			string,
+			Record<string, unknown>
+		>;
+		expect(mcpServers).toBeDefined();
+		expect(mcpServers.seher_tools).toBeDefined();
+		expect(mcpServers.seher_tools.__seherSdkMcp).toBe(true);
+		expect(mcpServers.seher_tools.name).toBe("seher_tools");
+		const mcpTools = mcpServers.seher_tools.tools as Array<{
+			__seherToolDef: boolean;
+			name: string;
+			description: string;
+		}>;
+		expect(mcpTools.length).toBe(1);
+		expect(mcpTools[0]?.name).toBe("echo");
+		expect(mcpTools[0]?.description).toBe("Echo input");
+	});
+
+	test("empty tools array does not set mcpServers", async () => {
+		queryMessages = [successResult("ok")];
+		const sdk = new ClaudeSDK({ tools: [] });
+		await sdk.run({ prompt: "p" });
+		expect(lastCall().options.mcpServers).toBeUndefined();
 	});
 });

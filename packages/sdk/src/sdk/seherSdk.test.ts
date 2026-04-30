@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { AgentConfig, AgentLimit, ProviderConfig } from "../types.ts";
+import {
+	mockClaudeTool,
+	mockCreateExternalTool,
+	mockCreateSdkMcpServer,
+	mockDefineTool,
+} from "./__test__/mockProviderTools.ts";
 
 // --- Mock the underlying provider SDKs so no real network calls happen. ---
 const claudeQueryCalls: Array<{ prompt: unknown; options: unknown }> = [];
@@ -41,7 +47,11 @@ mock.module("@anthropic-ai/claude-agent-sdk", () => {
 			},
 		};
 	}
-	return { query };
+	return {
+		query,
+		tool: mockClaudeTool,
+		createSdkMcpServer: mockCreateSdkMcpServer,
+	};
 });
 
 const codexConstructorOpts: Array<Record<string, unknown>> = [];
@@ -89,7 +99,7 @@ mock.module("@moonshot-ai/kimi-agent-sdk", () => {
 			close: async () => {},
 		};
 	}
-	return { createSession };
+	return { createSession, createExternalTool: mockCreateExternalTool };
 });
 
 const copilotConstructorOpts: Array<Record<string, unknown>> = [];
@@ -112,7 +122,11 @@ mock.module("@github/copilot-sdk", () => {
 			};
 		}
 	}
-	return { CopilotClient: MockCopilotClient, approveAll: () => {} };
+	return {
+		CopilotClient: MockCopilotClient,
+		approveAll: () => {},
+		defineTool: mockDefineTool,
+	};
 });
 
 const opencodeStartCalls: Array<Record<string, unknown>> = [];
@@ -501,5 +515,106 @@ describe("SeherSDK class", () => {
 		await sdk.run({ prompt: "hi" });
 		expect(codexConstructorOpts.length).toBe(1);
 		expect(codexConstructorOpts[0]).toEqual({ apiKey: "codex-key" });
+	});
+
+	test("explicit kind=codex with tools warns and ignores tools", async () => {
+		const { z } = await import("zod");
+		const warnSpy = mock((): void => {});
+		const origWarn = console.warn;
+		console.warn = warnSpy;
+		try {
+			const echo = {
+				name: "echo",
+				description: "Echo",
+				parameters: z.object({ msg: z.string() }),
+				handler: async ({ msg }: { msg: string }) => msg,
+			};
+			const sdk = new SeherSDK({ kind: "codex", tools: [echo] });
+			await sdk.run({ prompt: "hi" });
+			expect(warnSpy.mock.calls.length).toBe(1);
+			const msg = String(warnSpy.mock.calls[0]?.[0] ?? "");
+			expect(msg).toContain("codex");
+			expect(msg).toContain("not supported");
+			// CodexSDK constructor receives no `tools` field.
+			expect(codexConstructorOpts[0]).not.toHaveProperty("tools");
+		} finally {
+			console.warn = origWarn;
+		}
+	});
+
+	test("explicit kind=claude with tools does NOT warn", async () => {
+		const { z } = await import("zod");
+		const warnSpy = mock((): void => {});
+		const origWarn = console.warn;
+		console.warn = warnSpy;
+		try {
+			const echo = {
+				name: "echo",
+				description: "Echo",
+				parameters: z.object({ msg: z.string() }),
+				handler: async ({ msg }: { msg: string }) => msg,
+			};
+			const sdk = new SeherSDK({ kind: "claude", tools: [echo] });
+			await sdk.run({ prompt: "hi" });
+			expect(warnSpy.mock.calls.length).toBe(0);
+			const opts = claudeQueryCalls[0]?.options as {
+				mcpServers?: Record<string, unknown>;
+			};
+			expect(opts.mcpServers?.seher_tools).toBeDefined();
+		} finally {
+			console.warn = origWarn;
+		}
+	});
+
+	test("auto-resolution with tools excludes codex/cursor/opencode candidates", async () => {
+		const { z } = await import("zod");
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const echo = {
+			name: "echo",
+			description: "Echo",
+			parameters: z.object({ msg: z.string() }),
+			handler: async ({ msg }: { msg: string }) => msg,
+		};
+		// Higher-priority codex agent is listed first; with tools registered the
+		// resolver must skip it and pick claude.
+		const sdk = new SeherSDK({
+			tools: [echo],
+			resolveOverrides: {
+				sortedAgents: [
+					mkAgent("codex", { sdk: "codex" }),
+					mkAgent("cursor", { sdk: "cursor" }),
+					mkAgent("opencode", { sdk: "opencode" }),
+					mkAgent("claude", { sdk: "claude" }),
+				],
+				checkLimit,
+			},
+		});
+		const result = await sdk.run({ prompt: "hi" });
+		expect(result.kind).toBe("claude");
+		expect(claudeQueryCalls.length).toBe(1);
+		// codex/cursor/opencode were filtered out before checkLimit was called.
+		expect(checkLimit.mock.calls.length).toBe(1);
+	});
+
+	test("auto-resolution with tools throws when only no-tool-support agents exist", async () => {
+		const { z } = await import("zod");
+		const echo = {
+			name: "echo",
+			description: "Echo",
+			parameters: z.object({ msg: z.string() }),
+			handler: async ({ msg }: { msg: string }) => msg,
+		};
+		const sdk = new SeherSDK({
+			tools: [echo],
+			resolveOverrides: {
+				sortedAgents: [
+					mkAgent("codex", { sdk: "codex" }),
+					mkAgent("cursor", { sdk: "cursor" }),
+				],
+			},
+		});
+		await expect(sdk.run({ prompt: "hi" })).rejects.toThrow();
 	});
 });

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { mockDefineTool } from "./__test__/mockProviderTools.ts";
 
 const constructorCalls: Array<Record<string, unknown>> = [];
 const startCalls: number[] = [];
@@ -70,6 +71,7 @@ mock.module("@github/copilot-sdk", () => {
 	return {
 		CopilotClient: MockCopilotClient,
 		approveAll: APPROVE_ALL_SENTINEL,
+		defineTool: mockDefineTool,
 	};
 });
 
@@ -197,5 +199,31 @@ describe("CopilotSDK", () => {
 			// drain
 		}
 		expect(disconnectCalls.length).toBe(1);
+	});
+
+	test("tools are forwarded to sessionConfig.tools via defineTool", async () => {
+		const { z } = await import("zod");
+		const echo = {
+			name: "echo",
+			description: "Echo input",
+			parameters: z.object({ msg: z.string() }),
+			handler: async ({ msg }: { msg: string }) => `echoed: ${msg}`,
+		};
+		const sdk = new CopilotSDK({ tools: [echo] });
+		await sdk.run({ prompt: "p" });
+
+		const sessionConfig = createSessionCalls[0] as {
+			tools?: Array<{ __seherCopilotTool: boolean; name: string }>;
+		};
+		expect(sessionConfig.tools?.length).toBe(1);
+		expect(sessionConfig.tools?.[0]?.__seherCopilotTool).toBe(true);
+		expect(sessionConfig.tools?.[0]?.name).toBe("echo");
+	});
+
+	test("empty tools array does not set sessionConfig.tools", async () => {
+		const sdk = new CopilotSDK({ tools: [] });
+		await sdk.run({ prompt: "p" });
+		const sessionConfig = createSessionCalls[0] as { tools?: unknown };
+		expect(sessionConfig.tools).toBeUndefined();
 	});
 });
