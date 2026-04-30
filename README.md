@@ -321,6 +321,171 @@ first-party SDK in-process:
 All SDK backends expose the same `SeherSdk` interface, so the rest of
 seher-ts treats them interchangeably with spawned CLIs.
 
+## SDK (programmatic API)
+
+In addition to the `seher` CLI, the same agent-resolution and SDK-dispatch
+logic is exposed as a library package, `@seher-ts/sdk`. It loads the same
+`~/.config/seher/settings.jsonc`, performs the same CodexBar rate-limit
+checks (sleeping until reset by default), and dispatches the call to the
+first-party SDK of the resolved agent in-process.
+
+### Install
+
+```sh
+bun add @seher-ts/sdk
+# or: npm install @seher-ts/sdk
+```
+
+### Auto-resolve an agent from settings
+
+The default entry mirrors the CLI: `SeherSDK` consults your settings file,
+applies priority rules, checks rate limits via CodexBar, and only then
+dispatches to the chosen agent's first-party SDK.
+
+```ts
+import { SeherSDK } from "@seher-ts/sdk";
+
+const sdk = new SeherSDK();
+const result = await sdk.run({ prompt: "Hello!" });
+console.log(result.kind, result.text);
+```
+
+`run()` returns a `SeherRunResult` with the resolved provider `kind`
+(`"claude" | "codex" | "copilot" | "kimi" | "opencode" | "cursor"`), the
+assistant text, and the provider-specific `raw` payload. `stream()`
+yields incremental `SeherStreamChunk`s as the agent produces output:
+
+```ts
+for await (const chunk of sdk.stream({ prompt: "Write a haiku" })) {
+	process.stdout.write(chunk.delta);
+}
+```
+
+The resolved agent must have an `sdk` field set in settings (one of
+`"claude"`, `"codex"`, `"copilot"`, `"kimi"`, `"opencode"`, `"cursor"`);
+CLI-only agents are not callable from `SeherSDK` and will throw.
+
+### Filter and option overrides
+
+```ts
+new SeherSDK({
+	command: "claude",     // restrict to a specific agent command
+	provider: "anthropic", // restrict to a specific provider
+	model: "high",         // restrict to agents declaring this model key
+	configPath: "/path/to/settings.jsonc",
+	noWait: true,          // throw AllAgentsLimitedError instead of sleeping
+	maxRescans: 0,         // give up after the first rate-limit scan
+});
+```
+
+Per-call options forwarded through `run()` / `stream()` override the
+prompt, model, system prompt, and max tokens:
+
+```ts
+await sdk.run({
+	prompt: "Refactor this function",
+	model: "sonnet",
+	systemPrompt: "You are a senior TypeScript reviewer.",
+	maxTokens: 4096,
+});
+```
+
+`resolved()` forces resolution and returns the chosen `kind` plus the
+source agent. `reset()` drops any cached resolution so the next call
+re-runs CodexBar checks.
+
+### Skip auto-resolution with `kind`
+
+If you already know which provider to use, set `kind` to bypass settings
+loading and CodexBar entirely:
+
+```ts
+const sdk = new SeherSDK({
+	kind: "claude",
+	apiKey: process.env.ANTHROPIC_API_KEY,
+});
+await sdk.run({ prompt: "Hello!" });
+```
+
+`SeherSDKConfig` is the union of every provider's config (`apiKey`,
+`baseURL`, `defaultModel`, `permissionMode`, `cwd`, `gitHubToken`,
+`sandboxMode`, `approvalPolicy`, …), so only the fields relevant to the
+selected provider are read.
+
+### In-process tools
+
+Claude, Copilot, and Kimi support runtime tool registration. Tools are
+defined as `SeherTool`s with a `zod` `ZodObject` schema and a handler that
+returns a `string`:
+
+```ts
+import { z } from "zod";
+import { SeherSDK, type SeherTool } from "@seher-ts/sdk";
+
+const tools: SeherTool[] = [
+	{
+		name: "get_weather",
+		description: "Look up the current weather for a city.",
+		parameters: z.object({ city: z.string() }),
+		handler: async ({ city }) => `It's sunny in ${city}.`,
+	},
+];
+
+const sdk = new SeherSDK({ tools });
+await sdk.run({ prompt: "What's the weather in Tokyo?" });
+```
+
+Codex, Cursor, and OpenCode do not support runtime tool registration. If
+auto-resolution selects one of those, `SeherSDK` logs a warning and
+silently ignores `tools`; agents that cannot carry tools are also
+filtered out of the candidate set when `tools` is non-empty. To guarantee
+tool support, narrow the resolver with `command`, `provider`, or `kind`.
+
+### Per-provider entry points
+
+If you only need one provider, the package also exposes per-provider
+entry points that re-export each backend class directly, skipping the
+resolver:
+
+```ts
+import { ClaudeSDK } from "@seher-ts/sdk/claude";
+import { CodexSDK } from "@seher-ts/sdk/codex";
+import { CopilotSDK } from "@seher-ts/sdk/copilot";
+import { KimiSDK } from "@seher-ts/sdk/kimi";
+import { OpencodeSDK } from "@seher-ts/sdk/opencode";
+import { CursorSDK } from "@seher-ts/sdk/cursor";
+import { SeherSDK } from "@seher-ts/sdk/seher"; // same as the root entry
+```
+
+All of them implement the shared `SeherSDKInstance` interface
+(`kind`, `run`, `stream`).
+
+### Lower-level resolution helpers
+
+For finer-grained control, the package also exports the underlying
+resolver and rate-limit primitives so callers can plug in their own
+dispatch:
+
+```ts
+import {
+	AllAgentsLimitedError,
+	NoMatchingAgentError,
+	checkLimit,
+	filterAgents,
+	loadSettings,
+	resolveAgent,
+	sleepUntil,
+	sortByPriority,
+} from "@seher-ts/sdk";
+
+const settings = await loadSettings();
+const agent = await resolveAgent({ settings, command: "claude" });
+```
+
+`resolveAgent()` throws `NoMatchingAgentError` when filters exclude all
+agents, and `AllAgentsLimitedError` (carrying `minReset: Date`) when every
+candidate is rate-limited and `noWait` is set.
+
 ## Known limitations
 
 - **macOS only.** Linux and Windows are not supported at this time.
