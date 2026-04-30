@@ -1,9 +1,13 @@
 import {
+	createSdkMcpServer,
 	type Options,
 	type PermissionMode,
 	query,
+	tool,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { z } from "zod";
 import { extractTextBlocks } from "./text.ts";
+import type { SeherTool } from "./tools.ts";
 import type {
 	SdkKind,
 	SeherRunOptions,
@@ -19,16 +23,45 @@ export interface ClaudeSDKConfig {
 	/** Permission mode for the Claude agent. `"auto"` uses a model classifier. */
 	permissionMode?: PermissionMode;
 	cwd?: string;
+	/**
+	 * In-process tools registered via SeherSDK. Forwarded to the Claude agent
+	 * as an SDK MCP server (`mcpServers.seher_tools`).
+	 */
+	tools?: SeherTool<z.ZodObject<z.ZodRawShape>>[];
+}
+
+function toClaudeTool(t: SeherTool<z.ZodObject<z.ZodRawShape>>) {
+	return tool(
+		t.name,
+		t.description,
+		t.parameters.shape,
+		async (args: Record<string, unknown>) => {
+			const text = await t.handler(args as never);
+			return { content: [{ type: "text" as const, text }] };
+		},
+	);
 }
 
 const DEFAULT_PERMISSION_MODE: PermissionMode = "auto";
+const SEHER_TOOLS_MCP_NAME = "seher_tools";
 
 export class ClaudeSDK implements SeherSDKInstance {
 	readonly kind: SdkKind = "claude";
 	private readonly config: ClaudeSDKConfig;
+	private readonly mcpServers: Options["mcpServers"];
 
 	constructor(config: ClaudeSDKConfig = {}) {
 		this.config = config;
+		const tools = config.tools;
+		this.mcpServers =
+			tools !== undefined && tools.length > 0
+				? {
+						[SEHER_TOOLS_MCP_NAME]: createSdkMcpServer({
+							name: SEHER_TOOLS_MCP_NAME,
+							tools: tools.map(toClaudeTool),
+						}),
+					}
+				: undefined;
 	}
 
 	private buildOptions(opts: SeherRunOptions): Options {
@@ -56,6 +89,8 @@ export class ClaudeSDK implements SeherSDKInstance {
 			env.ANTHROPIC_BASE_URL = this.config.baseURL;
 		}
 		if (Object.keys(env).length > 0) options.env = env;
+
+		if (this.mcpServers !== undefined) options.mcpServers = this.mcpServers;
 
 		return options;
 	}

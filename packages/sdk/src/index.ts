@@ -9,6 +9,7 @@ export {
 	type ResolveAgentOptions,
 	resolveAgent,
 } from "./sdk/resolve.ts";
+export type { SeherTool } from "./sdk/tools.ts";
 export type {
 	SdkKind,
 	SeherRunOptions,

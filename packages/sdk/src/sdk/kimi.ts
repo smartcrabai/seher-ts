@@ -1,5 +1,7 @@
-import { createSession } from "@moonshot-ai/kimi-agent-sdk";
+import { createExternalTool, createSession } from "@moonshot-ai/kimi-agent-sdk";
+import type { z } from "zod";
 import { joinSystemPrompt } from "./text.ts";
+import type { SeherTool } from "./tools.ts";
 import type {
 	SdkKind,
 	SeherRunOptions,
@@ -15,6 +17,23 @@ export interface KimiSDKConfig {
 	yoloMode?: boolean;
 	executable?: string;
 	env?: Record<string, string>;
+	/**
+	 * In-process tools registered via SeherSDK. Forwarded to the Kimi session
+	 * as `externalTools`.
+	 */
+	tools?: SeherTool<z.ZodObject<z.ZodRawShape>>[];
+}
+
+function toKimiTool(t: SeherTool<z.ZodObject<z.ZodRawShape>>) {
+	return createExternalTool({
+		name: t.name,
+		description: t.description,
+		parameters: t.parameters,
+		handler: async (params) => {
+			const out = await t.handler(params as never);
+			return { output: out, message: out };
+		},
+	});
 }
 
 type KimiSession = {
@@ -34,9 +53,14 @@ type KimiTurn = AsyncIterable<KimiEvent> & {
 export class KimiSDK implements SeherSDKInstance {
 	readonly kind: SdkKind = "kimi";
 	private readonly config: KimiSDKConfig;
+	private readonly externalTools: ReturnType<typeof toKimiTool>[] | undefined;
 
 	constructor(config: KimiSDKConfig = {}) {
 		this.config = config;
+		this.externalTools =
+			config.tools !== undefined && config.tools.length > 0
+				? config.tools.map(toKimiTool)
+				: undefined;
 	}
 
 	private buildSessionOptions(opts: SeherRunOptions): Record<string, unknown> {
@@ -51,6 +75,9 @@ export class KimiSDK implements SeherSDKInstance {
 		if (this.config.executable !== undefined)
 			sessionOpts.executable = this.config.executable;
 		if (this.config.env !== undefined) sessionOpts.env = this.config.env;
+		if (this.externalTools !== undefined) {
+			sessionOpts.externalTools = this.externalTools;
+		}
 		return sessionOpts;
 	}
 

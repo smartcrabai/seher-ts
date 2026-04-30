@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { mockCreateExternalTool } from "./__test__/mockProviderTools.ts";
 
 const createSessionCalls: Array<Record<string, unknown>> = [];
 const promptCalls: unknown[] = [];
@@ -28,7 +29,7 @@ mock.module("@moonshot-ai/kimi-agent-sdk", () => {
 			},
 		};
 	}
-	return { createSession };
+	return { createSession, createExternalTool: mockCreateExternalTool };
 });
 
 const { KimiSDK } = await import("./kimi.ts");
@@ -173,5 +174,31 @@ describe("KimiSDK", () => {
 		}
 		expect(deltas).toEqual(["", "Hel", "lo", "", ""]);
 		expect(closeCalls.length).toBe(1);
+	});
+
+	test("tools are forwarded as externalTools via createExternalTool", async () => {
+		const { z } = await import("zod");
+		const echo = {
+			name: "echo",
+			description: "Echo input",
+			parameters: z.object({ msg: z.string() }),
+			handler: async ({ msg }: { msg: string }) => `echoed: ${msg}`,
+		};
+		const sdk = new KimiSDK({ tools: [echo] });
+		await sdk.run({ prompt: "p" });
+
+		const opts = createSessionCalls[0] as {
+			externalTools?: Array<{ __seherKimiTool: boolean; name: string }>;
+		};
+		expect(opts.externalTools?.length).toBe(1);
+		expect(opts.externalTools?.[0]?.__seherKimiTool).toBe(true);
+		expect(opts.externalTools?.[0]?.name).toBe("echo");
+	});
+
+	test("empty tools array does not set externalTools", async () => {
+		const sdk = new KimiSDK({ tools: [] });
+		await sdk.run({ prompt: "p" });
+		const opts = createSessionCalls[0] as { externalTools?: unknown };
+		expect(opts.externalTools).toBeUndefined();
 	});
 });

@@ -1,5 +1,6 @@
 import type { SdkKind } from "../types.ts";
 
+export type { SeherTool } from "./tools.ts";
 export type { SdkKind };
 
 export interface SeherRunOptions {

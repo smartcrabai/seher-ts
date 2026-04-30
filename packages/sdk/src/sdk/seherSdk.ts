@@ -1,3 +1,4 @@
+import { filterAgents as filterAgentsImpl } from "../priority/filter.ts";
 import type { AgentConfig } from "../types.ts";
 import { ClaudeSDK, type ClaudeSDKConfig } from "./claude.ts";
 import { CodexSDK, type CodexSDKConfig } from "./codex.ts";
@@ -18,6 +19,33 @@ import type {
 	SeherSDKInstance,
 	SeherStreamChunk,
 } from "./types.ts";
+
+/** SDKs that don't support in-process JS tool registration. */
+const NO_TOOL_SUPPORT: ReadonlySet<SdkKind> = new Set<SdkKind>([
+	"codex",
+	"cursor",
+	"opencode",
+]);
+
+const canCarryTools = (a: AgentConfig): boolean =>
+	a.sdk == null || !NO_TOOL_SUPPORT.has(a.sdk);
+
+function hasTools(config: SeherSDKConfig): boolean {
+	return config.tools !== undefined && config.tools.length > 0;
+}
+
+function stripTools(config: SeherSDKConfig): SeherSDKConfig {
+	const { tools: _tools, ...rest } = config;
+	return rest;
+}
+
+function wrapFilterForTools(
+	base: ResolveAgentOptions["filterAgents"] | undefined,
+): typeof filterAgentsImpl {
+	const inner = base ?? filterAgentsImpl;
+	return (agents, filterOpts) =>
+		inner(agents, filterOpts).filter(canCarryTools);
+}
 
 export type SeherSDKConfig = ClaudeSDKConfig &
 	CodexSDKConfig &
@@ -61,19 +89,26 @@ function buildInstance(
 	kind: SdkKind,
 	config: SeherSDKConfig,
 ): SeherSDKInstance {
+	let effective = config;
+	if (NO_TOOL_SUPPORT.has(kind) && hasTools(config)) {
+		console.warn(
+			`[SeherSDK] tools registration is not supported by '${kind}'; ${config.tools?.length ?? 0} tool(s) will be ignored.`,
+		);
+		effective = stripTools(config);
+	}
 	switch (kind) {
 		case "claude":
-			return new ClaudeSDK(config);
+			return new ClaudeSDK(effective);
 		case "codex":
-			return new CodexSDK(config);
+			return new CodexSDK(effective);
 		case "copilot":
-			return new CopilotSDK(config);
+			return new CopilotSDK(effective);
 		case "kimi":
-			return new KimiSDK(config);
+			return new KimiSDK(effective);
 		case "opencode":
-			return new OpencodeSDK(config);
+			return new OpencodeSDK(effective);
 		case "cursor":
-			return new CursorSDK(config);
+			return new CursorSDK(effective);
 	}
 }
 
@@ -170,6 +205,18 @@ export class SeherSDK {
 			...(noWait !== undefined && { noWait }),
 			...(maxRescans !== undefined && { maxRescans }),
 		};
+
+		// resolveAgent() bypasses filterAgents when sortedAgents is provided
+		// (resolve.ts:73-88), so apply the predicate to both paths.
+		if (hasTools(this.opts)) {
+			resolveOpts.filterAgents = wrapFilterForTools(
+				this.opts.resolveOverrides?.filterAgents,
+			);
+			if (resolveOpts.sortedAgents !== undefined) {
+				resolveOpts.sortedAgents =
+					resolveOpts.sortedAgents.filter(canCarryTools);
+			}
+		}
 
 		const agent = await resolveAgent(resolveOpts);
 		if (agent.sdk === undefined || agent.sdk === null) {
