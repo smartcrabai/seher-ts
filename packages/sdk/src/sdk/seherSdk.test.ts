@@ -617,4 +617,151 @@ describe("SeherSDK class", () => {
 		});
 		await expect(sdk.run({ prompt: "hi" })).rejects.toThrow();
 	});
+
+	test("agent.env is forwarded to ClaudeSDK on auto-resolution", async () => {
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			resolveOverrides: {
+				sortedAgents: [
+					mkAgent("claude", {
+						sdk: "claude",
+						env: { ANTHROPIC_API_KEY: "from-agent", FOO: "bar" },
+					}),
+				],
+				checkLimit,
+			},
+		});
+		await sdk.run({ prompt: "hi" });
+		const opts = claudeQueryCalls[0]?.options as {
+			env?: Record<string, string>;
+		};
+		expect(opts.env?.ANTHROPIC_API_KEY).toBe("from-agent");
+		expect(opts.env?.FOO).toBe("bar");
+	});
+
+	test("user opts.env wins over agent.env", async () => {
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			env: { FOO: "user", BAZ: "user-only" },
+			resolveOverrides: {
+				sortedAgents: [
+					mkAgent("claude", {
+						sdk: "claude",
+						env: { FOO: "agent", QUX: "agent-only" },
+					}),
+				],
+				checkLimit,
+			},
+		});
+		await sdk.run({ prompt: "hi" });
+		const opts = claudeQueryCalls[0]?.options as {
+			env?: Record<string, string>;
+		};
+		expect(opts.env?.FOO).toBe("user");
+		expect(opts.env?.BAZ).toBe("user-only");
+		expect(opts.env?.QUX).toBe("agent-only");
+	});
+
+	test("agent.env is ignored with a warning for env-unsupported SDKs (codex)", async () => {
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const warnSpy = mock((): void => {});
+		const origWarn = console.warn;
+		console.warn = warnSpy;
+		try {
+			const sdk = new SeherSDK({
+				resolveOverrides: {
+					sortedAgents: [
+						mkAgent("codex", {
+							sdk: "codex",
+							env: { OPENAI_API_KEY: "x" },
+						}),
+					],
+					checkLimit,
+				},
+			});
+			await sdk.run({ prompt: "hi" });
+			expect(warnSpy.mock.calls.length).toBe(1);
+			const msg = String(warnSpy.mock.calls[0]?.[0] ?? "");
+			expect(msg).toContain("codex");
+			expect(msg).toContain("env");
+			expect(msg).toContain("ignored");
+			expect(codexConstructorOpts[0]).not.toHaveProperty("env");
+		} finally {
+			console.warn = origWarn;
+		}
+	});
+
+	test("agent.models translates runOpts.model to the mapped id (claude)", async () => {
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			resolveOverrides: {
+				sortedAgents: [
+					mkAgent("claude", {
+						sdk: "claude",
+						models: { sonnet: "claude-sonnet-4-5", opus: "claude-opus-4-7" },
+					}),
+				],
+				checkLimit,
+			},
+		});
+		await sdk.run({ prompt: "hi", model: "sonnet" });
+		const opts = claudeQueryCalls[0]?.options as { model?: string };
+		expect(opts.model).toBe("claude-sonnet-4-5");
+	});
+
+	test("agent.models is bypassed when key is unknown (passes through)", async () => {
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			resolveOverrides: {
+				sortedAgents: [
+					mkAgent("claude", {
+						sdk: "claude",
+						models: { sonnet: "claude-sonnet-4-5" },
+					}),
+				],
+				checkLimit,
+			},
+		});
+		await sdk.run({ prompt: "hi", model: "claude-3-haiku-20240307" });
+		const opts = claudeQueryCalls[0]?.options as { model?: string };
+		expect(opts.model).toBe("claude-3-haiku-20240307");
+	});
+
+	test("opts.model (filter key) is reused as the run model when runOpts.model is omitted", async () => {
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			model: "sonnet",
+			resolveOverrides: {
+				sortedAgents: [
+					mkAgent("claude", {
+						sdk: "claude",
+						models: { sonnet: "claude-sonnet-4-5" },
+					}),
+				],
+				checkLimit,
+			},
+		});
+		await sdk.run({ prompt: "hi" });
+		const opts = claudeQueryCalls[0]?.options as { model?: string };
+		expect(opts.model).toBe("claude-sonnet-4-5");
+	});
+
+	test("explicit kind: model is not translated (no agent context)", async () => {
+		const sdk = new SeherSDK({ kind: "claude" });
+		await sdk.run({ prompt: "hi", model: "sonnet" });
+		const opts = claudeQueryCalls[0]?.options as { model?: string };
+		expect(opts.model).toBe("sonnet");
+	});
 });

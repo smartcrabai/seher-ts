@@ -24,6 +24,12 @@ export interface ClaudeSDKConfig {
 	permissionMode?: PermissionMode;
 	cwd?: string;
 	/**
+	 * Extra environment variables forwarded to the spawned Claude agent process.
+	 * `apiKey` / `baseURL` (translated to `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL`)
+	 * take precedence over keys with the same name set here.
+	 */
+	env?: Record<string, string>;
+	/**
 	 * In-process tools registered via SeherSDK. Forwarded to the Claude agent
 	 * as an SDK MCP server (`mcpServers.seher_tools`).
 	 */
@@ -81,7 +87,7 @@ export class ClaudeSDK implements SeherSDKInstance {
 		}
 		if (this.config.cwd !== undefined) options.cwd = this.config.cwd;
 
-		const env: Record<string, string> = {};
+		const env: Record<string, string> = { ...(this.config.env ?? {}) };
 		if (this.config.apiKey !== undefined) {
 			env.ANTHROPIC_API_KEY = this.config.apiKey;
 		}
