@@ -15,6 +15,8 @@ first-party SDKs via the shared `SeherSdk` interface:
 - `@openai/codex-sdk` for Codex agents (`"sdk": "codex"`).
 - `@github/copilot-sdk` for GitHub Copilot agents (`"sdk": "copilot"`).
 - `@moonshot-ai/kimi-agent-sdk` for Kimi Code agents (`"sdk": "kimi"`).
+- `@opencode-ai/sdk` for OpenCode agents (`"sdk": "opencode"`).
+- `@cursor/sdk` for Cursor agents (`"sdk": "cursor"`).
 
 ## Install
 
@@ -88,6 +90,12 @@ Each agent entry may opt into an SDK-backed runner with the `sdk` field:
 
 		// Drive this Kimi agent through @moonshot-ai/kimi-agent-sdk.
 		{ "command": "kimi", "sdk": "kimi" },
+
+		// Drive this OpenCode agent through @opencode-ai/sdk.
+		{ "command": "opencode", "sdk": "opencode" },
+
+		// Drive this Cursor agent through @cursor/sdk.
+		{ "command": "cursor-agent", "sdk": "cursor" },
 
 		// Omit `sdk` to spawn the CLI binary directly (default behaviour).
 		{ "command": "opencode" },

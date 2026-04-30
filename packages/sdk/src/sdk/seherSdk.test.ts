@@ -110,6 +110,76 @@ mock.module("@github/copilot-sdk", () => {
 	return { CopilotClient: MockCopilotClient, approveAll: () => {} };
 });
 
+const opencodeStartCalls: Array<Record<string, unknown>> = [];
+const opencodePromptCalls: unknown[] = [];
+mock.module("@opencode-ai/sdk", () => {
+	const fakeClient = {
+		session: {
+			create: async () => ({ data: { id: "session_1" } }),
+			prompt: async (opts: unknown) => {
+				opencodePromptCalls.push(opts);
+				return {
+					data: {
+						info: { id: "msg_1" },
+						parts: [{ type: "text", text: "opencode reply" }],
+					},
+				};
+			},
+			delete: async (_opts: unknown) => ({ data: true }),
+		},
+	};
+	return {
+		createOpencodeClient: () => fakeClient,
+		createOpencode: async (cfg: Record<string, unknown> = {}) => {
+			opencodeStartCalls.push(cfg);
+			return {
+				client: fakeClient,
+				server: { url: "http://127.0.0.1", close: () => {} },
+			};
+		},
+	};
+});
+
+const cursorCreateOpts: Array<Record<string, unknown>> = [];
+const cursorSendCalls: unknown[] = [];
+mock.module("@cursor/sdk", () => {
+	class FakeAgent {
+		static async create(options: Record<string, unknown>) {
+			cursorCreateOpts.push(options);
+			return {
+				agentId: "agent_x",
+				model: undefined,
+				send: async (message: unknown) => {
+					cursorSendCalls.push(message);
+					return {
+						id: "run_x",
+						agentId: "agent_x",
+						status: "finished",
+						supports: () => true,
+						unsupportedReason: () => undefined,
+						stream: async function* () {
+							yield {
+								type: "assistant",
+								message: { content: [{ type: "text", text: "cursor reply" }] },
+							};
+						},
+						wait: async () => ({ status: "finished", result: "cursor reply" }),
+						cancel: async () => {},
+						conversation: async () => [],
+						onDidChangeStatus: () => () => {},
+					};
+				},
+				close: () => {},
+				reload: async () => {},
+				listArtifacts: async () => [],
+				downloadArtifact: async () => Buffer.from(""),
+				[Symbol.asyncDispose]: async () => {},
+			};
+		}
+	}
+	return { Agent: FakeAgent };
+});
+
 const { SeherSDK } = await import("./seherSdk.ts");
 const { AllAgentsLimitedError } = await import("./resolve.ts");
 
@@ -144,6 +214,10 @@ describe("SeherSDK class", () => {
 		copilotPrompts.length = 0;
 		kimiSessionOpts.length = 0;
 		kimiPrompts.length = 0;
+		opencodeStartCalls.length = 0;
+		opencodePromptCalls.length = 0;
+		cursorCreateOpts.length = 0;
+		cursorSendCalls.length = 0;
 	});
 
 	test("kind=claude: synchronous construction, run dispatches to ClaudeSDK", async () => {
@@ -182,6 +256,25 @@ describe("SeherSDK class", () => {
 		expect(kimiPrompts).toEqual(["hi"]);
 		const opts = kimiSessionOpts[0] as { workDir?: string };
 		expect(opts?.workDir).toBe("/tmp/proj");
+	});
+
+	test("kind=opencode: synchronous construction, run dispatches to OpencodeSDK", async () => {
+		const sdk = new SeherSDK({ kind: "opencode", port: 4096 });
+		expect(sdk.kind).toBe("opencode");
+		const result = await sdk.run({ prompt: "hi" });
+		expect(result.kind).toBe("opencode");
+		expect(result.text).toBe("opencode reply");
+		expect(opencodeStartCalls.length).toBe(1);
+		expect(opencodePromptCalls.length).toBe(1);
+	});
+
+	test("kind=cursor: synchronous construction, run dispatches to CursorSDK", async () => {
+		const sdk = new SeherSDK({ kind: "cursor", apiKey: "k", cwd: "/tmp/p" });
+		expect(sdk.kind).toBe("cursor");
+		const result = await sdk.run({ prompt: "hi" });
+		expect(result.kind).toBe("cursor");
+		expect(result.text).toBe("cursor reply");
+		expect(cursorSendCalls).toEqual(["hi"]);
 	});
 
 	test("kind unset: resolves to kimi when sdk field is set", async () => {

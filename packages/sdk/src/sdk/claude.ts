@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { extractTextBlocks } from "./text.ts";
 import type {
 	SdkKind,
 	SeherRunOptions,
@@ -15,19 +16,6 @@ export interface ClaudeSDKConfig {
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 const DEFAULT_MAX_TOKENS = 1024;
-
-type ContentBlockLike = { type?: string; text?: string };
-
-function extractText(content: unknown): string {
-	if (!Array.isArray(content)) return "";
-	const parts: string[] = [];
-	for (const block of content as ContentBlockLike[]) {
-		if (block && block.type === "text" && typeof block.text === "string") {
-			parts.push(block.text);
-		}
-	}
-	return parts.join("");
-}
 
 export class ClaudeSDK implements SeherSDKInstance {
 	readonly kind: SdkKind = "claude";
@@ -68,7 +56,7 @@ export class ClaudeSDK implements SeherSDKInstance {
 	async run(opts: SeherRunOptions): Promise<SeherRunResult> {
 		const params = this.buildParams(opts);
 		const response = await this.client.messages.create(params);
-		const text = extractText((response as { content?: unknown }).content);
+		const text = extractTextBlocks((response as { content?: unknown }).content);
 		return { text, kind: this.kind, raw: response };
 	}
 

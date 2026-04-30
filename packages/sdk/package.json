@@ -1,7 +1,7 @@
 {
 	"name": "@seher-ts/sdk",
 	"version": "0.1.2",
-	"description": "Seher SDK: programmatically resolve the highest-priority available coding agent (Claude / Codex / Copilot / Kimi)",
+	"description": "Seher SDK: programmatically resolve the highest-priority available coding agent (Claude / Codex / Copilot / Kimi / OpenCode / Cursor)",
 	"license": "Apache-2.0",
 	"repository": {
 		"type": "git",
@@ -42,6 +42,16 @@
 			"bun": "./src/entries/kimi.ts",
 			"import": "./dist/entries/kimi.js"
 		},
+		"./opencode": {
+			"types": "./dist/entries/opencode.d.ts",
+			"bun": "./src/entries/opencode.ts",
+			"import": "./dist/entries/opencode.js"
+		},
+		"./cursor": {
+			"types": "./dist/entries/cursor.d.ts",
+			"bun": "./src/entries/cursor.ts",
+			"import": "./dist/entries/cursor.js"
+		},
 		"./seher": {
 			"types": "./dist/entries/seher.d.ts",
 			"bun": "./src/entries/seher.ts",
@@ -77,9 +87,11 @@
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "^0.90.0",
+		"@cursor/sdk": "^1.0.10",
 		"@github/copilot-sdk": "^0.3.0",
 		"@moonshot-ai/kimi-agent-sdk": "^0.1.8",
 		"@openai/codex-sdk": "^0.123.0",
+		"@opencode-ai/sdk": "^1.14.30",
 		"jsonc-parser": "^3.3.1",
 		"zod": "^4.3.6"
 	}
