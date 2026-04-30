@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { AgentConfig } from "../types.ts";
+import type { AgentConfig } from "@seher-ts/sdk";
 import { runAgent, shouldAutoRerun } from "./runner.ts";
 
 function makeAgent(overrides: Partial<AgentConfig> = {}): AgentConfig {

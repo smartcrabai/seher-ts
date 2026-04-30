@@ -1,0 +1,228 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://raw.githubusercontent.com/seher-ts/seher-ts/main/schemas/settings.schema.json",
+	"title": "seher settings",
+	"description": "Configuration for seher. The loader accepts both settings.json and settings.jsonc, and it supports comments and trailing commas even though those are outside standard JSON.",
+	"type": "object",
+	"required": ["agents"],
+	"properties": {
+		"$schema": {
+			"type": "string",
+			"description": "Optional JSON Schema URI for editor validation and completion."
+		},
+		"priority": {
+			"type": "array",
+			"description": "Priority rules used to choose among non-limited agents.",
+			"default": [],
+			"items": {
+				"$ref": "#/$defs/priorityRule"
+			}
+		},
+		"agents": {
+			"type": "array",
+			"description": "List of agents to use.",
+			"items": {
+				"$ref": "#/$defs/agentConfig"
+			}
+		}
+	},
+	"$defs": {
+		"provider": {
+			"description": "Provider used for rate-limit tracking. Omit to infer from command, use null to disable provider-based checks, or use any string to override the provider name.",
+			"type": ["string", "null"],
+			"examples": [
+				"claude",
+				"codex",
+				"copilot",
+				"openrouter",
+				"glm",
+				"opencode-go",
+				null
+			]
+		},
+		"agentConfig": {
+			"type": "object",
+			"required": ["command"],
+			"properties": {
+				"command": {
+					"type": "string",
+					"description": "Executable name to run.",
+					"examples": ["claude", "codex", "opencode"]
+				},
+				"args": {
+					"type": "array",
+					"description": "Additional arguments. Entries containing {model} are omitted when --model is not set.",
+					"default": [],
+					"items": {
+						"type": "string"
+					}
+				},
+				"pre_command": {
+					"type": "array",
+					"description": "Command to run before the agent. First element is the executable, remaining elements are arguments.",
+					"default": [],
+					"items": {
+						"type": "string"
+					}
+				},
+				"models": {
+					"description": "Optional mapping from user-facing model keys to backend model identifiers.",
+					"default": null,
+					"anyOf": [
+						{
+							"type": "object",
+							"additionalProperties": {
+								"type": "string"
+							}
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"arg_maps": {
+					"type": "object",
+					"description": "Exact-match mapping from trailing CLI tokens to replacement token arrays.",
+					"default": {},
+					"additionalProperties": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						}
+					}
+				},
+				"env": {
+					"description": "Optional environment variables injected when launching the agent.",
+					"default": null,
+					"anyOf": [
+						{
+							"type": "object",
+							"additionalProperties": {
+								"type": "string"
+							}
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"provider": {
+					"$ref": "#/$defs/provider"
+				},
+				"openrouter_management_key": {
+					"type": "string",
+					"description": "Management API key for OpenRouter provider. Required when provider is \"openrouter\"."
+				},
+				"glm_api_key": {
+					"type": "string",
+					"description": "API key for GLM (Zhipu AI) provider. Required when provider is \"glm\"."
+				},
+				"active": {
+					"description": "If set, the agent is active only during the specified schedule; completely disabled outside it.",
+					"$ref": "#/$defs/scheduleRule"
+				},
+				"inactive": {
+					"description": "If set, the agent is completely disabled during the specified schedule; active otherwise.",
+					"$ref": "#/$defs/scheduleRule"
+				},
+				"sdk": {
+					"type": ["string", "null"],
+					"enum": ["claude", "codex", "copilot", "kimi", null],
+					"description": "If set, drives this agent through the named SDK (\"claude\" for @anthropic-ai/sdk, \"codex\" for @openai/codex-sdk, \"copilot\" for @github/copilot-sdk, \"kimi\" for @moonshot-ai/kimi-agent-sdk) instead of spawning the CLI binary directly."
+				}
+			},
+			"allOf": [
+				{
+					"if": {
+						"properties": {
+							"provider": {
+								"const": "openrouter"
+							}
+						},
+						"required": ["provider"]
+					},
+					"then": {
+						"required": ["openrouter_management_key"]
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"provider": {
+								"const": "glm"
+							}
+						},
+						"required": ["provider"]
+					},
+					"then": {
+						"required": ["glm_api_key"]
+					}
+				}
+			]
+		},
+		"priorityRule": {
+			"type": "object",
+			"required": ["command", "priority"],
+			"properties": {
+				"command": {
+					"type": "string",
+					"description": "Executable name to match.",
+					"examples": ["claude", "codex", "opencode"]
+				},
+				"provider": {
+					"$ref": "#/$defs/provider"
+				},
+				"model": {
+					"type": ["string", "null"],
+					"description": "Model key to match. Omit or set to null to match runs without --model."
+				},
+				"priority": {
+					"type": "integer",
+					"description": "Priority value. Higher values win when multiple agents are available.",
+					"minimum": -2147483648,
+					"maximum": 2147483647
+				}
+			},
+			"allOf": [{ "$ref": "#/$defs/scheduleRule" }]
+		},
+		"scheduleRule": {
+			"type": "object",
+			"properties": {
+				"weekdays": {
+					"type": "array",
+					"description": "Weekday ranges in 'start-end' format (0=Sun, 1=Mon, ..., 6=Sat, inclusive). e.g. ['1-5'] means Mon-Fri.",
+					"items": { "type": "string" }
+				},
+				"hours": {
+					"type": "array",
+					"description": "Hour ranges in 'start-end' format, half-open [start, end), 0-48. e.g. ['21-27'] means 21:00-03:00 next day.",
+					"items": { "type": "string" }
+				}
+			}
+		}
+	},
+	"examples": [
+		{
+			"$schema": "https://raw.githubusercontent.com/seher-ts/seher-ts/main/schemas/settings.schema.json",
+			"priority": [
+				{
+					"command": "claude",
+					"model": "high",
+					"priority": 100
+				}
+			],
+			"agents": [
+				{
+					"command": "claude",
+					"args": ["--model", "{model}"],
+					"models": {
+						"high": "opus",
+						"medium": "sonnet",
+						"low": "haiku"
+					},
+					"sdk": "claude"
+				}
+			]
+		}
+	]
+}

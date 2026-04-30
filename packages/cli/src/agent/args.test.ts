@@ -21,6 +21,11 @@ test("resolveArgs passes --model <value> through when models map is null", () =>
 	expect(out).toEqual(["--model", "high"]);
 });
 
+test("resolveArgs does not duplicate --model when template already contains {model} and models map is null", () => {
+	const out = resolveArgs(["--model", "{model}"], "high", null);
+	expect(out).toEqual(["--model", "high"]);
+});
+
 test("resolveArgs leaves args untouched when no model is selected and template has no placeholder", () => {
 	const out = resolveArgs(["--foo", "bar"], undefined, { high: "opus" });
 	expect(out).toEqual(["--foo", "bar"]);

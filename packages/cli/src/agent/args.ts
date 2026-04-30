@@ -17,6 +17,7 @@ export function resolveArgs(
 	modelsMap: Record<string, string> | null,
 ): string[] {
 	const out: string[] = [];
+	let placeholderUsed = false;
 	for (const arg of template) {
 		if (arg.includes(MODEL_PLACEHOLDER)) {
 			if (selectedModel === undefined) {
@@ -29,6 +30,7 @@ export function resolveArgs(
 			}
 			const replacement = modelsMap?.[selectedModel] ?? selectedModel;
 			out.push(arg.replaceAll(MODEL_PLACEHOLDER, replacement));
+			placeholderUsed = true;
 		} else {
 			out.push(arg);
 		}
@@ -36,7 +38,7 @@ export function resolveArgs(
 
 	// When no models map is configured and the caller passed a model,
 	// forward it as `--model <value>` (mirrors Rust's resolved_args).
-	if (modelsMap === null && selectedModel !== undefined) {
+	if (modelsMap === null && selectedModel !== undefined && !placeholderUsed) {
 		out.push("--model", selectedModel);
 	}
 

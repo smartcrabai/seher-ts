@@ -879,6 +879,8 @@
 					if (!confirm(`Delete agent at row ${idx + 1}?`)) return;
 					state.settings.agents.splice(idx, 1);
 					if (state.editingIdx === idx) state.editingIdx = null;
+					else if (state.editingIdx !== null && state.editingIdx > idx)
+						state.editingIdx -= 1;
 					setDirty(true);
 					render();
 				},

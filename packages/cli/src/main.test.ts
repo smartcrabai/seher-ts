@@ -1,13 +1,13 @@
 import { describe, expect, mock, test } from "bun:test";
+import {
+	type AgentConfig,
+	type AgentLimit,
+	type PriorityRule,
+	type ProviderConfig,
+	resolveAgent,
+	type Settings,
+} from "@seher-ts/sdk";
 import { type RunSeherDeps, runSeher } from "./main.ts";
-import { resolveAgent } from "./sdk/resolve.ts";
-import type {
-	AgentConfig,
-	AgentLimit,
-	PriorityRule,
-	ProviderConfig,
-	Settings,
-} from "./types.ts";
 
 const INFERRED: ProviderConfig = { kind: "inferred" };
 const NO_PROVIDER: ProviderConfig = { kind: "none" };
