@@ -1,0 +1,86 @@
+{
+	"name": "@seher-ts/sdk",
+	"version": "0.1.1",
+	"description": "Seher SDK: programmatically resolve the highest-priority available coding agent (Claude / Codex / Copilot / Kimi)",
+	"license": "Apache-2.0",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/smartcrabai/seher-ts.git",
+		"directory": "packages/sdk"
+	},
+	"homepage": "https://github.com/smartcrabai/seher-ts#readme",
+	"bugs": {
+		"url": "https://github.com/smartcrabai/seher-ts/issues"
+	},
+	"type": "module",
+	"main": "./dist/index.js",
+	"module": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"bun": "./src/index.ts",
+			"import": "./dist/index.js"
+		},
+		"./claude": {
+			"types": "./dist/entries/claude.d.ts",
+			"bun": "./src/entries/claude.ts",
+			"import": "./dist/entries/claude.js"
+		},
+		"./codex": {
+			"types": "./dist/entries/codex.d.ts",
+			"bun": "./src/entries/codex.ts",
+			"import": "./dist/entries/codex.js"
+		},
+		"./copilot": {
+			"types": "./dist/entries/copilot.d.ts",
+			"bun": "./src/entries/copilot.ts",
+			"import": "./dist/entries/copilot.js"
+		},
+		"./kimi": {
+			"types": "./dist/entries/kimi.d.ts",
+			"bun": "./src/entries/kimi.ts",
+			"import": "./dist/entries/kimi.js"
+		},
+		"./seher": {
+			"types": "./dist/entries/seher.d.ts",
+			"bun": "./src/entries/seher.ts",
+			"import": "./dist/entries/seher.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist",
+		"src",
+		"!src/**/*.test.ts",
+		"README.md",
+		"LICENSE"
+	],
+	"scripts": {
+		"build": "rm -rf dist && tsc -p tsconfig.build.json && bun run ../../scripts/rewrite-dts-extensions.ts dist",
+		"test": "bun test",
+		"prepublishOnly": "bun run build && bun test"
+	},
+	"engines": {
+		"node": ">=20"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"peerDependencies": {
+		"typescript": "^5.0.0 || ^6.0.0"
+	},
+	"peerDependenciesMeta": {
+		"typescript": {
+			"optional": true
+		}
+	},
+	"dependencies": {
+		"@anthropic-ai/sdk": "^0.90.0",
+		"@github/copilot-sdk": "^0.3.0",
+		"@moonshot-ai/kimi-agent-sdk": "^0.1.8",
+		"@openai/codex-sdk": "^0.123.0",
+		"jsonc-parser": "^3.3.1",
+		"zod": "^4.3.6"
+	}
+}

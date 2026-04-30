@@ -1,4 +1,6 @@
-export type SdkKind = "claude" | "codex" | "copilot" | "kimi";
+import type { SdkKind } from "../types.ts";
+
+export type { SdkKind };
 
 export interface SeherRunOptions {
 	prompt: string;

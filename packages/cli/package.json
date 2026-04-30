@@ -1,0 +1,41 @@
+{
+	"name": "seher-ts",
+	"version": "0.1.1",
+	"description": "CLI that resolves the highest-priority coding agent (Claude / Codex / Copilot / Kimi) based on usage limits",
+	"license": "Apache-2.0",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/smartcrabai/seher-ts.git",
+		"directory": "packages/cli"
+	},
+	"homepage": "https://github.com/smartcrabai/seher-ts#readme",
+	"bugs": {
+		"url": "https://github.com/smartcrabai/seher-ts/issues"
+	},
+	"type": "module",
+	"bin": {
+		"seher": "./dist/index.js"
+	},
+	"files": [
+		"dist",
+		"schemas",
+		"README.md",
+		"LICENSE"
+	],
+	"scripts": {
+		"build": "rm -rf dist && tsc -p tsconfig.build.json && cp -R src/web/public dist/web/public",
+		"test": "bun test",
+		"prepublishOnly": "bun run build && bun test"
+	},
+	"engines": {
+		"node": ">=20"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"dependencies": {
+		"@seher-ts/sdk": "workspace:*",
+		"commander": "^12.1.0",
+		"jsonc-parser": "^3.3.1"
+	}
+}

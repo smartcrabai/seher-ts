@@ -1,4 +1,4 @@
-import type { AgentConfig } from "../types.ts";
+import type { AgentConfig } from "@seher-ts/sdk";
 import { applyArgMaps, resolveArgs } from "./args.ts";
 import { buildEnv } from "./env.ts";
 

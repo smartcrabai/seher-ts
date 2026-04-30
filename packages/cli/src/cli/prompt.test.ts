@@ -50,6 +50,7 @@ describe("resolvePrompt", () => {
 			trailing: [],
 			readStream: async () => "",
 			isStdinTty: false,
+			editorFallback: true,
 			runEditor: async () => {
 				editorCalled = true;
 				return "nope";
@@ -64,6 +65,7 @@ describe("resolvePrompt", () => {
 			trailing: [],
 			readStream: async () => "",
 			isStdinTty: true,
+			editorFallback: true,
 			runEditor: async () => "",
 		});
 		expect(result).toBeNull();
