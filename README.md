@@ -329,6 +329,3 @@ seher-ts treats them interchangeably with spawned CLIs.
 - The JSONC settings file is format-compatible with the Rust implementation,
   but behavioural parity is still in progress.
 
-## License
-
-Apache-2.0. See [`LICENSE`](./LICENSE).
