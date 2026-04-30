@@ -21,17 +21,13 @@ first-party SDKs via the shared `SeherSdk` interface:
 ## Install
 
 ```sh
-bun install
+npm install -g @seher-ts/cli
 ```
 
 ## Usage
 
 ```sh
-# Run via the source entry point
-bun run src/index.ts [prompt...]
-
-# Or through the npm script
-bun run start
+seher [prompt...]
 ```
 
 ## Configuration
