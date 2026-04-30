@@ -27,6 +27,14 @@ const NO_TOOL_SUPPORT: ReadonlySet<SdkKind> = new Set<SdkKind>([
 	"opencode",
 ]);
 
+/** SDKs whose underlying lib does not accept env passthrough. */
+const NO_ENV_SUPPORT: ReadonlySet<SdkKind> = new Set<SdkKind>([
+	"codex",
+	"copilot",
+	"cursor",
+	"opencode",
+]);
+
 const canCarryTools = (a: AgentConfig): boolean =>
 	a.sdk == null || !NO_TOOL_SUPPORT.has(a.sdk);
 
@@ -37,6 +45,22 @@ function hasTools(config: SeherSDKConfig): boolean {
 function stripTools(config: SeherSDKConfig): SeherSDKConfig {
 	const { tools: _tools, ...rest } = config;
 	return rest;
+}
+
+function stripEnv(config: SeherSDKConfig): SeherSDKConfig {
+	const { env: _env, ...rest } = config;
+	return rest;
+}
+
+function mergeAgentDefaults(
+	opts: SeherSDKOptions,
+	agent: AgentConfig,
+): SeherSDKOptions {
+	if (agent.env === null) return opts;
+	return {
+		...opts,
+		env: { ...agent.env, ...(opts.env ?? {}) },
+	};
 }
 
 function wrapFilterForTools(
@@ -90,11 +114,20 @@ function buildInstance(
 	config: SeherSDKConfig,
 ): SeherSDKInstance {
 	let effective = config;
-	if (NO_TOOL_SUPPORT.has(kind) && hasTools(config)) {
+	if (NO_TOOL_SUPPORT.has(kind) && hasTools(effective)) {
 		console.warn(
-			`[SeherSDK] tools registration is not supported by '${kind}'; ${config.tools?.length ?? 0} tool(s) will be ignored.`,
+			`[SeherSDK] tools registration is not supported by '${kind}'; ${effective.tools?.length ?? 0} tool(s) will be ignored.`,
 		);
-		effective = stripTools(config);
+		effective = stripTools(effective);
+	}
+	if (NO_ENV_SUPPORT.has(kind) && effective.env !== undefined) {
+		const count = Object.keys(effective.env).length;
+		if (count > 0) {
+			console.warn(
+				`[SeherSDK] env passthrough is not supported by '${kind}'; ${count} env entr${count === 1 ? "y" : "ies"} will be ignored.`,
+			);
+			effective = stripEnv(effective);
+		}
 	}
 	switch (kind) {
 		case "claude":
@@ -152,7 +185,7 @@ export class SeherSDK {
 
 	async run(runOpts: SeherRunOptions): Promise<SeherRunResult> {
 		const sdk = await this.ensure();
-		return sdk.run(runOpts);
+		return sdk.run(this.translateRunOpts(runOpts));
 	}
 
 	stream(runOpts: SeherRunOptions): AsyncIterable<SeherStreamChunk> {
@@ -160,7 +193,8 @@ export class SeherSDK {
 		return {
 			async *[Symbol.asyncIterator]() {
 				const sdk = await self.ensure();
-				for await (const chunk of sdk.stream(runOpts)) yield chunk;
+				const translated = self.translateRunOpts(runOpts);
+				for await (const chunk of sdk.stream(translated)) yield chunk;
 			},
 		};
 	}
@@ -225,8 +259,25 @@ export class SeherSDK {
 			);
 		}
 		this.resolvedAgent = agent;
-		this.instance = buildInstance(agent.sdk, this.opts);
+		const merged = mergeAgentDefaults(this.opts, agent);
+		this.instance = buildInstance(agent.sdk, merged);
 		return this.instance;
+	}
+
+	/**
+	 * Translate `runOpts.model` via the resolved agent's `models` map. Falls
+	 * back to `this.opts.model` (the construction-time filter key) so that a
+	 * caller who did `new SeherSDK({ model: "sonnet" })` and then `run({ ... })`
+	 * still gets the agent's mapped model id.
+	 */
+	private translateRunOpts(runOpts: SeherRunOptions): SeherRunOptions {
+		const agent = this.resolvedAgent;
+		if (agent === null || agent.models === null) return runOpts;
+		const key = runOpts.model ?? this.opts.model;
+		if (key === undefined) return runOpts;
+		const resolved = agent.models[key];
+		if (resolved === undefined) return runOpts;
+		return { ...runOpts, model: resolved };
 	}
 }
 
