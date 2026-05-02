@@ -9,14 +9,18 @@ seher-ts is **macOS only**. Usage-limit inspection is fully delegated to the
 have CodexBar installed and signed-in for provider-based rate-limit checks.
 
 In addition to spawning CLI binaries, seher-ts can drive agents through
-first-party SDKs via the shared `SeherSdk` interface:
+first-party SDKs via the shared `SeherSdk` interface. The "Tools" column
+indicates whether the SDK supports [in-process tool
+registration](#in-process-tools):
 
-- `@anthropic-ai/sdk` for Claude agents (`"sdk": "claude"`).
-- `@openai/codex-sdk` for Codex agents (`"sdk": "codex"`).
-- `@github/copilot-sdk` for GitHub Copilot agents (`"sdk": "copilot"`).
-- `@moonshot-ai/kimi-agent-sdk` for Kimi Code agents (`"sdk": "kimi"`).
-- `@opencode-ai/sdk` for OpenCode agents (`"sdk": "opencode"`).
-- `@cursor/sdk` for Cursor agents (`"sdk": "cursor"`).
+| SDK setting | Package | Agent | Tools |
+|-------------|---------|-------|:-----:|
+| `"sdk": "claude"` | `@anthropic-ai/sdk` | Claude | ✅ |
+| `"sdk": "copilot"` | `@github/copilot-sdk` | GitHub Copilot | ✅ |
+| `"sdk": "kimi"` | `@moonshot-ai/kimi-agent-sdk` | Kimi Code | ✅ |
+| `"sdk": "codex"` | `@openai/codex-sdk` | Codex | ❌ |
+| `"sdk": "cursor"` | `@cursor/sdk` | Cursor | ❌ |
+| `"sdk": "opencode"` | `@opencode-ai/sdk` | OpenCode | ❌ |
 
 ## Install
 
@@ -414,9 +418,13 @@ selected provider are read.
 
 ### In-process tools
 
-Claude, Copilot, and Kimi support runtime tool registration. Tools are
-defined as `SeherTool`s with a `zod` `ZodObject` schema and a handler that
-returns a `string`:
+Runtime tool registration is supported by a subset of SDKs:
+
+- ✅ Supported: `claude`, `copilot`, `kimi`.
+- ❌ Not supported: `codex`, `cursor`, `opencode`.
+
+Tools are defined as `SeherTool`s with a `zod` `ZodObject` schema and a
+handler that returns a `string`:
 
 ```ts
 import { z } from "zod";
