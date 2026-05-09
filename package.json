@@ -15,7 +15,7 @@
     "node": ">=20"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.12",
+    "@biomejs/biome": "2.4.14",
     "@types/bun": "latest",
     "@typescript/native-preview": "^7.0.0-dev.20260422.1",
     "typescript": "^5.9.3"
