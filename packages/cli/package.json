@@ -35,7 +35,7 @@
 	},
 	"dependencies": {
 		"@seher-ts/sdk": "workspace:*",
-		"commander": "^12.1.0",
+		"commander": "^14.0.0",
 		"jsonc-parser": "^3.3.1"
 	}
 }
