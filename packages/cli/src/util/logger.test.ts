@@ -1,49 +1,31 @@
-import { expect, spyOn, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import { createLogger } from "./logger.ts";
 
-test("quiet logger suppresses info", () => {
-	const spy = spyOn(console, "error").mockImplementation(() => {});
-	try {
-		const logger = createLogger({ quiet: true });
-		logger.info("hello");
-		expect(spy).not.toHaveBeenCalled();
-	} finally {
-		spy.mockRestore();
-	}
-});
-
-test("non-quiet logger emits info to stderr", () => {
-	const spy = spyOn(console, "error").mockImplementation(() => {});
-	try {
-		const logger = createLogger({ quiet: false });
-		logger.info("hello");
-		expect(spy).toHaveBeenCalledWith("hello");
-	} finally {
-		spy.mockRestore();
-	}
-});
-
-test("quiet logger still emits warn and error", () => {
-	const spy = spyOn(console, "error").mockImplementation(() => {});
-	try {
-		const logger = createLogger({ quiet: true });
+describe("createLogger", () => {
+	test("quiet logger suppresses info but still emits warn/error", () => {
+		const stderr = mock(() => {});
+		const logger = createLogger({ quiet: true, stderr });
+		logger.info("hidden");
+		expect(stderr).toHaveBeenCalledTimes(0);
 		logger.warn("w");
 		logger.error("e");
-		expect(spy).toHaveBeenCalledTimes(2);
-		expect(spy).toHaveBeenNthCalledWith(1, "w");
-		expect(spy).toHaveBeenNthCalledWith(2, "e");
-	} finally {
-		spy.mockRestore();
-	}
-});
+		expect(stderr).toHaveBeenCalledTimes(2);
+		expect(stderr.mock.calls[0]?.[0]).toBe("w\n");
+		expect(stderr.mock.calls[1]?.[0]).toBe("e\n");
+	});
 
-test("default options behave as non-quiet", () => {
-	const spy = spyOn(console, "error").mockImplementation(() => {});
-	try {
-		const logger = createLogger();
-		logger.info("x");
-		expect(spy).toHaveBeenCalledWith("x");
-	} finally {
-		spy.mockRestore();
-	}
+	test("non-quiet logger emits info via stderr writer with trailing newline", () => {
+		const stderr = mock(() => {});
+		const logger = createLogger({ quiet: false, stderr });
+		logger.info("hello");
+		expect(stderr).toHaveBeenCalledTimes(1);
+		expect(stderr.mock.calls[0]?.[0]).toBe("hello\n");
+	});
+
+	test("preserves caller-supplied trailing newline", () => {
+		const stderr = mock(() => {});
+		const logger = createLogger({ stderr });
+		logger.info("hi\n");
+		expect(stderr.mock.calls[0]?.[0]).toBe("hi\n");
+	});
 });

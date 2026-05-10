@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import type { AgentConfig, AgentLimit, ProviderConfig } from "../types.ts";
+import type { AgentLimit, Config } from "../types.ts";
 import {
 	mockClaudeTool,
 	mockCreateExternalTool,
@@ -131,6 +131,7 @@ mock.module("@github/copilot-sdk", () => {
 
 const opencodeStartCalls: Array<Record<string, unknown>> = [];
 const opencodePromptCalls: unknown[] = [];
+const opencodeClientOpts: Array<Record<string, unknown>> = [];
 mock.module("@opencode-ai/sdk", () => {
 	const fakeClient = {
 		session: {
@@ -148,7 +149,10 @@ mock.module("@opencode-ai/sdk", () => {
 		},
 	};
 	return {
-		createOpencodeClient: () => fakeClient,
+		createOpencodeClient: (opts: Record<string, unknown>) => {
+			opencodeClientOpts.push(opts);
+			return fakeClient;
+		},
 		createOpencode: async (cfg: Record<string, unknown> = {}) => {
 			opencodeStartCalls.push(cfg);
 			return {
@@ -202,24 +206,8 @@ mock.module("@cursor/sdk", () => {
 const { SeherSDK } = await import("./seherSdk.ts");
 const { AllAgentsLimitedError } = await import("./resolve.ts");
 
-const INFERRED: ProviderConfig = { kind: "inferred" };
-
-function mkAgent(
-	command: string,
-	overrides: Partial<AgentConfig> = {},
-): AgentConfig {
-	return {
-		command,
-		args: [],
-		models: null,
-		arg_maps: {},
-		env: null,
-		provider: INFERRED,
-		pre_command: [],
-		active: null,
-		inactive: null,
-		...overrides,
-	};
+function mkConfig(...providers: Config["providers"]): Config {
+	return { providers };
 }
 
 describe("SeherSDK class", () => {
@@ -233,6 +221,7 @@ describe("SeherSDK class", () => {
 		kimiPrompts.length = 0;
 		opencodeStartCalls.length = 0;
 		opencodePromptCalls.length = 0;
+		opencodeClientOpts.length = 0;
 		cursorCreateOpts.length = 0;
 		cursorSendCalls.length = 0;
 	});
@@ -264,109 +253,77 @@ describe("SeherSDK class", () => {
 		expect(copilotPrompts).toEqual([{ prompt: "hi" }]);
 	});
 
-	test("kind=kimi: synchronous construction, run dispatches to KimiSDK", async () => {
-		const sdk = new SeherSDK({ kind: "kimi", workDir: "/tmp/proj" });
-		expect(sdk.kind).toBe("kimi");
-		const result = await sdk.run({ prompt: "hi" });
-		expect(result.kind).toBe("kimi");
-		expect(result.text).toBe("kimi reply");
-		expect(kimiPrompts).toEqual(["hi"]);
-		const opts = kimiSessionOpts[0] as { workDir?: string };
-		expect(opts?.workDir).toBe("/tmp/proj");
-	});
-
-	test("kind=opencode: synchronous construction, run dispatches to OpencodeSDK", async () => {
-		const sdk = new SeherSDK({ kind: "opencode", port: 4096 });
-		expect(sdk.kind).toBe("opencode");
-		const result = await sdk.run({ prompt: "hi" });
-		expect(result.kind).toBe("opencode");
-		expect(result.text).toBe("opencode reply");
-		expect(opencodeStartCalls.length).toBe(1);
-		expect(opencodePromptCalls.length).toBe(1);
-	});
-
-	test("kind=cursor: synchronous construction, run dispatches to CursorSDK", async () => {
-		const sdk = new SeherSDK({ kind: "cursor", apiKey: "k", cwd: "/tmp/p" });
-		expect(sdk.kind).toBe("cursor");
-		const result = await sdk.run({ prompt: "hi" });
-		expect(result.kind).toBe("cursor");
-		expect(result.text).toBe("cursor reply");
-		expect(cursorSendCalls).toEqual(["hi"]);
-	});
-
-	test("kind unset: resolves to kimi when sdk field is set", async () => {
+	test("auto-resolution selects the highest-priority candidate (build mode)", async () => {
+		const config = mkConfig(
+			{
+				key: "codex",
+				order: 0,
+				sdk: "codex",
+				models: { build: { model: "gpt-5.5", priority: 4 } },
+			},
+			{
+				key: "claude",
+				order: 1,
+				sdk: "claude",
+				priority: 3,
+				models: { build: { model: "sonnet" } },
+			},
+		);
 		const checkLimit = mock(
 			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
 		);
 		const sdk = new SeherSDK({
-			resolveOverrides: {
-				sortedAgents: [mkAgent("kimi", { sdk: "kimi" })],
-				checkLimit,
-			},
+			resolveOverrides: { config, checkLimit },
 		});
 		const result = await sdk.run({ prompt: "hi" });
-		expect(result.kind).toBe("kimi");
+		expect(result.kind).toBe("codex");
+		expect(codexCreates.length).toBe(1);
 	});
 
-	test("kind unset: resolves to copilot when sdk field is set", async () => {
-		const checkLimit = mock(
-			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+	test("falls through to next provider when first is limited", async () => {
+		const config = mkConfig(
+			{
+				key: "claude",
+				order: 0,
+				sdk: "claude",
+				priority: 5,
+				models: { build: { model: "sonnet" } },
+			},
+			{
+				key: "codex",
+				order: 1,
+				sdk: "codex",
+				priority: 1,
+				models: { build: { model: "gpt-5.5" } },
+			},
 		);
-		const sdk = new SeherSDK({
-			resolveOverrides: {
-				sortedAgents: [mkAgent("copilot", { sdk: "copilot" })],
-				checkLimit,
-			},
-		});
-		const result = await sdk.run({ prompt: "hi" });
-		expect(result.kind).toBe("copilot");
-	});
-
-	test("kind unset: resolves to claude when settings only have a claude agent", async () => {
-		const checkLimit = mock(
-			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
-		);
-		const sdk = new SeherSDK({
-			resolveOverrides: {
-				sortedAgents: [mkAgent("claude", { sdk: "claude" })],
-				checkLimit,
-			},
-		});
-		const result = await sdk.run({ prompt: "hi" });
-		expect(result.kind).toBe("claude");
-	});
-
-	test("kind unset: resolves to codex when claude is limited", async () => {
 		const reset = new Date("2099-01-01T00:00:00Z");
 		const checkLimit = mock(async (provider: string): Promise<AgentLimit> => {
 			if (provider === "claude") return { kind: "limited", resetTime: reset };
 			return { kind: "not_limited" };
 		});
 		const sdk = new SeherSDK({
-			resolveOverrides: {
-				sortedAgents: [
-					mkAgent("claude", { sdk: "claude" }),
-					mkAgent("codex", { sdk: "codex" }),
-				],
-				checkLimit,
-			},
+			resolveOverrides: { config, checkLimit },
 		});
 		const { kind, agent } = await sdk.resolved();
 		expect(kind).toBe("codex");
-		expect(agent?.command).toBe("codex");
+		expect(agent?.providerKey).toBe("codex");
 	});
 
-	test("kind unset: noWait throws AllAgentsLimitedError when all limited", async () => {
+	test("noWait throws AllAgentsLimitedError when all providers limited", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "sonnet" } },
+		});
 		const reset = new Date("2099-01-01T00:00:00Z");
 		const checkLimit = mock(
 			async (): Promise<AgentLimit> => ({ kind: "limited", resetTime: reset }),
 		);
 		const sdk = new SeherSDK({
 			noWait: true,
-			resolveOverrides: {
-				sortedAgents: [mkAgent("claude", { sdk: "claude" })],
-				checkLimit,
-			},
+			resolveOverrides: { config, checkLimit },
 		});
 		await expect(sdk.run({ prompt: "hi" })).rejects.toBeInstanceOf(
 			AllAgentsLimitedError,
@@ -381,16 +338,19 @@ describe("SeherSDK class", () => {
 	});
 
 	test("auto-resolution result is cached across run() calls", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "sonnet" } },
+		});
 		let calls = 0;
 		const checkLimit = mock(async (): Promise<AgentLimit> => {
 			calls += 1;
 			return { kind: "not_limited" };
 		});
 		const sdk = new SeherSDK({
-			resolveOverrides: {
-				sortedAgents: [mkAgent("claude", { sdk: "claude" })],
-				checkLimit,
-			},
+			resolveOverrides: { config, checkLimit },
 		});
 		await sdk.run({ prompt: "hi" });
 		await sdk.run({ prompt: "again" });
@@ -398,34 +358,24 @@ describe("SeherSDK class", () => {
 	});
 
 	test("reset() forces re-resolution", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "sonnet" } },
+		});
 		let calls = 0;
 		const checkLimit = mock(async (): Promise<AgentLimit> => {
 			calls += 1;
 			return { kind: "not_limited" };
 		});
 		const sdk = new SeherSDK({
-			resolveOverrides: {
-				sortedAgents: [mkAgent("claude", { sdk: "claude" })],
-				checkLimit,
-			},
+			resolveOverrides: { config, checkLimit },
 		});
 		await sdk.run({ prompt: "hi" });
 		sdk.reset();
 		await sdk.run({ prompt: "again" });
 		expect(calls).toBe(2);
-	});
-
-	test("throws when resolved agent has no sdk field", async () => {
-		const checkLimit = mock(
-			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
-		);
-		const sdk = new SeherSDK({
-			resolveOverrides: {
-				sortedAgents: [mkAgent("claude")], // no sdk field
-				checkLimit,
-			},
-		});
-		await expect(sdk.run({ prompt: "hi" })).rejects.toThrow(/no `sdk` field/);
 	});
 
 	test("kind getter throws before auto-resolution has run", () => {
@@ -445,14 +395,17 @@ describe("SeherSDK class", () => {
 	});
 
 	test("stream() triggers auto-resolution when kind is unset", async () => {
+		const config = mkConfig({
+			key: "codex",
+			order: 0,
+			sdk: "codex",
+			models: { build: { model: "gpt-5.5" } },
+		});
 		const checkLimit = mock(
 			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
 		);
 		const sdk = new SeherSDK({
-			resolveOverrides: {
-				sortedAgents: [mkAgent("codex", { sdk: "codex" })],
-				checkLimit,
-			},
+			resolveOverrides: { config, checkLimit },
 		});
 		const chunks: string[] = [];
 		for await (const chunk of sdk.stream({ prompt: "hi" })) {
@@ -460,30 +413,6 @@ describe("SeherSDK class", () => {
 			chunks.push(chunk.delta);
 		}
 		expect(chunks.join("")).toBe("codex reply");
-		expect(checkLimit).toHaveBeenCalledTimes(1);
-	});
-
-	test("re-runs auto-resolution after a failed attempt", async () => {
-		let attempt = 0;
-		const checkLimit = mock(async (): Promise<AgentLimit> => {
-			attempt += 1;
-			if (attempt === 1) {
-				// scanCandidates catches a throw, leaving the resets list empty,
-				// so the resolver throws NoMatchingAgentError.
-				throw new Error("transient");
-			}
-			return { kind: "not_limited" };
-		});
-		const sdk = new SeherSDK({
-			resolveOverrides: {
-				sortedAgents: [mkAgent("claude", { sdk: "claude" })],
-				checkLimit,
-			},
-		});
-		await expect(sdk.run({ prompt: "hi" })).rejects.toThrow();
-		const result = await sdk.run({ prompt: "hi" });
-		expect(result.kind).toBe("claude");
-		expect(attempt).toBe(2);
 	});
 
 	test("apiKey is forwarded to ClaudeSDK on explicit kind", async () => {
@@ -501,20 +430,84 @@ describe("SeherSDK class", () => {
 		expect(opts.env?.ANTHROPIC_BASE_URL).toBe("https://example.test");
 	});
 
-	test("apiKey is forwarded to CodexSDK on auto-resolution", async () => {
+	test("provider api.key/api.endpoint are forwarded to Claude as ANTHROPIC_API_KEY/BASE_URL", async () => {
+		const config = mkConfig({
+			key: "zai",
+			order: 0,
+			sdk: "claude",
+			api: { key: "sk-za", endpoint: "https://zai.test" },
+			models: { build: { model: "glm-5.1" } },
+		});
 		const checkLimit = mock(
 			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
 		);
 		const sdk = new SeherSDK({
-			apiKey: "codex-key",
-			resolveOverrides: {
-				sortedAgents: [mkAgent("codex", { sdk: "codex" })],
-				checkLimit,
-			},
+			resolveOverrides: { config, checkLimit },
 		});
 		await sdk.run({ prompt: "hi" });
-		expect(codexConstructorOpts.length).toBe(1);
-		expect(codexConstructorOpts[0]).toEqual({ apiKey: "codex-key" });
+		const opts = claudeQueryCalls[0]?.options as {
+			env?: Record<string, string>;
+		};
+		expect(opts.env?.ANTHROPIC_API_KEY).toBe("sk-za");
+		expect(opts.env?.ANTHROPIC_BASE_URL).toBe("https://zai.test");
+	});
+
+	test("auto-resolution pins the run model to the resolved modelId", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "claude-sonnet-4-6" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			resolveOverrides: { config, checkLimit },
+		});
+		await sdk.run({ prompt: "hi" });
+		const opts = claudeQueryCalls[0]?.options as { model?: string };
+		expect(opts.model).toBe("claude-sonnet-4-6");
+	});
+
+	test("explicit runOpts.model overrides resolved modelId", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "claude-sonnet-4-6" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			resolveOverrides: { config, checkLimit },
+		});
+		await sdk.run({ prompt: "hi", model: "custom" });
+		const opts = claudeQueryCalls[0]?.options as { model?: string };
+		expect(opts.model).toBe("custom");
+	});
+
+	test("mode=plan picks the model defined under models.plan", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: {
+				plan: { model: "claude-opus-4-7" },
+				build: { model: "claude-sonnet-4-6" },
+			},
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			mode: "plan",
+			resolveOverrides: { config, checkLimit },
+		});
+		await sdk.run({ prompt: "hi" });
+		const opts = claudeQueryCalls[0]?.options as { model?: string };
+		expect(opts.model).toBe("claude-opus-4-7");
 	});
 
 	test("explicit kind=codex with tools warns and ignores tools", async () => {
@@ -535,233 +528,56 @@ describe("SeherSDK class", () => {
 			const msg = String(warnSpy.mock.calls[0]?.[0] ?? "");
 			expect(msg).toContain("codex");
 			expect(msg).toContain("not supported");
-			// CodexSDK constructor receives no `tools` field.
 			expect(codexConstructorOpts[0]).not.toHaveProperty("tools");
 		} finally {
 			console.warn = origWarn;
 		}
 	});
 
-	test("explicit kind=claude with tools does NOT warn", async () => {
-		const { z } = await import("zod");
-		const warnSpy = mock((): void => {});
-		const origWarn = console.warn;
-		console.warn = warnSpy;
-		try {
-			const echo = {
-				name: "echo",
-				description: "Echo",
-				parameters: z.object({ msg: z.string() }),
-				handler: async ({ msg }: { msg: string }) => msg,
-			};
-			const sdk = new SeherSDK({ kind: "claude", tools: [echo] });
-			await sdk.run({ prompt: "hi" });
-			expect(warnSpy.mock.calls.length).toBe(0);
-			const opts = claudeQueryCalls[0]?.options as {
-				mcpServers?: Record<string, unknown>;
-			};
-			expect(opts.mcpServers?.seher_tools).toBeDefined();
-		} finally {
-			console.warn = origWarn;
-		}
-	});
-
-	test("auto-resolution with tools excludes codex/cursor/opencode candidates", async () => {
-		const { z } = await import("zod");
-		const checkLimit = mock(
-			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
-		);
-		const echo = {
-			name: "echo",
-			description: "Echo",
-			parameters: z.object({ msg: z.string() }),
-			handler: async ({ msg }: { msg: string }) => msg,
-		};
-		// Higher-priority codex agent is listed first; with tools registered the
-		// resolver must skip it and pick claude.
-		const sdk = new SeherSDK({
-			tools: [echo],
-			resolveOverrides: {
-				sortedAgents: [
-					mkAgent("codex", { sdk: "codex" }),
-					mkAgent("cursor", { sdk: "cursor" }),
-					mkAgent("opencode", { sdk: "opencode" }),
-					mkAgent("claude", { sdk: "claude" }),
-				],
-				checkLimit,
-			},
+	test("opencode: api.endpoint becomes baseURL, api.key becomes Authorization header", async () => {
+		const config = mkConfig({
+			key: "myopencode",
+			order: 0,
+			sdk: "opencode",
+			api: { key: "tok", endpoint: "https://opencode.test" },
+			models: { build: { model: "anthropic/claude-sonnet" } },
 		});
-		const result = await sdk.run({ prompt: "hi" });
-		expect(result.kind).toBe("claude");
-		expect(claudeQueryCalls.length).toBe(1);
-		// codex/cursor/opencode were filtered out before checkLimit was called.
-		expect(checkLimit.mock.calls.length).toBe(1);
-	});
-
-	test("auto-resolution with tools throws when only no-tool-support agents exist", async () => {
-		const { z } = await import("zod");
-		const echo = {
-			name: "echo",
-			description: "Echo",
-			parameters: z.object({ msg: z.string() }),
-			handler: async ({ msg }: { msg: string }) => msg,
-		};
-		const sdk = new SeherSDK({
-			tools: [echo],
-			resolveOverrides: {
-				sortedAgents: [
-					mkAgent("codex", { sdk: "codex" }),
-					mkAgent("cursor", { sdk: "cursor" }),
-				],
-			},
-		});
-		await expect(sdk.run({ prompt: "hi" })).rejects.toThrow();
-	});
-
-	test("agent.env is forwarded to ClaudeSDK on auto-resolution", async () => {
 		const checkLimit = mock(
 			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
 		);
 		const sdk = new SeherSDK({
-			resolveOverrides: {
-				sortedAgents: [
-					mkAgent("claude", {
-						sdk: "claude",
-						env: { ANTHROPIC_API_KEY: "from-agent", FOO: "bar" },
-					}),
-				],
-				checkLimit,
-			},
+			resolveOverrides: { config, checkLimit },
 		});
 		await sdk.run({ prompt: "hi" });
-		const opts = claudeQueryCalls[0]?.options as {
-			env?: Record<string, string>;
+		expect(opencodeClientOpts.length).toBe(1);
+		const opts = opencodeClientOpts[0] as {
+			baseUrl?: string;
+			headers?: Record<string, string>;
 		};
-		expect(opts.env?.ANTHROPIC_API_KEY).toBe("from-agent");
-		expect(opts.env?.FOO).toBe("bar");
+		expect(opts.baseUrl).toBe("https://opencode.test");
+		expect(opts.headers?.Authorization).toBe("Bearer tok");
 	});
 
-	test("user opts.env wins over agent.env", async () => {
+	test("copilot: api.key becomes gitHubToken, api.endpoint becomes cliUrl", async () => {
+		const config = mkConfig({
+			key: "copilot",
+			order: 0,
+			sdk: "copilot",
+			api: { key: "gh-tok", endpoint: "https://copilot.test/cli" },
+			models: { build: { model: "gpt-5" } },
+		});
 		const checkLimit = mock(
 			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
 		);
 		const sdk = new SeherSDK({
-			env: { FOO: "user", BAZ: "user-only" },
-			resolveOverrides: {
-				sortedAgents: [
-					mkAgent("claude", {
-						sdk: "claude",
-						env: { FOO: "agent", QUX: "agent-only" },
-					}),
-				],
-				checkLimit,
-			},
+			resolveOverrides: { config, checkLimit },
 		});
 		await sdk.run({ prompt: "hi" });
-		const opts = claudeQueryCalls[0]?.options as {
-			env?: Record<string, string>;
+		const opts = copilotConstructorOpts[0] as {
+			gitHubToken?: string;
+			cliUrl?: string;
 		};
-		expect(opts.env?.FOO).toBe("user");
-		expect(opts.env?.BAZ).toBe("user-only");
-		expect(opts.env?.QUX).toBe("agent-only");
-	});
-
-	test("agent.env is ignored with a warning for env-unsupported SDKs (codex)", async () => {
-		const checkLimit = mock(
-			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
-		);
-		const warnSpy = mock((): void => {});
-		const origWarn = console.warn;
-		console.warn = warnSpy;
-		try {
-			const sdk = new SeherSDK({
-				resolveOverrides: {
-					sortedAgents: [
-						mkAgent("codex", {
-							sdk: "codex",
-							env: { OPENAI_API_KEY: "x" },
-						}),
-					],
-					checkLimit,
-				},
-			});
-			await sdk.run({ prompt: "hi" });
-			expect(warnSpy.mock.calls.length).toBe(1);
-			const msg = String(warnSpy.mock.calls[0]?.[0] ?? "");
-			expect(msg).toContain("codex");
-			expect(msg).toContain("env");
-			expect(msg).toContain("ignored");
-			expect(codexConstructorOpts[0]).not.toHaveProperty("env");
-		} finally {
-			console.warn = origWarn;
-		}
-	});
-
-	test("agent.models translates runOpts.model to the mapped id (claude)", async () => {
-		const checkLimit = mock(
-			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
-		);
-		const sdk = new SeherSDK({
-			resolveOverrides: {
-				sortedAgents: [
-					mkAgent("claude", {
-						sdk: "claude",
-						models: { sonnet: "claude-sonnet-4-5", opus: "claude-opus-4-7" },
-					}),
-				],
-				checkLimit,
-			},
-		});
-		await sdk.run({ prompt: "hi", model: "sonnet" });
-		const opts = claudeQueryCalls[0]?.options as { model?: string };
-		expect(opts.model).toBe("claude-sonnet-4-5");
-	});
-
-	test("agent.models is bypassed when key is unknown (passes through)", async () => {
-		const checkLimit = mock(
-			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
-		);
-		const sdk = new SeherSDK({
-			resolveOverrides: {
-				sortedAgents: [
-					mkAgent("claude", {
-						sdk: "claude",
-						models: { sonnet: "claude-sonnet-4-5" },
-					}),
-				],
-				checkLimit,
-			},
-		});
-		await sdk.run({ prompt: "hi", model: "claude-3-haiku-20240307" });
-		const opts = claudeQueryCalls[0]?.options as { model?: string };
-		expect(opts.model).toBe("claude-3-haiku-20240307");
-	});
-
-	test("opts.model (filter key) is reused as the run model when runOpts.model is omitted", async () => {
-		const checkLimit = mock(
-			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
-		);
-		const sdk = new SeherSDK({
-			model: "sonnet",
-			resolveOverrides: {
-				sortedAgents: [
-					mkAgent("claude", {
-						sdk: "claude",
-						models: { sonnet: "claude-sonnet-4-5" },
-					}),
-				],
-				checkLimit,
-			},
-		});
-		await sdk.run({ prompt: "hi" });
-		const opts = claudeQueryCalls[0]?.options as { model?: string };
-		expect(opts.model).toBe("claude-sonnet-4-5");
-	});
-
-	test("explicit kind: model is not translated (no agent context)", async () => {
-		const sdk = new SeherSDK({ kind: "claude" });
-		await sdk.run({ prompt: "hi", model: "sonnet" });
-		const opts = claudeQueryCalls[0]?.options as { model?: string };
-		expect(opts.model).toBe("sonnet");
+		expect(opts.gitHubToken).toBe("gh-tok");
+		expect(opts.cliUrl).toBe("https://copilot.test/cli");
 	});
 });

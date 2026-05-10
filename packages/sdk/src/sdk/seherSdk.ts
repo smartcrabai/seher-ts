@@ -1,5 +1,4 @@
-import { filterAgents as filterAgentsImpl } from "../priority/filter.ts";
-import type { AgentConfig } from "../types.ts";
+import type { ResolvedAgent, SdkKind } from "../types.ts";
 import { ClaudeSDK, type ClaudeSDKConfig } from "./claude.ts";
 import { CodexSDK, type CodexSDKConfig } from "./codex.ts";
 import { CopilotSDK, type CopilotSDKConfig } from "./copilot.ts";
@@ -13,7 +12,6 @@ import {
 	resolveAgent,
 } from "./resolve.ts";
 import type {
-	SdkKind,
 	SeherRunOptions,
 	SeherRunResult,
 	SeherSDKInstance,
@@ -35,9 +33,6 @@ const NO_ENV_SUPPORT: ReadonlySet<SdkKind> = new Set<SdkKind>([
 	"opencode",
 ]);
 
-const canCarryTools = (a: AgentConfig): boolean =>
-	a.sdk == null || !NO_TOOL_SUPPORT.has(a.sdk);
-
 function hasTools(config: SeherSDKConfig): boolean {
 	return config.tools !== undefined && config.tools.length > 0;
 }
@@ -52,25 +47,6 @@ function stripEnv(config: SeherSDKConfig): SeherSDKConfig {
 	return rest;
 }
 
-function mergeAgentDefaults(
-	opts: SeherSDKOptions,
-	agent: AgentConfig,
-): SeherSDKOptions {
-	if (agent.env === null) return opts;
-	return {
-		...opts,
-		env: { ...agent.env, ...(opts.env ?? {}) },
-	};
-}
-
-function wrapFilterForTools(
-	base: ResolveAgentOptions["filterAgents"] | undefined,
-): typeof filterAgentsImpl {
-	const inner = base ?? filterAgentsImpl;
-	return (agents, filterOpts) =>
-		inner(agents, filterOpts).filter(canCarryTools);
-}
-
 export type SeherSDKConfig = ClaudeSDKConfig &
 	CodexSDKConfig &
 	CopilotSDKConfig &
@@ -81,32 +57,94 @@ export type SeherSDKConfig = ClaudeSDKConfig &
 export interface SeherSDKOptions extends SeherSDKConfig {
 	/** When provided, skip auto-resolution and use this provider directly. */
 	kind?: SdkKind;
-	/** Filter to a specific agent command (e.g., "claude"). */
-	command?: string;
-	/** Filter to a specific provider (e.g., "anthropic"). */
+	/** Mode key to resolve (`plan` / `build` / custom). Default: `build`. */
+	mode?: string;
+	/** Force a specific provider key (e.g., "claude"). */
 	provider?: string;
-	/** Filter to agents that declare this model key in their `models` map. */
-	model?: string;
-	/** Override the settings file path (defaults to `~/.config/seher/settings.jsonc`). */
+	/** Override the YAML config path. */
 	configPath?: string;
-	/** Throw `AllAgentsLimitedError` instead of sleeping when all agents are limited. */
+	/** Throw `AllAgentsLimitedError` instead of sleeping. */
 	noWait?: boolean;
-	/** Maximum rescans after sleep. Defaults to 1 (matches CLI). */
+	/** Max rescans after sleep. Defaults to 1. */
 	maxRescans?: number;
 	/** Advanced: override individual collaborators used during resolution (tests). */
 	resolveOverrides?: Pick<
 		ResolveAgentOptions,
-		| "loadSettings"
-		| "filterAgents"
-		| "sortByPriority"
+		| "loadConfig"
 		| "checkLimit"
 		| "sleepUntil"
 		| "now"
-		| "settings"
-		| "sortedAgents"
+		| "config"
 		| "quiet"
 		| "onSleep"
 	>;
+}
+
+/**
+ * Apply provider-level api/env to the underlying SDK config in the right
+ * field per SDK kind. Caller-supplied opts take precedence.
+ */
+function applyResolvedAgent(
+	kind: SdkKind,
+	base: SeherSDKConfig,
+	agent: ResolvedAgent,
+): SeherSDKConfig {
+	const out: SeherSDKConfig = { ...base };
+	const apiKey = agent.api?.key;
+	const apiEndpoint = agent.api?.endpoint;
+	switch (kind) {
+		case "claude":
+			if (apiKey !== undefined && out.apiKey === undefined) out.apiKey = apiKey;
+			if (apiEndpoint !== undefined && out.baseURL === undefined) {
+				out.baseURL = apiEndpoint;
+			}
+			break;
+		case "codex":
+			if (apiKey !== undefined && out.apiKey === undefined) out.apiKey = apiKey;
+			break;
+		case "copilot":
+			if (apiKey !== undefined && out.gitHubToken === undefined) {
+				out.gitHubToken = apiKey;
+			}
+			if (apiEndpoint !== undefined && out.cliUrl === undefined) {
+				out.cliUrl = apiEndpoint;
+			}
+			break;
+		case "cursor":
+			if (apiKey !== undefined && out.apiKey === undefined) out.apiKey = apiKey;
+			break;
+		case "kimi":
+			if (apiKey !== undefined || apiEndpoint !== undefined) {
+				const kimiEnv = { ...(out.env ?? {}) };
+				if (apiKey !== undefined && kimiEnv.MOONSHOT_API_KEY === undefined) {
+					kimiEnv.MOONSHOT_API_KEY = apiKey;
+				}
+				if (
+					apiEndpoint !== undefined &&
+					kimiEnv.MOONSHOT_BASE_URL === undefined
+				) {
+					kimiEnv.MOONSHOT_BASE_URL = apiEndpoint;
+				}
+				out.env = kimiEnv;
+			}
+			break;
+		case "opencode":
+			if (apiEndpoint !== undefined && out.baseURL === undefined) {
+				out.baseURL = apiEndpoint;
+			}
+			if (apiKey !== undefined) {
+				const headers = { ...(out.headers ?? {}) };
+				if (headers.Authorization === undefined) {
+					headers.Authorization = `Bearer ${apiKey}`;
+				}
+				out.headers = headers;
+			}
+			break;
+	}
+	if (Object.keys(agent.env).length > 0) {
+		out.env = { ...agent.env, ...(out.env ?? {}) };
+	}
+	return out;
 }
 
 function buildInstance(
@@ -146,21 +184,14 @@ function buildInstance(
 }
 
 /**
- * Public entry point for the Seher SDK. Either provide an explicit
- * `kind: "claude" | "codex" | "copilot" | "kimi" | "opencode" | "cursor"` to
+ * Public entry point for the Seher SDK. Either provide an explicit `kind` to
  * behave as a thin wrapper around the matching provider SDK, or omit `kind`
- * to have Seher auto-select an agent from the user's settings file
- * (mirroring CLI behavior, including CodexBar `limited` checks and
- * sleep-until-reset on rate limits).
- *
- * Not declared as `implements SeherSDKInstance` because `kind` throws when
- * auto-resolution has not yet run, which would violate the interface
- * contract that requires `kind` to always return a value.
+ * to auto-select a provider/model from the user's YAML config.
  */
 export class SeherSDK {
 	private readonly opts: SeherSDKOptions;
 	private instance: SeherSDKInstance | null = null;
-	private resolvedAgent: AgentConfig | null = null;
+	private resolvedAgent: ResolvedAgent | null = null;
 	private pending: Promise<SeherSDKInstance> | null = null;
 
 	constructor(opts: SeherSDKOptions = {}) {
@@ -170,10 +201,6 @@ export class SeherSDK {
 		}
 	}
 
-	/**
-	 * Resolved provider kind. Throws if auto-resolution has not run yet —
-	 * call `run()` / `stream()` / `resolved()` first, or pass `kind` in options.
-	 */
 	get kind(): SdkKind {
 		if (this.instance === null) {
 			throw new Error(
@@ -200,7 +227,7 @@ export class SeherSDK {
 	}
 
 	/** Force resolution and return the chosen kind plus the source agent (if auto-resolved). */
-	async resolved(): Promise<{ kind: SdkKind; agent: AgentConfig | null }> {
+	async resolved(): Promise<{ kind: SdkKind; agent: ResolvedAgent | null }> {
 		const sdk = await this.ensure();
 		return { kind: sdk.kind, agent: this.resolvedAgent };
 	}
@@ -228,56 +255,33 @@ export class SeherSDK {
 	}
 
 	private async doResolve(): Promise<SeherSDKInstance> {
-		const { command, provider, model, configPath, noWait, maxRescans } =
-			this.opts;
+		const { mode, provider, configPath, noWait, maxRescans } = this.opts;
 		const resolveOpts: ResolveAgentOptions = {
 			...(this.opts.resolveOverrides ?? {}),
-			...(command !== undefined && { command }),
+			...(mode !== undefined && { modeKey: mode }),
 			...(provider !== undefined && { provider }),
-			...(model !== undefined && { model }),
 			...(configPath !== undefined && { configPath }),
 			...(noWait !== undefined && { noWait }),
 			...(maxRescans !== undefined && { maxRescans }),
 		};
 
-		// resolveAgent() bypasses filterAgents when sortedAgents is provided
-		// (resolve.ts:73-88), so apply the predicate to both paths.
-		if (hasTools(this.opts)) {
-			resolveOpts.filterAgents = wrapFilterForTools(
-				this.opts.resolveOverrides?.filterAgents,
-			);
-			if (resolveOpts.sortedAgents !== undefined) {
-				resolveOpts.sortedAgents =
-					resolveOpts.sortedAgents.filter(canCarryTools);
-			}
-		}
-
 		const agent = await resolveAgent(resolveOpts);
-		if (agent.sdk === undefined || agent.sdk === null) {
-			throw new Error(
-				`Resolved agent "${agent.command}" has no \`sdk\` field set; cannot create an SDK instance. Set \`sdk: "claude" | "codex" | "copilot" | "kimi" | "opencode" | "cursor"\` on the agent in settings.jsonc.`,
-			);
-		}
 		this.resolvedAgent = agent;
-		const merged = mergeAgentDefaults(this.opts, agent);
-		this.instance = buildInstance(agent.sdk, merged);
+		const merged = applyResolvedAgent(agent.kind, this.opts, agent);
+		this.instance = buildInstance(agent.kind, merged);
 		return this.instance;
 	}
 
 	/**
-	 * Translate `runOpts.model` via the resolved agent's `models` map. Falls
-	 * back to `this.opts.model` (the construction-time filter key) so that a
-	 * caller who did `new SeherSDK({ model: "sonnet" })` and then `run({ ... })`
-	 * still gets the agent's mapped model id.
+	 * Always pin the run to the resolved model unless the caller explicitly
+	 * overrides via `runOpts.model`. Explicit-kind users without a resolved
+	 * agent fall through with whatever they passed.
 	 */
 	private translateRunOpts(runOpts: SeherRunOptions): SeherRunOptions {
+		if (runOpts.model !== undefined) return runOpts;
 		const agent = this.resolvedAgent;
-		if (agent === null || agent.models === null) return runOpts;
-		const key = runOpts.model ?? this.opts.model;
-		if (key === undefined) return runOpts;
-		const resolved = agent.models[key];
-		if (resolved === undefined) return runOpts;
-		return { ...runOpts, model: resolved };
+		if (agent === null) return runOpts;
+		return { ...runOpts, model: agent.modelId };
 	}
 }
 

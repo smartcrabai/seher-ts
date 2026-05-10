@@ -1,0 +1,73 @@
+{
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"$id": "https://raw.githubusercontent.com/smartcrabai/seher-ts/main/schemas/config.schema.json",
+	"title": "seher-ts config",
+	"description": "Provider/mode/YAML configuration for the seher CLI.",
+	"type": "object",
+	"additionalProperties": false,
+	"properties": {
+		"providers": {
+			"type": "object",
+			"description": "Map of provider key -> provider entry. Insertion order is preserved as a tiebreaker for equal-priority candidates.",
+			"additionalProperties": { "$ref": "#/definitions/providerEntry" }
+		}
+	},
+	"definitions": {
+		"sdkKind": {
+			"type": "string",
+			"enum": ["claude", "codex", "copilot", "kimi", "opencode", "cursor"]
+		},
+		"modelEntry": {
+			"oneOf": [
+				{
+					"type": "string",
+					"description": "Model id (priority inherited from provider)."
+				},
+				{
+					"type": "object",
+					"required": ["model"],
+					"additionalProperties": false,
+					"properties": {
+						"model": { "type": "string" },
+						"priority": { "type": "number" }
+					}
+				}
+			]
+		},
+		"providerApi": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"key": {
+					"type": "string",
+					"description": "API key (mapped to the SDK's native key field, e.g. ANTHROPIC_API_KEY)."
+				},
+				"endpoint": {
+					"type": "string",
+					"description": "Base URL for the provider (mapped to the SDK's native baseURL field)."
+				}
+			}
+		},
+		"providerEntry": {
+			"type": "object",
+			"required": ["models"],
+			"additionalProperties": false,
+			"properties": {
+				"sdk": {
+					"$ref": "#/definitions/sdkKind",
+					"description": "Required for provider keys outside the built-in set (codex / claude / cursor / opencodego / copilot / kimi)."
+				},
+				"priority": {
+					"type": "number",
+					"description": "Provider-level shorthand priority used when a model entry omits its own priority."
+				},
+				"api": { "$ref": "#/definitions/providerApi" },
+				"models": {
+					"type": "object",
+					"description": "Mode key (plan / build / custom) -> model entry.",
+					"additionalProperties": { "$ref": "#/definitions/modelEntry" }
+				}
+			}
+		}
+	}
+}

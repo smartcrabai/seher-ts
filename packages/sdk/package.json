@@ -92,7 +92,7 @@
 		"@moonshot-ai/kimi-agent-sdk": "^0.1.8",
 		"@openai/codex-sdk": "^0.128.0",
 		"@opencode-ai/sdk": "^1.14.30",
-		"jsonc-parser": "^3.3.1",
+		"yaml": "^2.8.4",
 		"zod": "^4.3.6"
 	}
 }

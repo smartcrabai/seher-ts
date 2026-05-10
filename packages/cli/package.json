@@ -23,7 +23,7 @@
 		"LICENSE"
 	],
 	"scripts": {
-		"build": "rm -rf dist && tsc -p tsconfig.build.json && cp -R src/web/public dist/web/public",
+		"build": "rm -rf dist && tsc -p tsconfig.build.json",
 		"test": "bun test",
 		"prepublishOnly": "bun run build && bun test"
 	},
@@ -35,7 +35,6 @@
 	},
 	"dependencies": {
 		"@seher-ts/sdk": "workspace:*",
-		"commander": "^14.0.0",
-		"jsonc-parser": "^3.3.1"
+		"commander": "^14.0.0"
 	}
 }

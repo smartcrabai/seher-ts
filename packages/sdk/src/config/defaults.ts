@@ -1,5 +1,5 @@
-import type { Settings } from "../types.ts";
+import type { Config } from "../types.ts";
 
-export function defaultSettings(): Settings {
-	return { agents: [], priority: [] };
+export function defaultConfig(): Config {
+	return { providers: [] };
 }
