@@ -16,7 +16,7 @@ const APPROVED_BUILD_TEMPLATE = (plan: string) => `<plan>
 ${plan}
 </plan>
 
-上記の plan を実行してください。`;
+Execute the plan above.`;
 
 export interface PlanModeDeps {
 	editPlan?: (initial: string) => Promise<string>;
