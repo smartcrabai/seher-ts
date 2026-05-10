@@ -8,9 +8,12 @@ export {
 	parseConfigText,
 } from "./config/load.ts";
 export { ConfigValidationError, validateConfig } from "./config/validate.ts";
+export { LimitError, type LimitErrorOptions } from "./sdk/errors.ts";
 export {
 	AllAgentsLimitedError,
 	NoMatchingAgentError,
+	type PollForAgentOptions,
+	pollForAgent,
 	type ResolveAgentOptions,
 	resolveAgent,
 } from "./sdk/resolve.ts";

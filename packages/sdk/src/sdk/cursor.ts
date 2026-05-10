@@ -1,5 +1,6 @@
 import type { SDKAgent } from "@cursor/sdk";
-import { Agent } from "@cursor/sdk";
+import { Agent, RateLimitError } from "@cursor/sdk";
+import { rethrowAsLimit } from "./errors.ts";
 import { extractTextBlocks, joinSystemPrompt } from "./text.ts";
 import type {
 	SdkKind,
@@ -8,6 +9,17 @@ import type {
 	SeherSDKInstance,
 	SeherStreamChunk,
 } from "./types.ts";
+
+function isCursorLimit(err: unknown): boolean {
+	if (err instanceof RateLimitError) return true;
+	if (err === null || typeof err !== "object") return false;
+	const status = (err as { status?: unknown }).status;
+	if (typeof status === "number" && status === 429) return true;
+	// Belt-and-suspenders: bundlers occasionally ship two copies of
+	// `@cursor/sdk`, which breaks `instanceof` across the boundary.
+	const name = (err as { name?: unknown }).name;
+	return typeof name === "string" && name === "RateLimitError";
+}
 
 export interface CursorSDKConfig {
 	apiKey?: string;
@@ -63,6 +75,8 @@ export class CursorSDK implements SeherSDKInstance {
 			const run = await agent.send(joinSystemPrompt(opts));
 			const result = await run.wait();
 			return { text: result.result ?? "", kind: this.kind, raw: result };
+		} catch (err) {
+			rethrowAsLimit("cursor", err, isCursorLimit);
 		} finally {
 			agent.close();
 		}
@@ -81,6 +95,8 @@ export class CursorSDK implements SeherSDKInstance {
 						const delta = extractAssistantText(event);
 						yield { kind: self.kind, delta, raw: event };
 					}
+				} catch (err) {
+					rethrowAsLimit("cursor", err, isCursorLimit);
 				} finally {
 					agent.close();
 				}

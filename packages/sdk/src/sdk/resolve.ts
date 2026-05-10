@@ -32,6 +32,8 @@ export interface ResolveAgentOptions {
 	configPath?: string;
 	/** Pre-loaded config; if provided, `configPath` is ignored. */
 	config?: Config;
+	/** Provider keys to exclude from candidate selection. */
+	excludeProviders?: string[];
 	/** When true, throw `AllAgentsLimitedError` instead of sleeping. */
 	noWait?: boolean;
 	/** Maximum rescans after a sleep cycle. Defaults to 1. */
@@ -42,6 +44,27 @@ export interface ResolveAgentOptions {
 	now?: () => Date;
 	quiet?: boolean;
 	onSleep?: (until: Date) => void;
+}
+
+export interface PollForAgentOptions {
+	/** Mode key (default: `build`). */
+	modeKey?: string;
+	/** Force a specific provider key. */
+	provider?: string;
+	/** Path to the YAML config file. */
+	configPath?: string;
+	/** Pre-loaded config; if provided, `configPath` is ignored. */
+	config?: Config;
+	/** Provider keys to exclude. */
+	excludeProviders?: string[];
+	/** Polling interval in ms. Defaults to 60_000. */
+	intervalMs?: number;
+	/** Cancellation signal. When aborted, throws an `AbortError`. */
+	signal?: AbortSignal;
+	/** Called once before each scan attempt (1-based). */
+	onTick?: (attempt: number) => void;
+	loadConfig?: typeof loadConfigImpl;
+	checkLimit?: typeof checkLimitImpl;
 }
 
 interface Candidate {
@@ -62,12 +85,18 @@ function buildCandidates(
 	config: Config,
 	modeKey: string,
 	providerFilter: string | undefined,
+	excludeProviders: readonly string[] | undefined,
 ): Candidate[] {
+	const excluded =
+		excludeProviders !== undefined && excludeProviders.length > 0
+			? new Set(excludeProviders)
+			: null;
 	const list: Candidate[] = [];
 	for (const entry of config.providers) {
 		if (providerFilter !== undefined && entry.provider !== providerFilter) {
 			continue;
 		}
+		if (excluded?.has(entry.provider)) continue;
 		const model = entry.models[modeKey];
 		if (model === undefined) continue;
 		const priority = effectivePriority(entry.priority, model.priority);
@@ -121,7 +150,12 @@ export async function resolveAgent(
 	const modeKey = opts.modeKey ?? "build";
 
 	const config = opts.config ?? (await loadConfig(opts.configPath));
-	const candidates = buildCandidates(config, modeKey, opts.provider);
+	const candidates = buildCandidates(
+		config,
+		modeKey,
+		opts.provider,
+		opts.excludeProviders,
+	);
 
 	if (candidates.length === 0) {
 		throw new NoMatchingAgentError(
@@ -155,5 +189,66 @@ export async function resolveAgent(
 			...(opts.quiet !== undefined && { quiet: opts.quiet }),
 		});
 		rescans += 1;
+	}
+}
+
+const DEFAULT_POLL_INTERVAL_MS = 60_000;
+
+/**
+ * Block until at least one configured provider is non-limited.
+ *
+ * Unlike `resolveAgent`, this never throws `AllAgentsLimitedError`: when all
+ * candidates are limited, it sleeps `intervalMs` (default 60s) and re-probes.
+ * Use for retry/recovery paths where indefinite waiting is desired.
+ *
+ * Aborts via `opts.signal` cause the returned promise to reject — either with
+ * `signal.reason` or a `DOMException("…", "AbortError")` per `throwIfAborted`.
+ */
+export async function pollForAgent(
+	opts: PollForAgentOptions = {},
+): Promise<ResolvedAgent> {
+	const loadConfig = opts.loadConfig ?? loadConfigImpl;
+	const checkLimit = opts.checkLimit ?? checkLimitImpl;
+	const modeKey = opts.modeKey ?? "build";
+	const intervalMs = opts.intervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+
+	const config = opts.config ?? (await loadConfig(opts.configPath));
+	const candidates = buildCandidates(
+		config,
+		modeKey,
+		opts.provider,
+		opts.excludeProviders,
+	);
+
+	if (candidates.length === 0) {
+		throw new NoMatchingAgentError(
+			opts.provider !== undefined
+				? `No provider "${opts.provider}" defines models.${modeKey}`
+				: `No providers define models.${modeKey}`,
+		);
+	}
+
+	let attempt = 0;
+	while (true) {
+		opts.signal?.throwIfAborted();
+		attempt += 1;
+		opts.onTick?.(attempt);
+		const scan = await scanCandidates(candidates, async (c) =>
+			probe(checkLimit, c.provider),
+		);
+		if (scan.kind === "available") {
+			const c = candidates[scan.index];
+			if (c === undefined) {
+				throw new Error("Internal error: scan returned out-of-range index");
+			}
+			return c.resolved;
+		}
+		if (scan.kind === "no_agents") {
+			throw new NoMatchingAgentError("No available providers");
+		}
+		await sleepUntilImpl(new Date(Date.now() + intervalMs), {
+			quiet: true,
+			...(opts.signal !== undefined && { signal: opts.signal }),
+		});
 	}
 }

@@ -10,6 +10,8 @@ let runResult: unknown = {
 	usage: null,
 };
 
+let runShouldThrow: Error | null = null;
+
 mock.module("@openai/codex-sdk", () => {
 	class MockCodex {
 		constructor(opts: Record<string, unknown> = {}) {
@@ -20,6 +22,7 @@ mock.module("@openai/codex-sdk", () => {
 			return {
 				run: async (input: unknown) => {
 					runCalls.push(input);
+					if (runShouldThrow !== null) throw runShouldThrow;
 					return runResult;
 				},
 			};
@@ -29,12 +32,14 @@ mock.module("@openai/codex-sdk", () => {
 });
 
 const { CodexSDK } = await import("./codex.ts");
+const { LimitError } = await import("./errors.ts");
 
 describe("CodexSDK", () => {
 	beforeEach(() => {
 		constructorCalls.length = 0;
 		startThreadCalls.length = 0;
 		runCalls.length = 0;
+		runShouldThrow = null;
 	});
 
 	test("run forwards prompt and model, returns finalResponse text", async () => {
@@ -120,5 +125,20 @@ describe("CodexSDK", () => {
 		expect(constructorCalls.length).toBe(1);
 		const opts = constructorCalls[0] as { apiKey?: string };
 		expect(opts.apiKey).toBe("secret");
+	});
+
+	test("run() converts rate-limit error message into LimitError", async () => {
+		runShouldThrow = new Error(
+			"openai: 429 too many requests; rate_limit_exceeded",
+		);
+		const sdk = new CodexSDK();
+		await expect(sdk.run({ prompt: "p" })).rejects.toBeInstanceOf(LimitError);
+	});
+
+	test("run() passes through non-limit errors unchanged", async () => {
+		const err = new Error("internal server error");
+		runShouldThrow = err;
+		const sdk = new CodexSDK();
+		await expect(sdk.run({ prompt: "p" })).rejects.toBe(err);
 	});
 });

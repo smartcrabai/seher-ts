@@ -1,6 +1,7 @@
 import { SeherSDK, type SeherSDKOptions } from "@seher-ts/sdk";
 import { streamToStdout, type WriteFn } from "../cli/stream.ts";
 import type { Logger } from "../util/logger.ts";
+import { applyRetryHooks } from "../util/retry.ts";
 
 export interface BuildModeOptions {
 	prompt: string;
@@ -30,6 +31,7 @@ function buildSdkOptions(opts: BuildModeOptions): SeherSDKOptions {
 	if (opts.configPath !== undefined) out.configPath = opts.configPath;
 	// Claude SDK: enable yolo by default for CLI agents.
 	out.permissionMode = "bypassPermissions";
+	applyRetryHooks(out, opts.logger);
 	return out;
 }
 

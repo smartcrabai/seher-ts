@@ -1,5 +1,6 @@
 import { createExternalTool, createSession } from "@moonshot-ai/kimi-agent-sdk";
 import type { z } from "zod";
+import { rethrowAsLimit } from "./errors.ts";
 import { joinSystemPrompt } from "./text.ts";
 import type { SeherTool } from "./tools.ts";
 import type {
@@ -9,6 +10,19 @@ import type {
 	SeherSDKInstance,
 	SeherStreamChunk,
 } from "./types.ts";
+
+const KIMI_LIMIT_PATTERN =
+	/rate.?limit|usage.?limit|429|quota|too many requests|exceeded/i;
+
+function isKimiLimit(err: unknown): boolean {
+	if (err === null || typeof err !== "object") return false;
+	const code = (err as { code?: unknown }).code;
+	if (code !== "CHAT_PROVIDER_ERROR") return false;
+	const raw = (err as { rawResponse?: unknown }).rawResponse;
+	if (typeof raw === "string" && KIMI_LIMIT_PATTERN.test(raw)) return true;
+	const message = (err as { message?: unknown }).message;
+	return typeof message === "string" && KIMI_LIMIT_PATTERN.test(message);
+}
 
 export interface KimiSDKConfig {
 	workDir?: string;
@@ -108,6 +122,8 @@ export class KimiSDK implements SeherSDKInstance {
 			}
 			const result = await turn.result;
 			return { text: parts.join(""), kind: this.kind, raw: result };
+		} catch (err) {
+			rethrowAsLimit("kimi", err, isKimiLimit);
 		} finally {
 			await session.close();
 		}
@@ -130,6 +146,8 @@ export class KimiSDK implements SeherSDKInstance {
 						}
 						yield { kind: self.kind, delta, raw: event };
 					}
+				} catch (err) {
+					rethrowAsLimit("kimi", err, isKimiLimit);
 				} finally {
 					await session.close();
 				}
