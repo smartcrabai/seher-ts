@@ -25,10 +25,16 @@ export interface ProviderApi {
 
 /** A single provider in the YAML `providers` map (after normalization). */
 export interface ProviderEntry {
-	/** Provider key as written in the config (e.g., "claude", "zai"). */
+	/** YAML map key as written in the config (used as a stable label). */
 	key: string;
 	/** Insertion order in the original YAML map (for stable tiebreaks). */
 	order: number;
+	/**
+	 * Resolved provider name. Equals the explicit `provider` field when
+	 * specified in YAML, otherwise falls back to `key`. Drives the built-in
+	 * SDK default lookup, the CodexBar usage query, and the `-p` filter.
+	 */
+	provider: string;
 	/** Underlying SDK to drive this provider with. */
 	sdk: SdkKind;
 	/** Provider-level priority shorthand (used when a model lacks its own). */
@@ -55,8 +61,8 @@ export type AgentLimit =
 
 /** Output of `resolveAgent`: which provider/model to use. */
 export interface ResolvedAgent {
-	/** Provider key (e.g., "claude", "zai"). */
-	providerKey: string;
+	/** Resolved provider name (e.g., "claude", "zai"). */
+	provider: string;
 	/** SDK kind to instantiate. */
 	kind: SdkKind;
 	/** Concrete model id passed to the SDK. */

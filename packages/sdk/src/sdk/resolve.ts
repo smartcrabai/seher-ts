@@ -45,7 +45,7 @@ export interface ResolveAgentOptions {
 }
 
 interface Candidate {
-	providerKey: string;
+	provider: string;
 	priority: number;
 	order: number;
 	resolved: ResolvedAgent;
@@ -64,25 +64,25 @@ function buildCandidates(
 	providerFilter: string | undefined,
 ): Candidate[] {
 	const list: Candidate[] = [];
-	for (const provider of config.providers) {
-		if (providerFilter !== undefined && provider.key !== providerFilter) {
+	for (const entry of config.providers) {
+		if (providerFilter !== undefined && entry.provider !== providerFilter) {
 			continue;
 		}
-		const model = provider.models[modeKey];
+		const model = entry.models[modeKey];
 		if (model === undefined) continue;
-		const priority = effectivePriority(provider.priority, model.priority);
+		const priority = effectivePriority(entry.priority, model.priority);
 		const resolved: ResolvedAgent = {
-			providerKey: provider.key,
-			kind: provider.sdk,
+			provider: entry.provider,
+			kind: entry.sdk,
 			modelId: model.model,
 			modeKey,
 			env: {},
 		};
-		if (provider.api !== undefined) resolved.api = provider.api;
+		if (entry.api !== undefined) resolved.api = entry.api;
 		list.push({
-			providerKey: provider.key,
+			provider: entry.provider,
 			priority,
-			order: provider.order,
+			order: entry.order,
 			resolved,
 		});
 	}
@@ -95,10 +95,10 @@ function buildCandidates(
 
 async function probe(
 	checkLimit: typeof checkLimitImpl,
-	providerKey: string,
+	provider: string,
 ): Promise<AgentLimit> {
 	try {
-		return await checkLimit(providerKey);
+		return await checkLimit(provider);
 	} catch (err) {
 		// CodexBar entries can be missing for community providers (e.g. zai),
 		// the binary itself may be absent on some hosts, or the spawn may fail
@@ -134,7 +134,7 @@ export async function resolveAgent(
 	let rescans = 0;
 	while (true) {
 		const scan = await scanCandidates(candidates, async (c) =>
-			probe(checkLimit, c.providerKey),
+			probe(checkLimit, c.provider),
 		);
 
 		if (scan.kind === "available") {

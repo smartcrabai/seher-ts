@@ -48,7 +48,7 @@ seher [plan|build] [options] [prompt...]
 
 | Flag | Description |
 |---|---|
-| `-p, --provider <name>` | Force a specific provider key. |
+| `-p, --provider <name>` | Force a specific provider (matches the resolved `provider` name; defaults to the YAML map key when `provider` is omitted). |
 | `-m, --model <key>` | Use this model key (e.g. `low`) instead of the default plan/build key. Only providers that define the key are eligible. |
 | `-c, --config <path>` | Path to YAML config (defaults to `$SEHER_CONFIG` or `~/.config/seher/config.yaml`). |
 | `-q, --quiet` | Suppress informational output. |
@@ -98,7 +98,8 @@ and the JSON Schema at
 
 | Field | Type | Notes |
 |---|---|---|
-| `sdk` | `"claude" \| "codex" \| "copilot" \| "kimi" \| "opencode" \| "cursor"` | Required for keys outside the built-in set; optional otherwise (defaults from the table above). |
+| `provider` | string | Resolved provider name. Defaults to the YAML map key. Drives the built-in SDK default lookup, the CodexBar usage query, and the `-p` filter. Use this to share a CodexBar pool between multiple entries (e.g. two `provider: claude` entries with different priorities/models). |
+| `sdk` | `"claude" \| "codex" \| "copilot" \| "kimi" \| "opencode" \| "cursor"` | Required when the resolved provider name is outside the built-in set; optional otherwise (defaults from the table above). |
 | `priority` | number | Provider-level shorthand. Used when a model entry omits its own priority. |
 | `api.key` | string | Mapped to the SDK's native key field (e.g. `ANTHROPIC_API_KEY`, `gitHubToken`, …). |
 | `api.endpoint` | string | Mapped to the SDK's native base URL field (e.g. `ANTHROPIC_BASE_URL`, OpenCode `baseURL`, …). |
@@ -142,7 +143,7 @@ for await (const chunk of sdk.stream({ prompt: "Hello!" })) {
 | Field | Notes |
 |---|---|
 | `mode` | Mode key (`"plan"` / `"build"` / custom). Defaults to `"build"`. |
-| `provider` | Force a specific provider key. |
+| `provider` | Force a specific provider (matches the resolved `provider` name; defaults to the YAML map key when `provider` is omitted). |
 | `configPath` | Override the YAML config path. |
 | `noWait` | Throw `AllAgentsLimitedError` instead of sleeping. |
 | `kind` | Skip resolution and use this SDK kind directly. |
@@ -181,8 +182,10 @@ const config = await loadConfig();
 const agent = await resolveAgent({ config, modeKey: "build" });
 ```
 
-`resolveAgent` returns `ResolvedAgent` with `{ providerKey, kind,
-modelId, modeKey, api?, env }`.
+`resolveAgent` returns `ResolvedAgent` with `{ provider, kind, modelId,
+modeKey, api?, env }`. `provider` is the resolved provider name (used
+by CodexBar / `-p`), defaulting to the YAML map key when no `provider`
+field is set on the entry.
 
 ## Known limitations
 

@@ -111,16 +111,24 @@ function parseProvider(
 		fail(`${label} must be an object`);
 	}
 
+	let provider = key;
+	if ("provider" in raw && raw.provider !== undefined) {
+		if (typeof raw.provider !== "string" || raw.provider.length === 0) {
+			fail(`${label}.provider must be a non-empty string`);
+		}
+		provider = raw.provider;
+	}
+
 	let sdk: SdkKind;
-	const isBuiltIn = Object.hasOwn(DEFAULT_SDK_BY_PROVIDER, key);
+	const isBuiltIn = Object.hasOwn(DEFAULT_SDK_BY_PROVIDER, provider);
 	if ("sdk" in raw && raw.sdk !== undefined) {
 		sdk = parseSdk(raw.sdk, label);
 	} else if (isBuiltIn) {
 		// biome-ignore lint/style/noNonNullAssertion: hasOwn-guarded
-		sdk = DEFAULT_SDK_BY_PROVIDER[key]!;
+		sdk = DEFAULT_SDK_BY_PROVIDER[provider]!;
 	} else {
 		fail(
-			`${label}.sdk is required for provider keys outside the built-in set (${Object.keys(DEFAULT_SDK_BY_PROVIDER).join(", ")})`,
+			`${label}.sdk is required when the resolved provider name ("${provider}") is outside the built-in set (${Object.keys(DEFAULT_SDK_BY_PROVIDER).join(", ")})`,
 		);
 	}
 
@@ -129,7 +137,7 @@ function parseProvider(
 		api = parseApi(raw.api, label);
 	} else if (!isBuiltIn) {
 		fail(
-			`${label}.api is required for provider keys outside the built-in set (provide \`api.key\` and/or \`api.endpoint\`)`,
+			`${label}.api is required when the resolved provider name ("${provider}") is outside the built-in set (provide \`api.key\` and/or \`api.endpoint\`)`,
 		);
 	}
 
@@ -146,7 +154,7 @@ function parseProvider(
 	}
 	const models = parseModels(raw.models, label);
 
-	const entry: ProviderEntry = { key, order, sdk, models };
+	const entry: ProviderEntry = { key, order, provider, sdk, models };
 	if (priority !== undefined) entry.priority = priority;
 	if (api !== undefined) entry.api = api;
 	return entry;

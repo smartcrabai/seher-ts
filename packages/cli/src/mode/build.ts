@@ -40,7 +40,7 @@ export async function runBuildMode(
 	if (!opts.quiet) {
 		const { kind, agent } = await sdk.resolved();
 		const label =
-			agent !== null ? `${agent.providerKey} (${kind}/${agent.modelId})` : kind;
+			agent !== null ? `${agent.provider} (${kind}/${agent.modelId})` : kind;
 		opts.logger.info(`Selected provider: ${label}`);
 	}
 	const streamOpts: Parameters<typeof streamToStdout>[1] = {

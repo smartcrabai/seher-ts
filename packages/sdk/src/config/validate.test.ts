@@ -133,4 +133,85 @@ describe("validateConfig", () => {
 		});
 		expect(cfg.providers[0]?.sdk).toBe("opencode");
 	});
+
+	test("provider defaults to YAML key when omitted", () => {
+		const cfg = validateConfig({
+			providers: { claude: { models: { build: "sonnet" } } },
+		});
+		const entry = cfg.providers[0];
+		expect(entry?.key).toBe("claude");
+		expect(entry?.provider).toBe("claude");
+	});
+
+	test("explicit provider overrides YAML key for SDK default lookup", () => {
+		const cfg = validateConfig({
+			providers: {
+				"my-claude": {
+					provider: "claude",
+					priority: 5,
+					models: { build: "opus-4.7" },
+				},
+			},
+		});
+		const entry = cfg.providers[0];
+		expect(entry?.key).toBe("my-claude");
+		expect(entry?.provider).toBe("claude");
+		expect(entry?.sdk).toBe("claude");
+	});
+
+	test("non-builtin resolved provider still requires sdk + api", () => {
+		expect(() =>
+			validateConfig({
+				providers: {
+					"my-zai": { provider: "zai", models: { build: "glm-5.1" } },
+				},
+			}),
+		).toThrow(/sdk is required/);
+		expect(() =>
+			validateConfig({
+				providers: {
+					"my-zai": {
+						provider: "zai",
+						sdk: "claude",
+						models: { build: "glm-5.1" },
+					},
+				},
+			}),
+		).toThrow(/api is required/);
+	});
+
+	test("provider must be a non-empty string when specified", () => {
+		expect(() =>
+			validateConfig({
+				providers: { claude: { provider: "", models: { build: "sonnet" } } },
+			}),
+		).toThrow(/provider must be a non-empty string/);
+		expect(() =>
+			validateConfig({
+				providers: { claude: { provider: 42, models: { build: "sonnet" } } },
+			}),
+		).toThrow(/provider must be a non-empty string/);
+	});
+
+	test("YAML key may differ from provider for codexbar sharing", () => {
+		const cfg = validateConfig({
+			providers: {
+				"claude-primary": {
+					provider: "claude",
+					priority: 5,
+					models: { build: "opus-4.7" },
+				},
+				"claude-secondary": {
+					provider: "claude",
+					priority: 1,
+					models: { build: "sonnet-4.6" },
+				},
+			},
+		});
+		expect(cfg.providers.map((p) => p.key)).toEqual([
+			"claude-primary",
+			"claude-secondary",
+		]);
+		expect(cfg.providers.map((p) => p.provider)).toEqual(["claude", "claude"]);
+	});
 });

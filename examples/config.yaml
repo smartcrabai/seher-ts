@@ -21,3 +21,11 @@ providers:
     models:
       plan: glm-5.1
       build: glm-5.1
+
+  # `provider` overrides the YAML map key as the resolved provider name.
+  # Two entries with `provider: claude` share the same CodexBar usage pool.
+  claude-fallback:
+    provider: claude
+    priority: 1
+    models:
+      build: sonnet-4.6
