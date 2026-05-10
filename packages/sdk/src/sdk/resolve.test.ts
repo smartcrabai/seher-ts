@@ -1,15 +1,12 @@
 import { describe, expect, mock, test } from "bun:test";
 import { CodexBarError, CodexBarNotFoundError } from "../codexbar/errors.ts";
-import type { AgentLimit, Config } from "../types.ts";
+import type { AgentLimit } from "../types.ts";
+import { mkConfig } from "./__test__/mkConfig.ts";
 import {
 	AllAgentsLimitedError,
 	NoMatchingAgentError,
 	resolveAgent,
 } from "./resolve.ts";
-
-function mkConfig(...providers: Config["providers"]): Config {
-	return { providers };
-}
 
 describe("resolveAgent", () => {
 	test("returns the highest-priority candidate that defines models[modeKey]", async () => {
@@ -32,7 +29,7 @@ describe("resolveAgent", () => {
 			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
 		);
 		const agent = await resolveAgent({ config, checkLimit });
-		expect(agent.providerKey).toBe("codex");
+		expect(agent.provider).toBe("codex");
 		expect(agent.modelId).toBe("gpt-5.5");
 		expect(agent.modeKey).toBe("build");
 	});
@@ -58,7 +55,7 @@ describe("resolveAgent", () => {
 			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
 		);
 		const agent = await resolveAgent({ config, checkLimit });
-		expect(agent.providerKey).toBe("claude");
+		expect(agent.provider).toBe("claude");
 	});
 
 	test("excludes providers that do not define the requested mode", async () => {
@@ -82,7 +79,7 @@ describe("resolveAgent", () => {
 			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
 		);
 		const agent = await resolveAgent({ config, modeKey: "plan", checkLimit });
-		expect(agent.providerKey).toBe("claude");
+		expect(agent.provider).toBe("claude");
 		expect(agent.modelId).toBe("opus");
 	});
 
@@ -109,7 +106,7 @@ describe("resolveAgent", () => {
 			return { kind: "not_limited" };
 		});
 		const agent = await resolveAgent({ config, checkLimit });
-		expect(agent.providerKey).toBe("codex");
+		expect(agent.provider).toBe("codex");
 	});
 
 	test("CodexBarError is treated as not_limited", async () => {
@@ -123,7 +120,7 @@ describe("resolveAgent", () => {
 			throw new CodexBarError("missing entry", 0, "");
 		});
 		const agent = await resolveAgent({ config, checkLimit });
-		expect(agent.providerKey).toBe("zai");
+		expect(agent.provider).toBe("zai");
 	});
 
 	test("CodexBarNotFoundError is treated as not_limited", async () => {
@@ -137,7 +134,7 @@ describe("resolveAgent", () => {
 			throw new CodexBarNotFoundError("no binary");
 		});
 		const agent = await resolveAgent({ config, checkLimit });
-		expect(agent.providerKey).toBe("claude");
+		expect(agent.provider).toBe("claude");
 	});
 
 	test("noWait throws AllAgentsLimitedError without sleeping", async () => {
@@ -180,7 +177,7 @@ describe("resolveAgent", () => {
 			sleepUntil,
 			quiet: true,
 		});
-		expect(agent.providerKey).toBe("claude");
+		expect(agent.provider).toBe("claude");
 		expect(sleepUntil).toHaveBeenCalledTimes(1);
 	});
 
@@ -208,7 +205,7 @@ describe("resolveAgent", () => {
 			provider: "claude",
 			checkLimit,
 		});
-		expect(agent.providerKey).toBe("claude");
+		expect(agent.provider).toBe("claude");
 	});
 
 	test("throws NoMatchingAgentError when no provider defines the mode", async () => {

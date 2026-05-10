@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import type { AgentLimit, Config } from "../types.ts";
+import type { AgentLimit } from "../types.ts";
+import { mkConfig } from "./__test__/mkConfig.ts";
 import {
 	mockClaudeTool,
 	mockCreateExternalTool,
@@ -206,10 +207,6 @@ mock.module("@cursor/sdk", () => {
 const { SeherSDK } = await import("./seherSdk.ts");
 const { AllAgentsLimitedError } = await import("./resolve.ts");
 
-function mkConfig(...providers: Config["providers"]): Config {
-	return { providers };
-}
-
 describe("SeherSDK class", () => {
 	beforeEach(() => {
 		claudeQueryCalls.length = 0;
@@ -307,7 +304,7 @@ describe("SeherSDK class", () => {
 		});
 		const { kind, agent } = await sdk.resolved();
 		expect(kind).toBe("codex");
-		expect(agent?.providerKey).toBe("codex");
+		expect(agent?.provider).toBe("codex");
 	});
 
 	test("noWait throws AllAgentsLimitedError when all providers limited", async () => {

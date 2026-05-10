@@ -61,7 +61,7 @@ export async function runPlanMode(
 	if (!opts.quiet) {
 		const { kind, agent } = await planSdk.resolved();
 		const label =
-			agent !== null ? `${agent.providerKey} (${kind}/${agent.modelId})` : kind;
+			agent !== null ? `${agent.provider} (${kind}/${agent.modelId})` : kind;
 		opts.logger.info(`Planning with: ${label}`);
 	}
 

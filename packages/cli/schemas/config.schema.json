@@ -53,9 +53,13 @@
 			"required": ["models"],
 			"additionalProperties": false,
 			"properties": {
+				"provider": {
+					"type": "string",
+					"description": "Resolved provider name. Defaults to the YAML map key. Drives the built-in SDK default (codex / claude / cursor / opencodego / copilot / kimi), the CodexBar usage lookup, and the `-p` filter."
+				},
 				"sdk": {
 					"$ref": "#/definitions/sdkKind",
-					"description": "Required for provider keys outside the built-in set (codex / claude / cursor / opencodego / copilot / kimi)."
+					"description": "Required when the resolved provider name (the `provider` field, or the YAML map key when omitted) is outside the built-in set."
 				},
 				"priority": {
 					"type": "number",
