@@ -1,5 +1,6 @@
 import { approveAll, CopilotClient, defineTool } from "@github/copilot-sdk";
 import type { z } from "zod";
+import { LimitError } from "./errors.ts";
 import type { SeherTool } from "./tools.ts";
 import type {
 	SdkKind,
@@ -8,6 +9,32 @@ import type {
 	SeherSDKInstance,
 	SeherStreamChunk,
 } from "./types.ts";
+
+type CopilotErrorEvent = {
+	type: "session.error";
+	data?: {
+		errorType?: string;
+		message?: string;
+		statusCode?: number;
+	};
+};
+
+const LIMIT_ERROR_TYPES = new Set(["rate_limit", "quota", "context_limit"]);
+
+function tryLimitFromErrorEvent(event: CopilotErrorEvent): LimitError | null {
+	const data = event.data;
+	if (data === undefined) return null;
+	const errorType = data.errorType;
+	const isLimit =
+		(errorType !== undefined && LIMIT_ERROR_TYPES.has(errorType)) ||
+		data.statusCode === 429;
+	if (!isLimit) return null;
+	return new LimitError("copilot", {
+		provider: "copilot",
+		message: data.message ?? `Copilot ${errorType ?? "rate_limit"}`,
+		cause: event,
+	});
+}
 
 export interface CopilotSDKConfig {
 	gitHubToken?: string;
@@ -41,12 +68,16 @@ type SessionLike = {
 	sendAndWait: (opts: {
 		prompt: string;
 	}) => Promise<{ data?: { content?: string } } | undefined>;
-	on: (
-		eventType: string,
+	on: ((
+		eventType: "assistant.message_delta" | "assistant.message",
 		handler: (event: {
 			data?: { content?: string; deltaContent?: string };
 		}) => void,
-	) => () => void;
+	) => () => void) &
+		((
+			eventType: "session.error",
+			handler: (event: CopilotErrorEvent) => void,
+		) => () => void);
 	disconnect: () => Promise<void>;
 };
 
@@ -111,11 +142,21 @@ export class CopilotSDK implements SeherSDKInstance {
 
 	async run(opts: SeherRunOptions): Promise<SeherRunResult> {
 		const session = await this.createSession(opts, false);
+		let limitError: LimitError | null = null;
+		const unsubError = session.on("session.error", (event) => {
+			if (limitError !== null) return;
+			const detected = tryLimitFromErrorEvent(event);
+			if (detected !== null) limitError = detected;
+		});
 		try {
 			const event = await session.sendAndWait({ prompt: opts.prompt });
+			// Snapshot to a local so TS narrows past the closure write.
+			const captured = limitError;
+			if (captured !== null) throw captured;
 			const text = event?.data?.content ?? "";
 			return { text, kind: this.kind, raw: event };
 		} finally {
+			unsubError();
 			await session.disconnect();
 		}
 	}
@@ -128,6 +169,7 @@ export class CopilotSDK implements SeherSDKInstance {
 				const queue: SeherStreamChunk[] = [];
 				let resolveNext: (() => void) | null = null;
 				let done = false;
+				let limitError: LimitError | null = null;
 
 				const wake = () => {
 					const fn = resolveNext;
@@ -147,6 +189,15 @@ export class CopilotSDK implements SeherSDKInstance {
 				const unsubMessage = session.on("assistant.message", (event) => {
 					push({ kind: self.kind, delta: "", raw: event });
 				});
+				const unsubError = session.on("session.error", (event) => {
+					if (limitError !== null) return;
+					const detected = tryLimitFromErrorEvent(event);
+					if (detected !== null) {
+						limitError = detected;
+						done = true;
+						wake();
+					}
+				});
 
 				const sendPromise = (async () => {
 					try {
@@ -159,6 +210,8 @@ export class CopilotSDK implements SeherSDKInstance {
 
 				try {
 					while (true) {
+						const captured = limitError;
+						if (captured !== null) throw captured;
 						if (queue.length > 0) {
 							const next = queue.shift();
 							if (next !== undefined) yield next;
@@ -169,10 +222,15 @@ export class CopilotSDK implements SeherSDKInstance {
 							resolveNext = resolve;
 						});
 					}
+					// Surface a captured limit before awaiting sendPromise so a
+					// non-limit rejection from send doesn't shadow it.
+					const captured = limitError;
+					if (captured !== null) throw captured;
 					await sendPromise;
 				} finally {
 					unsubDelta();
 					unsubMessage();
+					unsubError();
 					await session.disconnect();
 				}
 			},

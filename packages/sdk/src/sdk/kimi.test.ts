@@ -8,6 +8,27 @@ const closeCalls: number[] = [];
 let streamEvents: unknown[] = [];
 let runResult: unknown = { status: "finished", steps: 1 };
 
+class MockCliError extends Error {
+	readonly code: string;
+	readonly numericCode?: number;
+	readonly rawResponse?: string;
+	readonly category = "cli";
+	constructor(
+		code: string,
+		message: string,
+		numericCode?: number,
+		rawResponse?: string,
+	) {
+		super(message);
+		this.name = "CliError";
+		this.code = code;
+		if (numericCode !== undefined) this.numericCode = numericCode;
+		if (rawResponse !== undefined) this.rawResponse = rawResponse;
+	}
+}
+
+let promptShouldThrow: Error | null = null;
+
 mock.module("@moonshot-ai/kimi-agent-sdk", () => {
 	function createSession(options: Record<string, unknown>) {
 		createSessionCalls.push(options);
@@ -16,12 +37,20 @@ mock.module("@moonshot-ai/kimi-agent-sdk", () => {
 				promptCalls.push(content);
 				const events = streamEvents;
 				const result = runResult;
+				const willThrow = promptShouldThrow;
 				return {
 					[Symbol.asyncIterator]: async function* () {
 						for (const e of events) yield e;
+						if (willThrow !== null) throw willThrow;
 						return result;
 					},
-					result: Promise.resolve(result),
+					// When the iterator throws, the wrapper never awaits `result` —
+					// use a never-firing promise instead of `Promise.reject(...)` to
+					// avoid an unhandled rejection that would fail the test runner.
+					result:
+						willThrow !== null
+							? new Promise(() => {})
+							: Promise.resolve(result),
 				};
 			},
 			close: async () => {
@@ -29,10 +58,15 @@ mock.module("@moonshot-ai/kimi-agent-sdk", () => {
 			},
 		};
 	}
-	return { createSession, createExternalTool: mockCreateExternalTool };
+	return {
+		createSession,
+		createExternalTool: mockCreateExternalTool,
+		CliError: MockCliError,
+	};
 });
 
 const { KimiSDK } = await import("./kimi.ts");
+const { LimitError } = await import("./errors.ts");
 
 describe("KimiSDK", () => {
 	beforeEach(() => {
@@ -41,6 +75,7 @@ describe("KimiSDK", () => {
 		closeCalls.length = 0;
 		streamEvents = [];
 		runResult = { status: "finished", steps: 1 };
+		promptShouldThrow = null;
 	});
 
 	test("run forwards prompt and model, joins ContentPart text events", async () => {
@@ -200,5 +235,27 @@ describe("KimiSDK", () => {
 		await sdk.run({ prompt: "p" });
 		const opts = createSessionCalls[0] as { externalTools?: unknown };
 		expect(opts.externalTools).toBeUndefined();
+	});
+
+	test("run() converts CliError(CHAT_PROVIDER_ERROR, rate_limit) into LimitError", async () => {
+		promptShouldThrow = new MockCliError(
+			"CHAT_PROVIDER_ERROR",
+			"upstream rate_limit_reached_error",
+			-32003,
+			'{"error":{"code":"rate_limit_reached_error"}}',
+		);
+		const sdk = new KimiSDK();
+		await expect(sdk.run({ prompt: "p" })).rejects.toBeInstanceOf(LimitError);
+		expect(closeCalls.length).toBe(1);
+	});
+
+	test("run() passes through non-limit CliError unchanged", async () => {
+		const err = new MockCliError(
+			"CHAT_PROVIDER_ERROR",
+			"bad request (no limit signal)",
+		);
+		promptShouldThrow = err;
+		const sdk = new KimiSDK();
+		await expect(sdk.run({ prompt: "p" })).rejects.toBe(err);
 	});
 });

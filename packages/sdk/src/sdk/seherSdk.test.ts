@@ -10,11 +10,24 @@ import {
 
 // --- Mock the underlying provider SDKs so no real network calls happen. ---
 const claudeQueryCalls: Array<{ prompt: unknown; options: unknown }> = [];
+// Side-channel for retry tests: when set to "limit", the next claude.run/stream
+// emits a `rate_limit_event` (which the wrapper converts to `LimitError`).
+const claudeBehavior: { mode: "success" | "limit" } = { mode: "success" };
 mock.module("@anthropic-ai/claude-agent-sdk", () => {
 	function query(params: { prompt: unknown; options?: unknown }) {
 		claudeQueryCalls.push({ prompt: params.prompt, options: params.options });
+		const mode = claudeBehavior.mode;
 		return {
 			async *[Symbol.asyncIterator]() {
+				if (mode === "limit") {
+					yield {
+						type: "rate_limit_event",
+						rate_limit_info: { status: "rejected", resetsAt: 4102444800000 },
+						uuid: "u",
+						session_id: "s",
+					};
+					return;
+				}
 				yield {
 					type: "assistant",
 					message: { content: [{ type: "text", text: "claude " }] },
@@ -100,7 +113,29 @@ mock.module("@moonshot-ai/kimi-agent-sdk", () => {
 			close: async () => {},
 		};
 	}
-	return { createSession, createExternalTool: mockCreateExternalTool };
+	class MockCliError extends Error {
+		readonly code: string;
+		readonly numericCode?: number;
+		readonly rawResponse?: string;
+		readonly category = "cli";
+		constructor(
+			code: string,
+			message: string,
+			numericCode?: number,
+			rawResponse?: string,
+		) {
+			super(message);
+			this.name = "CliError";
+			this.code = code;
+			if (numericCode !== undefined) this.numericCode = numericCode;
+			if (rawResponse !== undefined) this.rawResponse = rawResponse;
+		}
+	}
+	return {
+		createSession,
+		createExternalTool: mockCreateExternalTool,
+		CliError: MockCliError,
+	};
 });
 
 const copilotConstructorOpts: Array<Record<string, unknown>> = [];
@@ -201,11 +236,19 @@ mock.module("@cursor/sdk", () => {
 			};
 		}
 	}
-	return { Agent: FakeAgent };
+	class MockRateLimitError extends Error {
+		readonly status = 429;
+		constructor(message: string) {
+			super(message);
+			this.name = "RateLimitError";
+		}
+	}
+	return { Agent: FakeAgent, RateLimitError: MockRateLimitError };
 });
 
 const { SeherSDK } = await import("./seherSdk.ts");
 const { AllAgentsLimitedError } = await import("./resolve.ts");
+const { LimitError } = await import("./errors.ts");
 
 describe("SeherSDK class", () => {
 	beforeEach(() => {
@@ -221,6 +264,7 @@ describe("SeherSDK class", () => {
 		opencodeClientOpts.length = 0;
 		cursorCreateOpts.length = 0;
 		cursorSendCalls.length = 0;
+		claudeBehavior.mode = "success";
 	});
 
 	test("kind=claude: synchronous construction, run dispatches to ClaudeSDK", async () => {
@@ -553,6 +597,133 @@ describe("SeherSDK class", () => {
 		};
 		expect(opts.baseUrl).toBe("https://opencode.test");
 		expect(opts.headers?.Authorization).toBe("Bearer tok");
+	});
+
+	test("LimitError from a provider propagates when retryOnLimit is false", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "sonnet" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		claudeBehavior.mode = "limit";
+		const sdk = new SeherSDK({
+			resolveOverrides: { config, checkLimit },
+		});
+		await expect(sdk.run({ prompt: "hi" })).rejects.toBeInstanceOf(LimitError);
+	});
+
+	test("retryOnLimit falls over to next provider when first hits limit mid-run", async () => {
+		const config = mkConfig(
+			{
+				key: "claude",
+				order: 0,
+				sdk: "claude",
+				priority: 9,
+				models: { build: { model: "sonnet" } },
+			},
+			{
+				key: "codex",
+				order: 1,
+				sdk: "codex",
+				priority: 1,
+				models: { build: { model: "gpt-5.5" } },
+			},
+		);
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		claudeBehavior.mode = "limit";
+		const onLimitRetry = mock(() => {});
+		const sdk = new SeherSDK({
+			retryOnLimit: true,
+			onLimitRetry,
+			resolveOverrides: { config, checkLimit },
+		});
+		const result = await sdk.run({ prompt: "hi" });
+		expect(result.kind).toBe("codex");
+		expect(result.text).toBe("codex reply");
+		expect(onLimitRetry).toHaveBeenCalledTimes(1);
+		const firstCall = onLimitRetry.mock.calls[0]?.[0] as {
+			provider: string;
+			resetAt?: Date;
+		};
+		expect(firstCall?.provider).toBe("claude");
+		expect(firstCall?.resetAt).toBeInstanceOf(Date);
+	});
+
+	test("retryOnLimit + stream(): switches provider mid-stream on LimitError", async () => {
+		const config = mkConfig(
+			{
+				key: "claude",
+				order: 0,
+				sdk: "claude",
+				priority: 9,
+				models: { build: { model: "sonnet" } },
+			},
+			{
+				key: "codex",
+				order: 1,
+				sdk: "codex",
+				priority: 1,
+				models: { build: { model: "gpt-5.5" } },
+			},
+		);
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		claudeBehavior.mode = "limit";
+		const sdk = new SeherSDK({
+			retryOnLimit: true,
+			resolveOverrides: { config, checkLimit },
+		});
+		const chunks: { kind: string; delta: string }[] = [];
+		for await (const c of sdk.stream({ prompt: "hi" })) {
+			chunks.push({ kind: c.kind, delta: c.delta });
+		}
+		const codexChunks = chunks.filter((c) => c.kind === "codex");
+		expect(codexChunks.length).toBeGreaterThan(0);
+		expect(codexChunks.map((c) => c.delta).join("")).toBe("codex reply");
+	});
+
+	test("retryOnLimit polls when all providers are limited, recovers, runs", async () => {
+		const config = mkConfig(
+			{
+				key: "claude",
+				order: 0,
+				sdk: "claude",
+				models: { build: { model: "sonnet" } },
+			},
+			{
+				key: "codex",
+				order: 1,
+				sdk: "codex",
+				models: { build: { model: "gpt-5.5" } },
+			},
+		);
+		const reset = new Date("2099-01-01T00:00:00Z");
+		let pollCalls = 0;
+		const checkLimit = mock(async (): Promise<AgentLimit> => {
+			pollCalls += 1;
+			if (pollCalls <= 4) return { kind: "limited", resetTime: reset };
+			return { kind: "not_limited" };
+		});
+		const onAllLimited = mock(() => {});
+		const onLimitWaitTick = mock((_n: number) => {});
+		const sdk = new SeherSDK({
+			retryOnLimit: true,
+			limitPollIntervalMs: 5,
+			onAllLimited,
+			onLimitWaitTick,
+			resolveOverrides: { config, checkLimit },
+		});
+		const result = await sdk.run({ prompt: "hi" });
+		expect(result.text.length).toBeGreaterThan(0);
+		expect(onAllLimited).toHaveBeenCalledTimes(1);
+		expect(onLimitWaitTick.mock.calls.length).toBeGreaterThan(0);
 	});
 
 	test("copilot: api.key becomes gitHubToken, api.endpoint becomes cliUrl", async () => {
