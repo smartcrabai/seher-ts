@@ -53,3 +53,43 @@ export function mockCreateExternalTool(definition: {
 }) {
 	return { __seherKimiTool: true, ...definition };
 }
+
+/**
+ * Mock Cursor Agent object factory for `mock.module("@cursor/sdk", ...)`.
+ * Returns a FakeAgent with `create()` that records calls and returns a
+ * fully-stubbed agent instance. The `createOpts` array and `streamEvents`
+ * variable must be provided by the test file.
+ */
+export function mockCursorAgent(
+	createOpts: Array<Record<string, unknown>>,
+	streamEvents: unknown[],
+) {
+	return {
+		create: async (options: Record<string, unknown>) => {
+			createOpts.push(options);
+			return {
+				agentId: "agent_x",
+				model: undefined,
+				send: async (message: unknown) => ({
+					id: "run_x",
+					agentId: "agent_x",
+					status: "running",
+					supports: () => true,
+					unsupportedReason: () => undefined,
+					stream: async function* () {
+						for (const e of streamEvents) yield e;
+					},
+					wait: async () => ({ status: "finished", result: "cursor reply" }),
+					cancel: async () => {},
+					conversation: async () => [],
+					onDidChangeStatus: () => () => {},
+				}),
+				close: () => {},
+				reload: async () => {},
+				listArtifacts: async () => [],
+				downloadArtifact: async () => Buffer.from(""),
+				[Symbol.asyncDispose]: async () => {},
+			};
+		},
+	};
+}

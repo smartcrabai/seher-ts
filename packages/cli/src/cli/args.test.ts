@@ -55,6 +55,18 @@ describe("parseArgs", () => {
 		expect(result.help).toBe(true);
 		expect(result.output ?? "").toContain("plan");
 		expect(result.output ?? "").toContain("build");
+		expect(result.output ?? "").toContain("--provider");
+	});
+
+	test("-h captures help text with all options", () => {
+		const result = parseArgs(["-h"]);
+		expect(result.help).toBe(true);
+		expect(result.output ?? "").toContain("--provider");
+		expect(result.output ?? "").toContain("--model");
+		expect(result.output ?? "").toContain("--config");
+		expect(result.output ?? "").toContain("--quiet");
+		expect(result.output ?? "").toContain("--version");
+		expect(result.output ?? "").toContain("--help");
 	});
 
 	test("plan --help captures plan help text", () => {

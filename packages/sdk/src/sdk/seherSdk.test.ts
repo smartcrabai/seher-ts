@@ -164,44 +164,13 @@ mock.module("@opencode-ai/sdk", () => {
 	};
 });
 
+import { mockCursorAgent } from "./__test__/mockProviderTools.ts";
+
 const cursorCreateOpts: Array<Record<string, unknown>> = [];
-const cursorSendCalls: unknown[] = [];
 mock.module("@cursor/sdk", () => {
-	class FakeAgent {
-		static async create(options: Record<string, unknown>) {
-			cursorCreateOpts.push(options);
-			return {
-				agentId: "agent_x",
-				model: undefined,
-				send: async (message: unknown) => {
-					cursorSendCalls.push(message);
-					return {
-						id: "run_x",
-						agentId: "agent_x",
-						status: "finished",
-						supports: () => true,
-						unsupportedReason: () => undefined,
-						stream: async function* () {
-							yield {
-								type: "assistant",
-								message: { content: [{ type: "text", text: "cursor reply" }] },
-							};
-						},
-						wait: async () => ({ status: "finished", result: "cursor reply" }),
-						cancel: async () => {},
-						conversation: async () => [],
-						onDidChangeStatus: () => () => {},
-					};
-				},
-				close: () => {},
-				reload: async () => {},
-				listArtifacts: async () => [],
-				downloadArtifact: async () => Buffer.from(""),
-				[Symbol.asyncDispose]: async () => {},
-			};
-		}
-	}
-	return { Agent: FakeAgent };
+	return { Agent: mockCursorAgent(cursorCreateOpts, [
+		{ type: "assistant", message: { content: [{ type: "text", text: "cursor reply" }] } },
+	]) };
 });
 
 const { SeherSDK } = await import("./seherSdk.ts");
@@ -220,7 +189,6 @@ describe("SeherSDK class", () => {
 		opencodePromptCalls.length = 0;
 		opencodeClientOpts.length = 0;
 		cursorCreateOpts.length = 0;
-		cursorSendCalls.length = 0;
 	});
 
 	test("kind=claude: synchronous construction, run dispatches to ClaudeSDK", async () => {

@@ -17,8 +17,8 @@ let streamEvents: unknown[] = [
 ];
 
 mock.module("@cursor/sdk", () => {
-	class FakeAgent {
-		static async create(options: Record<string, unknown>) {
+	const FakeAgent = {
+		create: async (options: Record<string, unknown>) => {
 			createOpts.push(options);
 			return {
 				agentId: "agent_x",
@@ -51,8 +51,8 @@ mock.module("@cursor/sdk", () => {
 				downloadArtifact: async () => Buffer.from(""),
 				[Symbol.asyncDispose]: async () => {},
 			};
-		}
-	}
+		},
+	};
 	return { Agent: FakeAgent };
 });
 
