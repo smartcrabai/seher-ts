@@ -1,6 +1,6 @@
 {
 	"name": "@seher-ts/sdk",
-	"version": "0.1.5",
+	"version": "0.1.6",
 	"description": "Seher SDK: programmatically resolve the highest-priority available coding agent (Claude / Codex / Copilot / Kimi / OpenCode / Cursor)",
 	"license": "Apache-2.0",
 	"repository": {
@@ -19,50 +19,40 @@
 	"exports": {
 		".": {
 			"types": "./dist/index.d.ts",
-			"bun": "./src/index.ts",
 			"import": "./dist/index.js"
 		},
 		"./claude": {
 			"types": "./dist/entries/claude.d.ts",
-			"bun": "./src/entries/claude.ts",
 			"import": "./dist/entries/claude.js"
 		},
 		"./codex": {
 			"types": "./dist/entries/codex.d.ts",
-			"bun": "./src/entries/codex.ts",
 			"import": "./dist/entries/codex.js"
 		},
 		"./copilot": {
 			"types": "./dist/entries/copilot.d.ts",
-			"bun": "./src/entries/copilot.ts",
 			"import": "./dist/entries/copilot.js"
 		},
 		"./kimi": {
 			"types": "./dist/entries/kimi.d.ts",
-			"bun": "./src/entries/kimi.ts",
 			"import": "./dist/entries/kimi.js"
 		},
 		"./opencode": {
 			"types": "./dist/entries/opencode.d.ts",
-			"bun": "./src/entries/opencode.ts",
 			"import": "./dist/entries/opencode.js"
 		},
 		"./cursor": {
 			"types": "./dist/entries/cursor.d.ts",
-			"bun": "./src/entries/cursor.ts",
 			"import": "./dist/entries/cursor.js"
 		},
 		"./seher": {
 			"types": "./dist/entries/seher.d.ts",
-			"bun": "./src/entries/seher.ts",
 			"import": "./dist/entries/seher.js"
 		},
 		"./package.json": "./package.json"
 	},
 	"files": [
 		"dist",
-		"src",
-		"!src/**/*.test.ts",
 		"README.md",
 		"LICENSE"
 	],
