@@ -65,7 +65,7 @@ seher-ts reads its YAML config from (in priority order):
 If no file exists, the default empty config is used.
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/smartcrabai/seher-ts/main/schemas/config.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/smartcrabai/seher-ts/main/packages/cli/schemas/config.schema.json
 
 providers:
   codex:
