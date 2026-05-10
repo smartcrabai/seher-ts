@@ -6,20 +6,24 @@ export interface Logger {
 
 export interface CreateLoggerOptions {
 	quiet?: boolean;
+	stderr?: (text: string) => void;
 }
 
 export function createLogger(opts: CreateLoggerOptions = {}): Logger {
 	const quiet = opts.quiet ?? false;
+	const write = opts.stderr ?? ((text: string) => process.stderr.write(text));
+	const ln = (msg: string) =>
+		msg.endsWith("\n") ? write(msg) : write(`${msg}\n`);
 	return {
 		info(msg: string) {
 			if (quiet) return;
-			console.error(msg);
+			ln(msg);
 		},
 		warn(msg: string) {
-			console.error(msg);
+			ln(msg);
 		},
 		error(msg: string) {
-			console.error(msg);
+			ln(msg);
 		},
 	};
 }

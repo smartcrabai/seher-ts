@@ -1,10 +1,10 @@
 import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { type ParseError, parse, printParseErrorCode } from "jsonc-parser";
-import type { Settings } from "../types.ts";
-import { defaultSettings } from "./defaults.ts";
-import { ConfigValidationError, validateSettings } from "./validate.ts";
+import { parse as parseYaml } from "yaml";
+import type { Config } from "../types.ts";
+import { defaultConfig } from "./defaults.ts";
+import { ConfigValidationError, validateConfig } from "./validate.ts";
 
 export class ConfigLoadError extends Error {
 	constructor(message: string) {
@@ -27,44 +27,44 @@ async function readIfExists(path: string): Promise<string | null> {
 	return await readFile(path, "utf8");
 }
 
-async function resolveDefaultPath(): Promise<string | null> {
-	const dir = join(homedir(), ".config", "seher");
-	for (const name of ["settings.jsonc", "settings.json"]) {
-		const p = join(dir, name);
-		if (await fileExists(p)) return p;
-	}
-	return null;
+/**
+ * Resolve the default config path:
+ *   $SEHER_CONFIG > ~/.config/seher/config.yaml
+ *
+ * Returns the path string regardless of whether the file exists; the caller
+ * decides whether to fall back to defaults.
+ */
+export function defaultConfigPath(): string {
+	const env = process.env.SEHER_CONFIG;
+	if (env !== undefined && env.length > 0) return env;
+	return join(homedir(), ".config", "seher", "config.yaml");
 }
 
-export function parseSettingsText(text: string, sourceLabel: string): Settings {
-	const errors: ParseError[] = [];
-	const parsed = parse(text, errors, {
-		allowTrailingComma: true,
-		disallowComments: false,
-	});
-	if (errors.length > 0) {
-		const details = errors
-			.map((e) => `${printParseErrorCode(e.error)} at offset ${e.offset}`)
-			.join("; ");
-		throw new ConfigLoadError(`failed to parse ${sourceLabel}: ${details}`);
-	}
+export function parseConfigText(text: string, sourceLabel: string): Config {
+	let parsed: unknown;
 	try {
-		return validateSettings(parsed);
+		parsed = parseYaml(text);
+	} catch (err) {
+		throw new ConfigLoadError(
+			`failed to parse ${sourceLabel}: ${(err as Error).message}`,
+		);
+	}
+	if (parsed === undefined || parsed === null) return defaultConfig();
+	try {
+		return validateConfig(parsed);
 	} catch (err) {
 		if (err instanceof ConfigValidationError) {
 			throw new ConfigLoadError(
-				`invalid settings in ${sourceLabel}: ${err.message}`,
+				`invalid config in ${sourceLabel}: ${err.message}`,
 			);
 		}
 		throw err;
 	}
 }
 
-export async function loadSettings(explicitPath?: string): Promise<Settings> {
-	// Rust loader treats NotFound as default for both explicit and default paths.
-	const path = explicitPath ?? (await resolveDefaultPath());
-	if (path === null) return defaultSettings();
+export async function loadConfig(explicitPath?: string): Promise<Config> {
+	const path = explicitPath ?? defaultConfigPath();
 	const text = await readIfExists(path);
-	if (text === null) return defaultSettings();
-	return parseSettingsText(text, path);
+	if (text === null) return defaultConfig();
+	return parseConfigText(text, path);
 }

@@ -2,112 +2,77 @@ import { describe, expect, test } from "bun:test";
 import { parseArgs } from "./args.ts";
 
 describe("parseArgs", () => {
-	test("parses short/long flags with trailing after --", () => {
+	test("defaults to build mode when no subcommand is given", () => {
+		const result = parseArgs(["hello"]);
+		expect(result.mode).toBe("build");
+		expect(result.trailing).toEqual(["hello"]);
+		expect(result.quiet).toBe(false);
+	});
+
+	test("explicit build subcommand", () => {
+		const result = parseArgs(["build", "hello"]);
+		expect(result.mode).toBe("build");
+		expect(result.trailing).toEqual(["hello"]);
+	});
+
+	test("plan subcommand", () => {
+		const result = parseArgs(["plan", "implement", "X"]);
+		expect(result.mode).toBe("plan");
+		expect(result.trailing).toEqual(["implement", "X"]);
+	});
+
+	test("--provider, --model, --config", () => {
 		const result = parseArgs([
-			"-b",
-			"chrome",
-			"-m",
-			"high",
-			"--",
-			"some",
-			"prompt",
-		]);
-		expect(result.browser).toBe("chrome");
-		expect(result.model).toBe("high");
-		expect(result.trailing).toEqual(["some", "prompt"]);
-		expect(result.quiet).toBe(false);
-		expect(result.json).toBe(false);
-		expect(result.priority).toBe(false);
-		expect(result.guiConfig).toBe(false);
-	});
-
-	test("--json sets json flag", () => {
-		const result = parseArgs(["--json"]);
-		expect(result.json).toBe(true);
-		expect(result.quiet).toBe(false);
-	});
-
-	test("--priority sets priority flag", () => {
-		const result = parseArgs(["--priority"]);
-		expect(result.priority).toBe(true);
-	});
-
-	test("--gui-config sets guiConfig flag", () => {
-		const result = parseArgs(["--gui-config"]);
-		expect(result.guiConfig).toBe(true);
-	});
-
-	test("empty argv yields defaults", () => {
-		const result = parseArgs([]);
-		expect(result.browser).toBeUndefined();
-		expect(result.profile).toBeUndefined();
-		expect(result.command).toBeUndefined();
-		expect(result.provider).toBeUndefined();
-		expect(result.model).toBeUndefined();
-		expect(result.config).toBeUndefined();
-		expect(result.quiet).toBe(false);
-		expect(result.json).toBe(false);
-		expect(result.priority).toBe(false);
-		expect(result.guiConfig).toBe(false);
-		expect(result.trailing).toEqual([]);
-	});
-
-	test("accepts --profile, --command, --provider, -C", () => {
-		const result = parseArgs([
-			"--profile",
-			"Profile 1",
-			"--command",
+			"-p",
 			"claude",
-			"--provider",
-			"copilot",
-			"-C",
-			"/tmp/settings.toml",
+			"-m",
+			"low",
+			"-c",
+			"/tmp/config.yaml",
+			"hi",
 		]);
-		expect(result.profile).toBe("Profile 1");
-		expect(result.command).toBe("claude");
-		expect(result.provider).toBe("copilot");
-		expect(result.config).toBe("/tmp/settings.toml");
+		expect(result.mode).toBe("build");
+		expect(result.provider).toBe("claude");
+		expect(result.model).toBe("low");
+		expect(result.config).toBe("/tmp/config.yaml");
+		expect(result.trailing).toEqual(["hi"]);
+	});
+
+	test("plan with --provider", () => {
+		const result = parseArgs(["plan", "--provider", "codex", "do", "thing"]);
+		expect(result.mode).toBe("plan");
+		expect(result.provider).toBe("codex");
+		expect(result.trailing).toEqual(["do", "thing"]);
 	});
 
 	test("-q sets quiet", () => {
-		const result = parseArgs(["-q"]);
+		const result = parseArgs(["-q", "hi"]);
 		expect(result.quiet).toBe(true);
 	});
 
-	test("positional args before -- are trailing too", () => {
-		const result = parseArgs(["-q", "hello", "world"]);
-		expect(result.quiet).toBe(true);
-		expect(result.trailing).toEqual(["hello", "world"]);
-	});
-
-	test("trailing preserves hyphenated values after --", () => {
-		const result = parseArgs(["--", "--foo", "bar"]);
-		expect(result.trailing).toEqual(["--foo", "bar"]);
-	});
-
-	test("-h sets help and captures help text", () => {
-		const result = parseArgs(["-h"]);
-		expect(result.help).toBe(true);
-		expect(result.version).toBe(false);
-		expect(result.output ?? "").toContain("Usage: seher");
-	});
-
-	test("--help sets help and captures help text", () => {
+	test("--help captures help text", () => {
 		const result = parseArgs(["--help"]);
 		expect(result.help).toBe(true);
-		expect(result.output ?? "").toContain("--help");
+		expect(result.output ?? "").toContain("plan");
+		expect(result.output ?? "").toContain("build");
 	});
 
-	test("-v sets version and captures the version string", () => {
-		const result = parseArgs(["-v"]);
-		expect(result.version).toBe(true);
-		expect(result.help).toBe(false);
-		expect(result.output ?? "").toMatch(/\d+\.\d+\.\d+/);
+	test("plan --help captures plan help text", () => {
+		const result = parseArgs(["plan", "--help"]);
+		expect(result.help).toBe(true);
+		expect(result.output ?? "").toContain("--provider");
 	});
 
-	test("--version sets version and captures the version string", () => {
+	test("--version captures version string", () => {
 		const result = parseArgs(["--version"]);
 		expect(result.version).toBe(true);
 		expect(result.output ?? "").toMatch(/\d+\.\d+\.\d+/);
+	});
+
+	test("empty argv yields build mode with no trailing", () => {
+		const result = parseArgs([]);
+		expect(result.mode).toBe("build");
+		expect(result.trailing).toEqual([]);
+		expect(result.quiet).toBe(false);
 	});
 });

@@ -1,177 +1,136 @@
 import { describe, expect, test } from "bun:test";
-import { ConfigValidationError, validateSettings } from "./validate.ts";
+import { ConfigValidationError, validateConfig } from "./validate.ts";
 
-describe("validateSettings", () => {
-	test("minimal input parses", () => {
-		const s = validateSettings({ agents: [{ command: "claude" }] });
-		expect(s.agents).toHaveLength(1);
-		const a = s.agents[0];
-		expect(a).toBeDefined();
-		if (!a) return;
-		expect(a.command).toBe("claude");
-		expect(a.args).toEqual([]);
-		expect(a.models).toBeNull();
-		expect(a.arg_maps).toEqual({});
-		expect(a.env).toBeNull();
-		expect(a.provider).toEqual({ kind: "inferred" });
-		expect(a.pre_command).toEqual([]);
-		expect(a.active).toBeNull();
-		expect(a.inactive).toBeNull();
-		expect(s.priority).toEqual([]);
+describe("validateConfig", () => {
+	test("empty/missing providers yields empty config", () => {
+		expect(validateConfig({})).toEqual({ providers: [] });
+		expect(validateConfig({ providers: {} })).toEqual({ providers: [] });
 	});
 
-	test("provider three-state: absent/explicit/null", () => {
-		const s = validateSettings({
-			agents: [
-				{ command: "a" },
-				{ command: "b", provider: "copilot" },
-				{ command: "c", provider: null },
-			],
+	test("built-in provider with shorthand string model", () => {
+		const cfg = validateConfig({
+			providers: {
+				claude: {
+					priority: 3,
+					models: { plan: "opus-4.7", build: "sonnet-4.6" },
+				},
+			},
 		});
-		expect(s.agents[0]?.provider).toEqual({ kind: "inferred" });
-		expect(s.agents[1]?.provider).toEqual({
-			kind: "explicit",
-			name: "copilot",
-		});
-		expect(s.agents[2]?.provider).toEqual({ kind: "none" });
+		expect(cfg.providers).toHaveLength(1);
+		const claude = cfg.providers[0];
+		expect(claude?.key).toBe("claude");
+		expect(claude?.sdk).toBe("claude");
+		expect(claude?.priority).toBe(3);
+		expect(claude?.models.plan).toEqual({ model: "opus-4.7" });
+		expect(claude?.models.build).toEqual({ model: "sonnet-4.6" });
 	});
 
-	test("rejects active+inactive on same agent", () => {
-		expect(() =>
-			validateSettings({
-				agents: [
-					{
-						command: "claude",
-						active: { hours: ["9-17"] },
-						inactive: { hours: ["0-8"] },
+	test("model object with explicit priority", () => {
+		const cfg = validateConfig({
+			providers: {
+				codex: {
+					models: {
+						plan: { model: "gpt-5.5", priority: 5 },
+						build: { model: "gpt-5.5", priority: 4 },
 					},
-				],
+				},
+			},
+		});
+		const codex = cfg.providers[0];
+		expect(codex?.sdk).toBe("codex");
+		expect(codex?.models.plan).toEqual({ model: "gpt-5.5", priority: 5 });
+		expect(codex?.models.build).toEqual({ model: "gpt-5.5", priority: 4 });
+	});
+
+	test("non-builtin provider requires sdk and api", () => {
+		expect(() =>
+			validateConfig({
+				providers: { zai: { models: { build: "glm-5.1" } } },
+			}),
+		).toThrow(/sdk is required/);
+		expect(() =>
+			validateConfig({
+				providers: { zai: { sdk: "claude", models: { build: "glm-5.1" } } },
+			}),
+		).toThrow(/api is required/);
+	});
+
+	test("non-builtin provider with full config parses", () => {
+		const cfg = validateConfig({
+			providers: {
+				zai: {
+					sdk: "claude",
+					api: { key: "sk-za-xxxxx", endpoint: "https://api.zai.test" },
+					models: { plan: "glm-5.1", build: "glm-5.1" },
+				},
+			},
+		});
+		const zai = cfg.providers[0];
+		expect(zai?.sdk).toBe("claude");
+		expect(zai?.api).toEqual({
+			key: "sk-za-xxxxx",
+			endpoint: "https://api.zai.test",
+		});
+	});
+
+	test("invalid sdk value rejected", () => {
+		expect(() =>
+			validateConfig({
+				providers: { claude: { sdk: "bogus", models: { build: "x" } } },
 			}),
 		).toThrow(ConfigValidationError);
 	});
 
-	test("rejects weekday range out of 0-6", () => {
+	test("missing models map fails", () => {
 		expect(() =>
-			validateSettings({
-				agents: [{ command: "claude", active: { weekdays: ["1-8"] } }],
+			validateConfig({
+				providers: { claude: { priority: 1 } },
 			}),
-		).toThrow(/weekdays range/);
+		).toThrow(/models is required/);
 	});
 
-	test("rejects weekday range with start > end", () => {
-		expect(() =>
-			validateSettings({
-				agents: [{ command: "claude", active: { weekdays: ["5-3"] } }],
-			}),
-		).toThrow(/start must not exceed end/);
-	});
-
-	test("rejects empty active schedule", () => {
-		expect(() =>
-			validateSettings({
-				agents: [{ command: "claude", active: {} }],
-			}),
-		).toThrow(/at least one of weekdays or hours/);
-	});
-
-	test("rejects hour range >48", () => {
-		expect(() =>
-			validateSettings({
-				agents: [{ command: "claude", active: { hours: ["0-49"] } }],
-			}),
-		).toThrow(/end must not exceed 48/);
-	});
-
-	test("rejects hour range with start >= end", () => {
-		expect(() =>
-			validateSettings({
-				agents: [{ command: "claude", active: { hours: ["5-5"] } }],
-			}),
-		).toThrow(/start must be less than end/);
-	});
-
-	test("accepts hour range >24 as next-day wrap", () => {
-		const s = validateSettings({
-			agents: [{ command: "claude", active: { hours: ["21-27"] } }],
+	test("provider entry insertion order is preserved", () => {
+		const cfg = validateConfig({
+			providers: {
+				codex: { models: { build: "x" } },
+				claude: { models: { build: "y" } },
+				cursor: { models: { build: "z" } },
+			},
 		});
-		expect(s.agents[0]?.active?.hours).toEqual(["21-27"]);
+		expect(cfg.providers.map((p) => p.key)).toEqual([
+			"codex",
+			"claude",
+			"cursor",
+		]);
+		expect(cfg.providers.map((p) => p.order)).toEqual([0, 1, 2]);
 	});
 
-	test("accepts weekday single day (start == end)", () => {
-		const s = validateSettings({
-			agents: [{ command: "claude", active: { weekdays: ["3-3"] } }],
-		});
-		expect(s.agents[0]?.active?.weekdays).toEqual(["3-3"]);
-	});
-
-	test("rejects malformed range string", () => {
+	test("priority must be a finite number", () => {
 		expect(() =>
-			validateSettings({
-				agents: [{ command: "claude", active: { hours: ["abc"] } }],
-			}),
-		).toThrow(/invalid hours range/);
-	});
-
-	test("priority.priority must be a number", () => {
-		expect(() =>
-			validateSettings({
-				agents: [{ command: "claude" }],
-				priority: [{ command: "claude", priority: "high" }],
-			}),
-		).toThrow(/priority\[0\]\.priority/);
-	});
-
-	test("priority fields: provider/model optional, weekdays/hours validated", () => {
-		const s = validateSettings({
-			agents: [{ command: "claude" }],
-			priority: [
-				{
-					command: "claude",
-					provider: null,
-					model: "high",
-					priority: 100,
-					weekdays: ["1-5"],
-					hours: ["9-17"],
+			validateConfig({
+				providers: {
+					claude: { priority: "high", models: { build: "x" } },
 				},
-				{ command: "codex", priority: 50 },
-			],
-		});
-		expect(s.priority).toHaveLength(2);
-		expect(s.priority[0]?.provider).toEqual({ kind: "none" });
-		expect(s.priority[0]?.model).toBe("high");
-		expect(s.priority[0]?.priority).toBe(100);
-		expect(s.priority[0]?.weekdays).toEqual(["1-5"]);
-		expect(s.priority[1]?.provider).toEqual({ kind: "inferred" });
-		expect(s.priority[1]?.model).toBeNull();
+			}),
+		).toThrow(/priority must be a finite number/);
 	});
 
-	test("agent.command missing fails with label", () => {
-		expect(() => validateSettings({ agents: [{ args: ["x"] }] })).toThrow(
-			/agents\[0\]\.command/,
-		);
-	});
-
-	test("agents must be array", () => {
-		expect(() => validateSettings({ agents: {} })).toThrow(/settings\.agents/);
-	});
-
-	test("sdk accepts claude/codex/copilot/kimi/null, rejects others", () => {
-		const s = validateSettings({
-			agents: [
-				{ command: "a", sdk: "claude" },
-				{ command: "b", sdk: "codex" },
-				{ command: "c", sdk: "copilot" },
-				{ command: "d", sdk: "kimi" },
-				{ command: "e", sdk: null },
-			],
-		});
-		expect(s.agents[0]?.sdk).toBe("claude");
-		expect(s.agents[1]?.sdk).toBe("codex");
-		expect(s.agents[2]?.sdk).toBe("copilot");
-		expect(s.agents[3]?.sdk).toBe("kimi");
-		expect(s.agents[4]?.sdk).toBeNull();
+	test("model entry priority must be finite", () => {
 		expect(() =>
-			validateSettings({ agents: [{ command: "x", sdk: "other" }] }),
-		).toThrow(/sdk/);
+			validateConfig({
+				providers: {
+					claude: {
+						models: { build: { model: "x", priority: Number.NaN } },
+					},
+				},
+			}),
+		).toThrow(/priority must be a finite number/);
+	});
+
+	test("opencodego maps to opencode SDK", () => {
+		const cfg = validateConfig({
+			providers: { opencodego: { models: { build: "anthropic/sonnet" } } },
+		});
+		expect(cfg.providers[0]?.sdk).toBe("opencode");
 	});
 });

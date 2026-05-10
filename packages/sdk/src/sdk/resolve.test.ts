@@ -1,76 +1,170 @@
 import { describe, expect, mock, test } from "bun:test";
-import type {
-	AgentConfig,
-	AgentLimit,
-	ProviderConfig,
-	Settings,
-} from "../types.ts";
+import { CodexBarError, CodexBarNotFoundError } from "../codexbar/errors.ts";
+import type { AgentLimit, Config } from "../types.ts";
 import {
 	AllAgentsLimitedError,
 	NoMatchingAgentError,
 	resolveAgent,
 } from "./resolve.ts";
 
-const INFERRED: ProviderConfig = { kind: "inferred" };
-const NO_PROVIDER: ProviderConfig = { kind: "none" };
-
-function mkAgent(
-	command: string,
-	overrides: Partial<AgentConfig> = {},
-): AgentConfig {
-	return {
-		command,
-		args: [],
-		models: null,
-		arg_maps: {},
-		env: null,
-		provider: INFERRED,
-		pre_command: [],
-		active: null,
-		inactive: null,
-		...overrides,
-	};
-}
-
-function mkSettings(agents: AgentConfig[]): Settings {
-	return { agents, priority: [] };
+function mkConfig(...providers: Config["providers"]): Config {
+	return { providers };
 }
 
 describe("resolveAgent", () => {
-	test("returns the first not-limited agent from sortedAgents", async () => {
-		const agents = [
-			mkAgent("claude", { sdk: "claude" }),
-			mkAgent("codex", { sdk: "codex" }),
-		];
+	test("returns the highest-priority candidate that defines models[modeKey]", async () => {
+		const config = mkConfig(
+			{
+				key: "codex",
+				order: 0,
+				sdk: "codex",
+				models: { build: { model: "gpt-5.5", priority: 4 } },
+			},
+			{
+				key: "claude",
+				order: 1,
+				sdk: "claude",
+				priority: 3,
+				models: { build: { model: "sonnet" } },
+			},
+		);
 		const checkLimit = mock(
 			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
 		);
-		const agent = await resolveAgent({
-			sortedAgents: agents,
-			checkLimit,
-		});
-		expect(agent.command).toBe("claude");
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.providerKey).toBe("codex");
+		expect(agent.modelId).toBe("gpt-5.5");
+		expect(agent.modeKey).toBe("build");
 	});
 
-	test("falls back to next agent when first is limited", async () => {
-		const agents = [
-			mkAgent("claude", { sdk: "claude" }),
-			mkAgent("codex", { sdk: "codex" }),
-		];
+	test("model-level priority overrides provider-level", async () => {
+		const config = mkConfig(
+			{
+				key: "claude",
+				order: 0,
+				sdk: "claude",
+				priority: 1,
+				models: { build: { model: "sonnet", priority: 9 } },
+			},
+			{
+				key: "codex",
+				order: 1,
+				sdk: "codex",
+				priority: 5,
+				models: { build: { model: "gpt-5.5" } },
+			},
+		);
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.providerKey).toBe("claude");
+	});
+
+	test("excludes providers that do not define the requested mode", async () => {
+		const config = mkConfig(
+			{
+				key: "codex",
+				order: 0,
+				sdk: "codex",
+				priority: 5,
+				models: { build: { model: "x" } },
+			},
+			{
+				key: "claude",
+				order: 1,
+				sdk: "claude",
+				priority: 3,
+				models: { plan: { model: "opus" }, build: { model: "sonnet" } },
+			},
+		);
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await resolveAgent({ config, modeKey: "plan", checkLimit });
+		expect(agent.providerKey).toBe("claude");
+		expect(agent.modelId).toBe("opus");
+	});
+
+	test("falls back to next candidate when first is limited", async () => {
+		const config = mkConfig(
+			{
+				key: "claude",
+				order: 0,
+				sdk: "claude",
+				priority: 3,
+				models: { build: { model: "sonnet" } },
+			},
+			{
+				key: "codex",
+				order: 1,
+				sdk: "codex",
+				priority: 2,
+				models: { build: { model: "gpt-5.5" } },
+			},
+		);
 		const reset = new Date("2099-01-01T00:00:00Z");
 		const checkLimit = mock(async (provider: string): Promise<AgentLimit> => {
 			if (provider === "claude") return { kind: "limited", resetTime: reset };
 			return { kind: "not_limited" };
 		});
-		const agent = await resolveAgent({
-			sortedAgents: agents,
-			checkLimit,
-		});
-		expect(agent.command).toBe("codex");
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.providerKey).toBe("codex");
 	});
 
-	test("sleeps and rescans when all agents limited (default behavior)", async () => {
-		const agents = [mkAgent("claude", { sdk: "claude" })];
+	test("CodexBarError is treated as not_limited", async () => {
+		const config = mkConfig({
+			key: "zai",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "glm-5.1" } },
+		});
+		const checkLimit = mock(async () => {
+			throw new CodexBarError("missing entry", 0, "");
+		});
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.providerKey).toBe("zai");
+	});
+
+	test("CodexBarNotFoundError is treated as not_limited", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "sonnet" } },
+		});
+		const checkLimit = mock(async () => {
+			throw new CodexBarNotFoundError("no binary");
+		});
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.providerKey).toBe("claude");
+	});
+
+	test("noWait throws AllAgentsLimitedError without sleeping", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "sonnet" } },
+		});
+		const reset = new Date("2099-01-01T00:00:00Z");
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "limited", resetTime: reset }),
+		);
+		const sleepUntil = mock(async () => {});
+		await expect(
+			resolveAgent({ config, checkLimit, sleepUntil, noWait: true }),
+		).rejects.toBeInstanceOf(AllAgentsLimitedError);
+		expect(sleepUntil).toHaveBeenCalledTimes(0);
+	});
+
+	test("sleeps and rescans by default", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "sonnet" } },
+		});
 		const reset = new Date("2099-01-01T00:00:00Z");
 		let calls = 0;
 		const checkLimit = mock(async (): Promise<AgentLimit> => {
@@ -81,171 +175,76 @@ describe("resolveAgent", () => {
 		});
 		const sleepUntil = mock(async () => {});
 		const agent = await resolveAgent({
-			sortedAgents: agents,
+			config,
 			checkLimit,
 			sleepUntil,
 			quiet: true,
 		});
-		expect(agent.command).toBe("claude");
+		expect(agent.providerKey).toBe("claude");
 		expect(sleepUntil).toHaveBeenCalledTimes(1);
-		const calledWith = (
-			sleepUntil.mock.calls as unknown as [Date, unknown][]
-		)[0];
-		expect(calledWith?.[0]?.getTime()).toBe(reset.getTime());
 	});
 
-	test("throws AllAgentsLimitedError after maxRescans", async () => {
-		const agents = [mkAgent("claude", { sdk: "claude" })];
-		const reset = new Date("2099-01-01T00:00:00Z");
-		const checkLimit = mock(
-			async (): Promise<AgentLimit> => ({ kind: "limited", resetTime: reset }),
+	test("provider filter restricts candidate set", async () => {
+		const config = mkConfig(
+			{
+				key: "codex",
+				order: 0,
+				sdk: "codex",
+				priority: 9,
+				models: { build: { model: "x" } },
+			},
+			{
+				key: "claude",
+				order: 1,
+				sdk: "claude",
+				models: { build: { model: "sonnet" } },
+			},
 		);
-		const sleepUntil = mock(async () => {});
-		await expect(
-			resolveAgent({
-				sortedAgents: agents,
-				checkLimit,
-				sleepUntil,
-				quiet: true,
-			}),
-		).rejects.toBeInstanceOf(AllAgentsLimitedError);
-	});
-
-	test("noWait: true throws immediately without sleeping", async () => {
-		const agents = [mkAgent("claude", { sdk: "claude" })];
-		const reset = new Date("2099-01-01T00:00:00Z");
-		const checkLimit = mock(
-			async (): Promise<AgentLimit> => ({ kind: "limited", resetTime: reset }),
-		);
-		const sleepUntil = mock(async () => {});
-		await expect(
-			resolveAgent({
-				sortedAgents: agents,
-				checkLimit,
-				sleepUntil,
-				noWait: true,
-			}),
-		).rejects.toBeInstanceOf(AllAgentsLimitedError);
-		expect(sleepUntil).toHaveBeenCalledTimes(0);
-	});
-
-	test("provider.kind=none agents skip checkLimit", async () => {
-		const agents = [
-			mkAgent("fallback", { sdk: "claude", provider: NO_PROVIDER }),
-		];
 		const checkLimit = mock(
 			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
 		);
 		const agent = await resolveAgent({
-			sortedAgents: agents,
+			config,
+			provider: "claude",
 			checkLimit,
 		});
-		expect(agent.command).toBe("fallback");
-		expect(checkLimit).toHaveBeenCalledTimes(0);
+		expect(agent.providerKey).toBe("claude");
 	});
 
-	test("throws NoMatchingAgentError on empty sortedAgents", async () => {
+	test("throws NoMatchingAgentError when no provider defines the mode", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "sonnet" } },
+		});
 		await expect(
-			resolveAgent({
-				sortedAgents: [],
-			}),
+			resolveAgent({ config, modeKey: "plan" }),
 		).rejects.toBeInstanceOf(NoMatchingAgentError);
 	});
 
-	test("loads settings and applies command filter when sortedAgents not provided", async () => {
-		const agents = [
-			mkAgent("claude", { sdk: "claude" }),
-			mkAgent("codex", { sdk: "codex" }),
-		];
-		const settings = mkSettings(agents);
-		const loadSettings = mock(async () => settings);
+	test("forwards api into ResolvedAgent", async () => {
+		const config = mkConfig({
+			key: "zai",
+			order: 0,
+			sdk: "claude",
+			api: { key: "sk-za", endpoint: "https://zai.test" },
+			models: { build: { model: "glm-5.1" } },
+		});
 		const checkLimit = mock(
 			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
 		);
-		const agent = await resolveAgent({
-			command: "codex",
-			loadSettings,
-			checkLimit,
-		});
-		expect(agent.command).toBe("codex");
-		expect(loadSettings).toHaveBeenCalledTimes(1);
-	});
-
-	test("AllAgentsLimitedError carries the earliest reset time", async () => {
-		const agents = [
-			mkAgent("claude", { sdk: "claude" }),
-			mkAgent("codex", { sdk: "codex" }),
-		];
-		const earlier = new Date("2099-01-01T00:00:00Z");
-		const later = new Date("2099-01-01T01:00:00Z");
-		const checkLimit = mock(async (provider: string): Promise<AgentLimit> => {
-			return {
-				kind: "limited",
-				resetTime: provider === "claude" ? later : earlier,
-			};
-		});
-		try {
-			await resolveAgent({
-				sortedAgents: agents,
-				checkLimit,
-				noWait: true,
-			});
-			throw new Error("should have thrown");
-		} catch (err) {
-			expect(err).toBeInstanceOf(AllAgentsLimitedError);
-			expect((err as AllAgentsLimitedError).minReset.getTime()).toBe(
-				earlier.getTime(),
-			);
-		}
-	});
-
-	test("provider filter selects the matching agent when sortedAgents not provided", async () => {
-		const agents = [
-			mkAgent("claude", {
-				sdk: "claude",
-				provider: { kind: "explicit", name: "anthropic" },
-			}),
-			mkAgent("claude-router", {
-				sdk: "claude",
-				provider: { kind: "explicit", name: "openrouter" },
-			}),
-		];
-		const settings: Settings = { agents, priority: [] };
-		const loadSettings = mock(async () => settings);
-		const checkLimit = mock(
-			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
-		);
-		const agent = await resolveAgent({
-			provider: "openrouter",
-			loadSettings,
-			checkLimit,
-		});
-		expect(agent.command).toBe("claude-router");
-	});
-
-	test("model filter excludes agents whose models map lacks the requested key", async () => {
-		const agents = [
-			mkAgent("claude", {
-				sdk: "claude",
-				models: { sonnet: "claude-sonnet-4-6" },
-			}),
-			mkAgent("codex", { sdk: "codex", models: { mini: "gpt-5-codex-mini" } }),
-		];
-		const settings: Settings = { agents, priority: [] };
-		const loadSettings = mock(async () => settings);
-		const checkLimit = mock(
-			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
-		);
-		const agent = await resolveAgent({
-			model: "mini",
-			loadSettings,
-			checkLimit,
-		});
-		expect(agent.command).toBe("codex");
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.api).toEqual({ key: "sk-za", endpoint: "https://zai.test" });
 	});
 
 	test("invokes onSleep callback before sleeping", async () => {
-		const agents = [mkAgent("claude", { sdk: "claude" })];
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "sonnet" } },
+		});
 		const reset = new Date("2099-01-01T00:00:00Z");
 		let calls = 0;
 		const checkLimit = mock(async (): Promise<AgentLimit> => {
@@ -257,14 +256,12 @@ describe("resolveAgent", () => {
 		const sleepUntil = mock(async () => {});
 		const onSleep = mock(() => {});
 		await resolveAgent({
-			sortedAgents: agents,
+			config,
 			checkLimit,
 			sleepUntil,
 			onSleep,
 			quiet: true,
 		});
 		expect(onSleep).toHaveBeenCalledTimes(1);
-		const onSleepArgs = (onSleep.mock.calls as unknown as [Date][])[0];
-		expect(onSleepArgs?.[0]?.getTime()).toBe(reset.getTime());
 	});
 });

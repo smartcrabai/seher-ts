@@ -3,17 +3,14 @@ import packageJson from "../../package.json" with { type: "json" };
 
 const VERSION = (packageJson as { version?: string }).version ?? "unknown";
 
+export type Mode = "plan" | "build";
+
 export interface ParsedArgs {
-	browser?: string;
-	profile?: string;
-	command?: string;
+	mode: Mode;
 	provider?: string;
 	model?: string;
-	quiet: boolean;
-	json: boolean;
 	config?: string;
-	priority: boolean;
-	guiConfig: boolean;
+	quiet: boolean;
 	help: boolean;
 	version: boolean;
 	/**
@@ -24,21 +21,65 @@ export interface ParsedArgs {
 	trailing: string[];
 }
 
+const DESCRIPTION =
+	"Seher: pick the highest-priority coding agent and run a plan/build prompt";
+
+interface CommonOpts {
+	provider?: string;
+	model?: string;
+	config?: string;
+	quiet?: boolean;
+}
+
+function configureCommonOptions(cmd: Command): Command {
+	return cmd
+		.option("-p, --provider <name>", "Force a specific provider key")
+		.option(
+			"-m, --model <key>",
+			"Use this model key instead of the default plan/build key",
+		)
+		.option("-c, --config <path>", "Path to YAML config file")
+		.option("-q, --quiet", "Suppress informational output", false);
+}
+
+/**
+ * commander has no first-class default subcommand, so we sniff the first
+ * non-flag token. If it is `plan` or `build`, leave argv alone; otherwise
+ * inject `build` so the rest of the flags/prompt are parsed against that
+ * subcommand.
+ */
+function withDefaultMode(argv: string[]): string[] {
+	for (const tok of argv) {
+		if (tok === "--") break;
+		if (tok === "-h" || tok === "--help") return argv;
+		if (tok === "-v" || tok === "--version") return argv;
+		if (tok === "plan" || tok === "build") return argv;
+		if (!tok.startsWith("-")) return ["build", ...argv];
+	}
+	return argv;
+}
+
 export function parseArgs(argv: string[]): ParsedArgs {
 	const program = new Command();
 	let captured = "";
 
+	let mode: Mode = "build";
+	let common: CommonOpts = {};
+	let trailing: string[] = [];
+
+	const handleSubcommand =
+		(m: Mode) =>
+		(rest: string[], opts: CommonOpts): void => {
+			mode = m;
+			common = opts;
+			trailing = rest;
+		};
+
 	program
 		.name("seher")
-		.description(
-			"CLI tool for Claude.ai, Codex, and Copilot rate limit monitoring",
-		)
+		.description(DESCRIPTION)
 		.version(VERSION, "-v, --version", "Show version information and exit")
 		.helpOption("-h, --help", "Show this help and exit")
-		.allowUnknownOption(true)
-		.allowExcessArguments(true)
-		.enablePositionalOptions()
-		.passThroughOptions()
 		.exitOverride()
 		.configureOutput({
 			writeOut: (str) => {
@@ -47,23 +88,28 @@ export function parseArgs(argv: string[]): ParsedArgs {
 			writeErr: (str) => {
 				captured += str;
 			},
-		})
-		.option("-b, --browser <name>", "Browser to use")
-		.option("--profile <name>", "Browser profile name")
-		.option("--command <name>", "Filter agents by command name")
-		.option("--provider <name>", "Filter agents by provider name")
-		.option("-m, --model <key>", "Model level to use")
-		.option("-q, --quiet", "Suppress informational output", false)
-		.option("-j, --json", "Output provider usage as JSON and exit", false)
-		.option("-C, --config <path>", "Path to settings file")
-		.option("--priority", "Show priority order and exit", false)
-		.option("--gui-config", "Open the web-based config editor and exit", false)
-		.argument("[trailing...]", "Additional arguments to pass to the agent");
+		});
+
+	configureCommonOptions(
+		program
+			.command("plan")
+			.description(
+				"Generate an implementation plan, edit it, then build from approval",
+			)
+			.argument("[prompt...]", "Prompt text (joined with spaces)"),
+	).action(handleSubcommand("plan"));
+
+	configureCommonOptions(
+		program
+			.command("build", { isDefault: true })
+			.description("Stream the prompt through the resolved agent")
+			.argument("[prompt...]", "Prompt text (joined with spaces)"),
+	).action(handleSubcommand("build"));
 
 	let help = false;
 	let version = false;
 	try {
-		program.parse(argv, { from: "user" });
+		program.parse(withDefaultMode(argv), { from: "user" });
 	} catch (e) {
 		if (e instanceof CommanderError) {
 			if (e.code === "commander.helpDisplayed" || e.code === "commander.help") {
@@ -78,36 +124,16 @@ export function parseArgs(argv: string[]): ParsedArgs {
 		}
 	}
 
-	const opts = program.opts<{
-		browser?: string;
-		profile?: string;
-		command?: string;
-		provider?: string;
-		model?: string;
-		quiet?: boolean;
-		json?: boolean;
-		config?: string;
-		priority?: boolean;
-		guiConfig?: boolean;
-	}>();
-
-	const trailing = program.args.slice();
-
 	const result: ParsedArgs = {
-		quiet: opts.quiet ?? false,
-		json: opts.json ?? false,
-		priority: opts.priority ?? false,
-		guiConfig: opts.guiConfig ?? false,
+		mode,
+		quiet: common.quiet ?? false,
 		help,
 		version,
 		trailing,
 	};
 	if (captured.length > 0) result.output = captured;
-	if (opts.browser !== undefined) result.browser = opts.browser;
-	if (opts.profile !== undefined) result.profile = opts.profile;
-	if (opts.command !== undefined) result.command = opts.command;
-	if (opts.provider !== undefined) result.provider = opts.provider;
-	if (opts.model !== undefined) result.model = opts.model;
-	if (opts.config !== undefined) result.config = opts.config;
+	if (common.provider !== undefined) result.provider = common.provider;
+	if (common.model !== undefined) result.model = common.model;
+	if (common.config !== undefined) result.config = common.config;
 	return result;
 }

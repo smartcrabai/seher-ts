@@ -1,24 +1,8 @@
 /**
- * Shared type definitions for seher-ts.
- *
- * These mirror the Rust implementation in `seher/src/config/mod.rs` so that the
- * JSONC settings file remains compatible between the two implementations.
+ * Shared type definitions for seher-ts (provider/mode/YAML spec).
  */
 
-/**
- * Provider used for rate-limit tracking.
- *
- * Mirrors the Rust `enum ProviderConfig`:
- * - `inferred`: field absent -> provider is inferred from the command name.
- * - `explicit`: field has a string value -> use that provider name.
- * - `none`:     field is explicitly `null` -> no provider (fallback agent).
- */
-export type ProviderConfig =
-	| { kind: "inferred" }
-	| { kind: "explicit"; name: string }
-	| { kind: "none" };
-
-/** Which SDK to drive this agent with, when invoked via the SDK surface. */
+/** Which provider SDK to drive. */
 export type SdkKind =
 	| "claude"
 	| "codex"
@@ -27,50 +11,41 @@ export type SdkKind =
 	| "opencode"
 	| "cursor";
 
-/**
- * Weekday / hour range schedule.
- *
- * - `weekdays`: ranges in "start-end" form (0=Sun .. 6=Sat, inclusive).
- *   Example: `["1-5"]` -> Mon through Fri.
- * - `hours`: ranges in "start-end" form, half-open [start, end), 0..48.
- *   Example: `["21-27"]` -> 21:00 through 03:00 next day.
- */
-export interface ScheduleRule {
-	weekdays?: string[];
-	hours?: string[];
+/** Per-mode model entry inside a `ProviderEntry`. */
+export interface ModelEntry {
+	model: string;
+	priority?: number;
 }
 
-export interface AgentConfig {
-	command: string;
-	args: string[];
-	models: Record<string, string> | null;
-	arg_maps: Record<string, string[]>;
-	env: Record<string, string> | null;
-	provider: ProviderConfig;
-	openrouter_management_key?: string;
-	glm_api_key?: string;
-	pre_command: string[];
-	active: ScheduleRule | null;
-	inactive: ScheduleRule | null;
-	sdk?: SdkKind | null;
+/** Provider-level API config (forwarded to the underlying SDK). */
+export interface ProviderApi {
+	key?: string;
+	endpoint?: string;
 }
 
-export interface PriorityRule {
-	command: string;
-	provider: ProviderConfig;
-	model: string | null;
-	priority: number;
-	weekdays?: string[];
-	hours?: string[];
+/** A single provider in the YAML `providers` map (after normalization). */
+export interface ProviderEntry {
+	/** Provider key as written in the config (e.g., "claude", "zai"). */
+	key: string;
+	/** Insertion order in the original YAML map (for stable tiebreaks). */
+	order: number;
+	/** Underlying SDK to drive this provider with. */
+	sdk: SdkKind;
+	/** Provider-level priority shorthand (used when a model lacks its own). */
+	priority?: number;
+	/** Extra API config forwarded to the SDK constructor. */
+	api?: ProviderApi;
+	/** Mode -> model entry. Keys include `plan`, `build`, plus user-defined keys. */
+	models: Record<string, ModelEntry>;
 }
 
-export interface Settings {
-	priority: PriorityRule[];
-	agents: AgentConfig[];
+/** Normalized config root. */
+export interface Config {
+	providers: ProviderEntry[];
 }
 
 /**
- * Whether an agent is currently rate-limited.
+ * Whether a provider is currently rate-limited.
  *
  * `resetTime` is the moment the limit is expected to reset (local time).
  */
@@ -78,10 +53,18 @@ export type AgentLimit =
 	| { kind: "not_limited" }
 	| { kind: "limited"; resetTime: Date };
 
-export interface AgentStatus {
-	command: string;
-	provider: string | null;
-	limit: AgentLimit;
-	/** Original CodexBar payload, retained for debugging / advanced callers. */
-	raw?: unknown;
+/** Output of `resolveAgent`: which provider/model to use. */
+export interface ResolvedAgent {
+	/** Provider key (e.g., "claude", "zai"). */
+	providerKey: string;
+	/** SDK kind to instantiate. */
+	kind: SdkKind;
+	/** Concrete model id passed to the SDK. */
+	modelId: string;
+	/** Mode key used during resolution (plan / build / custom). */
+	modeKey: string;
+	/** API config to forward (apiKey / baseURL etc). */
+	api?: ProviderApi;
+	/** Env vars to forward to provider SDKs that accept env passthrough. */
+	env: Record<string, string>;
 }
