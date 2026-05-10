@@ -114,10 +114,11 @@ export class OpencodeSDK implements SeherSDKInstance {
 			type CreateOpencodeOptions = NonNullable<
 				Parameters<typeof createOpencode>[0]
 			>;
-			const startOpts: CreateOpencodeOptions = {};
+			const startOpts: CreateOpencodeOptions = {
+				port: this.config.port ?? 0,
+			};
 			if (this.config.hostname !== undefined)
 				startOpts.hostname = this.config.hostname;
-			if (this.config.port !== undefined) startOpts.port = this.config.port;
 			const userConfig = this.config.config ?? {};
 			startOpts.config = {
 				...userConfig,
