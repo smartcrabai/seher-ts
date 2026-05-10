@@ -96,6 +96,18 @@ describe("OpencodeSDK", () => {
 		expect(startOpts.hostname).toBe("127.0.0.1");
 	});
 
+	test("port defaults to 0 so OS auto-selects a free port", async () => {
+		const sdk = new OpencodeSDK({ hostname: "127.0.0.1" });
+		await sdk.run({ prompt: "hi" });
+		expect(createOpencodeCalls.length).toBe(1);
+		const startOpts = createOpencodeCalls[0] as {
+			port?: number;
+			hostname?: string;
+		};
+		expect(startOpts.port).toBe(0);
+		expect(startOpts.hostname).toBe("127.0.0.1");
+	});
+
 	test("run uses createOpencodeClient when baseURL is provided", async () => {
 		const sdk = new OpencodeSDK({
 			baseURL: "http://example.test:4096",
