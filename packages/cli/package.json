@@ -34,7 +34,7 @@
 		"access": "public"
 	},
 	"dependencies": {
-		"@seher-ts/sdk": "workspace:*",
+		"@seher-ts/sdk": "workspace:^",
 		"commander": "^14.0.0"
 	}
 }
