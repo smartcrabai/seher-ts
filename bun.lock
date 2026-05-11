@@ -18,7 +18,7 @@
         "seher": "./dist/index.js",
       },
       "dependencies": {
-        "@seher-ts/sdk": "workspace:*",
+        "@seher-ts/sdk": "workspace:^",
         "commander": "^14.0.0",
       },
     },
@@ -148,7 +148,7 @@
 
     "@openai/codex-win32-x64": ["@openai/codex@0.129.0-win32-x64", "", { "os": "win32", "cpu": "x64" }, "sha512-yP59c7O3J8zZ/eyN6HXMeeZ2xksJE8/Xy9kn3qznC7jCN3GEtM7B6Wv4gEY5F/jzik+B+tU71rmkGmqzQjfVVQ=="],
 
-    "@opencode-ai/sdk": ["@opencode-ai/sdk@1.14.46", "", { "dependencies": { "cross-spawn": "7.0.6" } }, "sha512-7KOMuoCkNI+bLOw3GCg0nWZ5m7A/MzNsyLfTbZYmE/DIaUqkV2LNRULtrW6PHL1WtYVmJEFPws4dbw/4dVxjzA=="],
+    "@opencode-ai/sdk": ["@opencode-ai/sdk@1.14.47", "", { "dependencies": { "cross-spawn": "7.0.6" } }, "sha512-DLWdtSET63sT0siUcZqTDR72LQzwepV4I3tW1UdY7ZNk4ghOtoXt3L9cAJ1Ou2dQB7xeO8PGI0pUYzfOCvXOjQ=="],
 
     "@seher-ts/cli": ["@seher-ts/cli@workspace:packages/cli"],
 
