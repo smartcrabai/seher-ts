@@ -4,6 +4,7 @@ import {
 	type OpencodeClient,
 	type Config as OpencodeConfig,
 } from "@opencode-ai/sdk";
+import { rethrowAsLimit } from "./errors.ts";
 import { extractTextBlocks } from "./text.ts";
 import type {
 	SdkKind,
@@ -12,6 +13,17 @@ import type {
 	SeherSDKInstance,
 	SeherStreamChunk,
 } from "./types.ts";
+
+function isOpencodeLimit(err: unknown): boolean {
+	if (err === null || typeof err !== "object") return false;
+	const cause = (err as { cause?: unknown }).cause;
+	if (cause !== null && typeof cause === "object") {
+		const cs = (cause as { status?: unknown }).status;
+		if (typeof cs === "number" && cs === 429) return true;
+	}
+	const status = (err as { status?: unknown }).status;
+	return typeof status === "number" && status === 429;
+}
 
 export interface OpencodeSDKConfig {
 	/**
@@ -114,10 +126,11 @@ export class OpencodeSDK implements SeherSDKInstance {
 			type CreateOpencodeOptions = NonNullable<
 				Parameters<typeof createOpencode>[0]
 			>;
-			const startOpts: CreateOpencodeOptions = {};
+			const startOpts: CreateOpencodeOptions = {
+				port: this.config.port ?? 0,
+			};
 			if (this.config.hostname !== undefined)
 				startOpts.hostname = this.config.hostname;
-			if (this.config.port !== undefined) startOpts.port = this.config.port;
 			const userConfig = this.config.config ?? {};
 			startOpts.config = {
 				...userConfig,
@@ -182,6 +195,8 @@ export class OpencodeSDK implements SeherSDKInstance {
 			});
 			const text = extractTextBlocks(result.data?.parts);
 			return { text, kind: this.kind, raw: result };
+		} catch (err) {
+			rethrowAsLimit("opencode", err, isOpencodeLimit);
 		} finally {
 			await client.session.delete({ path: { id: sessionID } }).catch(() => {});
 		}

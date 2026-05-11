@@ -2,6 +2,7 @@ import { SeherSDK } from "@seher-ts/sdk";
 import { editPromptInEditor } from "../cli/prompt.ts";
 import { streamToStdout, type WriteFn } from "../cli/stream.ts";
 import type { Logger } from "../util/logger.ts";
+import { applyRetryHooks } from "../util/retry.ts";
 import { runBuildMode } from "./build.ts";
 
 const PLAN_SYSTEM_PROMPT = `You are an implementation planner. The user will give you a task. Your job is to produce a clear, step-by-step implementation plan in Markdown.
@@ -56,6 +57,7 @@ export async function runPlanMode(
 	};
 	if (opts.provider !== undefined) planSdkOpts.provider = opts.provider;
 	if (opts.configPath !== undefined) planSdkOpts.configPath = opts.configPath;
+	applyRetryHooks(planSdkOpts, opts.logger);
 	const planSdk = createSdk(planSdkOpts);
 
 	if (!opts.quiet) {
@@ -87,6 +89,7 @@ export async function runPlanMode(
 	};
 	if (opts.provider !== undefined) buildSdkOpts.provider = opts.provider;
 	if (opts.configPath !== undefined) buildSdkOpts.configPath = opts.configPath;
+	applyRetryHooks(buildSdkOpts, opts.logger);
 	const buildSdk = createSdk(buildSdkOpts);
 
 	const buildOpts: Parameters<typeof runBuildMode>[0] = {

@@ -1,6 +1,6 @@
 {
 	"name": "@seher-ts/cli",
-	"version": "0.1.8",
+	"version": "0.1.11",
 	"description": "CLI that resolves the highest-priority coding agent (Claude / Codex / Copilot / Kimi) based on usage limits",
 	"license": "Apache-2.0",
 	"repository": {
@@ -34,7 +34,7 @@
 		"access": "public"
 	},
 	"dependencies": {
-		"@seher-ts/sdk": "workspace:*",
+		"@seher-ts/sdk": "workspace:^",
 		"commander": "^14.0.0"
 	}
 }

@@ -14,6 +14,11 @@ let sendAndWaitResult:
 };
 
 let streamDeltas: string[] = [];
+let emitErrorEvent: {
+	errorType?: string;
+	message?: string;
+	statusCode?: number;
+} | null = null;
 
 const APPROVE_ALL_SENTINEL = Symbol("approveAll");
 
@@ -27,17 +32,9 @@ mock.module("@github/copilot-sdk", () => {
 		}
 		async createSession(config: Record<string, unknown>) {
 			createSessionCalls.push(config);
-			const handlers = new Map<
-				string,
-				(event: { data?: { content?: string; deltaContent?: string } }) => void
-			>();
+			const handlers = new Map<string, (event: unknown) => void>();
 			return {
-				on: (
-					eventType: string,
-					handler: (event: {
-						data?: { content?: string; deltaContent?: string };
-					}) => void,
-				) => {
+				on: (eventType: string, handler: (event: unknown) => void) => {
 					handlers.set(eventType, handler);
 					return () => {
 						handlers.delete(eventType);
@@ -46,14 +43,27 @@ mock.module("@github/copilot-sdk", () => {
 				send: async () => {},
 				sendAndWait: async (opts: Record<string, unknown>) => {
 					sendAndWaitCalls.push(opts);
+					if (emitErrorEvent !== null) {
+						const errHandler = handlers.get("session.error");
+						if (errHandler !== undefined) {
+							errHandler({
+								type: "session.error",
+								data: emitErrorEvent,
+							});
+						}
+					}
 					if (config.streaming === true) {
-						const deltaHandler = handlers.get("assistant.message_delta");
+						const deltaHandler = handlers.get("assistant.message_delta") as
+							| ((event: { data?: { deltaContent?: string } }) => void)
+							| undefined;
 						if (deltaHandler !== undefined) {
 							for (const delta of streamDeltas) {
 								deltaHandler({ data: { deltaContent: delta } });
 							}
 						}
-						const messageHandler = handlers.get("assistant.message");
+						const messageHandler = handlers.get("assistant.message") as
+							| ((event: { data?: { content?: string } }) => void)
+							| undefined;
 						if (messageHandler !== undefined) {
 							messageHandler({
 								data: { content: streamDeltas.join("") },
@@ -76,6 +86,7 @@ mock.module("@github/copilot-sdk", () => {
 });
 
 const { CopilotSDK } = await import("./copilot.ts");
+const { LimitError } = await import("./errors.ts");
 
 describe("CopilotSDK", () => {
 	beforeEach(() => {
@@ -84,6 +95,7 @@ describe("CopilotSDK", () => {
 		createSessionCalls.length = 0;
 		sendAndWaitCalls.length = 0;
 		disconnectCalls.length = 0;
+		emitErrorEvent = null;
 	});
 
 	test("run forwards prompt and model, returns content text", async () => {
@@ -225,5 +237,26 @@ describe("CopilotSDK", () => {
 		await sdk.run({ prompt: "p" });
 		const sessionConfig = createSessionCalls[0] as { tools?: unknown };
 		expect(sessionConfig.tools).toBeUndefined();
+	});
+
+	test("run() converts session.error with errorType=rate_limit into LimitError", async () => {
+		emitErrorEvent = { errorType: "rate_limit", message: "Too many" };
+		const sdk = new CopilotSDK();
+		await expect(sdk.run({ prompt: "p" })).rejects.toBeInstanceOf(LimitError);
+		expect(disconnectCalls.length).toBe(1);
+	});
+
+	test("run() converts session.error with statusCode=429 into LimitError", async () => {
+		emitErrorEvent = { errorType: "query", statusCode: 429, message: "429" };
+		const sdk = new CopilotSDK();
+		await expect(sdk.run({ prompt: "p" })).rejects.toBeInstanceOf(LimitError);
+	});
+
+	test("run() ignores non-limit session.error events", async () => {
+		emitErrorEvent = { errorType: "authentication", message: "unauth" };
+		sendAndWaitResult = { data: { content: "still ok" } };
+		const sdk = new CopilotSDK();
+		const result = await sdk.run({ prompt: "p" });
+		expect(result.text).toBe("still ok");
 	});
 });

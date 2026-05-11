@@ -3,11 +3,13 @@ import { ClaudeSDK, type ClaudeSDKConfig } from "./claude.ts";
 import { CodexSDK, type CodexSDKConfig } from "./codex.ts";
 import { CopilotSDK, type CopilotSDKConfig } from "./copilot.ts";
 import { CursorSDK, type CursorSDKConfig } from "./cursor.ts";
+import { LimitError } from "./errors.ts";
 import { KimiSDK, type KimiSDKConfig } from "./kimi.ts";
 import { OpencodeSDK, type OpencodeSDKConfig } from "./opencode.ts";
 import {
 	AllAgentsLimitedError,
 	NoMatchingAgentError,
+	pollForAgent,
 	type ResolveAgentOptions,
 	resolveAgent,
 } from "./resolve.ts";
@@ -54,6 +56,11 @@ export type SeherSDKConfig = ClaudeSDKConfig &
 	KimiSDKConfig &
 	OpencodeSDKConfig;
 
+export interface LimitRetryInfo {
+	provider: string;
+	resetAt?: Date;
+}
+
 export interface SeherSDKOptions extends SeherSDKConfig {
 	/** When provided, skip auto-resolution and use this provider directly. */
 	kind?: SdkKind;
@@ -67,6 +74,22 @@ export interface SeherSDKOptions extends SeherSDKConfig {
 	noWait?: boolean;
 	/** Max rescans after sleep. Defaults to 1. */
 	maxRescans?: number;
+	/**
+	 * When true (and `kind` is not explicitly set), automatically fail over to
+	 * the next non-limited provider on `LimitError`, and poll CodexBar every
+	 * `limitPollIntervalMs` once all providers are limited.
+	 */
+	retryOnLimit?: boolean;
+	/** Polling interval when all providers are limited. Defaults to 60_000. */
+	limitPollIntervalMs?: number;
+	/** Called when a provider runtime hit a limit and retry will pick another. */
+	onLimitRetry?: (info: LimitRetryInfo) => void;
+	/** Called when entering the "all providers limited" polling loop. */
+	onAllLimited?: () => void;
+	/** Called once per scan attempt while waiting for any provider to recover. */
+	onLimitWaitTick?: (attempt: number) => void;
+	/** Cancellation signal for the indefinite poll wait. */
+	limitWaitSignal?: AbortSignal;
 	/** Advanced: override individual collaborators used during resolution (tests). */
 	resolveOverrides?: Pick<
 		ResolveAgentOptions,
@@ -211,17 +234,54 @@ export class SeherSDK {
 	}
 
 	async run(runOpts: SeherRunOptions): Promise<SeherRunResult> {
-		const sdk = await this.ensure();
-		return sdk.run(this.translateRunOpts(runOpts));
+		if (!this.shouldRetryOnLimit()) {
+			const sdk = await this.ensure();
+			return sdk.run(this.translateRunOpts(runOpts));
+		}
+		const excluded: string[] = [];
+		while (true) {
+			try {
+				const sdk = await this.resolveForRetry(excluded);
+				return await sdk.run(this.translateRunOpts(runOpts));
+			} catch (err) {
+				const next = await this.handleRetryError(err, excluded);
+				if (next === "rethrow") throw err;
+			}
+		}
 	}
 
 	stream(runOpts: SeherRunOptions): AsyncIterable<SeherStreamChunk> {
 		const self = this;
+		if (!this.shouldRetryOnLimit()) {
+			return {
+				async *[Symbol.asyncIterator]() {
+					const sdk = await self.ensure();
+					const translated = self.translateRunOpts(runOpts);
+					for await (const chunk of sdk.stream(translated)) yield chunk;
+				},
+			};
+		}
 		return {
 			async *[Symbol.asyncIterator]() {
-				const sdk = await self.ensure();
-				const translated = self.translateRunOpts(runOpts);
-				for await (const chunk of sdk.stream(translated)) yield chunk;
+				const excluded: string[] = [];
+				while (true) {
+					let sdk: SeherSDKInstance;
+					try {
+						sdk = await self.resolveForRetry(excluded);
+					} catch (err) {
+						const next = await self.handleRetryError(err, excluded);
+						if (next === "rethrow") throw err;
+						continue;
+					}
+					const translated = self.translateRunOpts(runOpts);
+					try {
+						for await (const chunk of sdk.stream(translated)) yield chunk;
+						return;
+					} catch (err) {
+						const next = await self.handleRetryError(err, excluded);
+						if (next === "rethrow") throw err;
+					}
+				}
 			},
 		};
 	}
@@ -272,6 +332,74 @@ export class SeherSDK {
 		return this.instance;
 	}
 
+	private shouldRetryOnLimit(): boolean {
+		return this.opts.retryOnLimit === true && this.opts.kind === undefined;
+	}
+
+	private async resolveForRetry(
+		excluded: readonly string[],
+	): Promise<SeherSDKInstance> {
+		if (this.instance !== null) return this.instance;
+		const { mode, provider, configPath, maxRescans } = this.opts;
+		const resolveOpts: ResolveAgentOptions = {
+			...(this.opts.resolveOverrides ?? {}),
+			noWait: true,
+			...(mode !== undefined && { modeKey: mode }),
+			...(provider !== undefined && { provider }),
+			...(configPath !== undefined && { configPath }),
+			...(maxRescans !== undefined && { maxRescans }),
+			...(excluded.length > 0 && { excludeProviders: [...excluded] }),
+		};
+		const agent = await resolveAgent(resolveOpts);
+		this.resolvedAgent = agent;
+		const merged = applyResolvedAgent(agent.kind, this.opts, agent);
+		this.instance = buildInstance(agent.kind, merged);
+		return this.instance;
+	}
+
+	private async handleRetryError(
+		err: unknown,
+		excluded: string[],
+	): Promise<"retry" | "rethrow"> {
+		if (err instanceof LimitError) {
+			const provider = this.resolvedAgent?.provider ?? err.provider;
+			if (provider !== undefined) {
+				const info: LimitRetryInfo = { provider };
+				if (err.resetAt !== undefined) info.resetAt = err.resetAt;
+				this.opts.onLimitRetry?.(info);
+				if (!excluded.includes(provider)) excluded.push(provider);
+			}
+			this.reset();
+			return "retry";
+		}
+		if (err instanceof AllAgentsLimitedError) {
+			this.opts.onAllLimited?.();
+			const pollOpts: Parameters<typeof pollForAgent>[0] = {};
+			if (this.opts.mode !== undefined) pollOpts.modeKey = this.opts.mode;
+			if (this.opts.provider !== undefined)
+				pollOpts.provider = this.opts.provider;
+			if (this.opts.configPath !== undefined)
+				pollOpts.configPath = this.opts.configPath;
+			if (this.opts.limitPollIntervalMs !== undefined)
+				pollOpts.intervalMs = this.opts.limitPollIntervalMs;
+			if (this.opts.onLimitWaitTick !== undefined)
+				pollOpts.onTick = this.opts.onLimitWaitTick;
+			if (this.opts.limitWaitSignal !== undefined)
+				pollOpts.signal = this.opts.limitWaitSignal;
+			const ro = this.opts.resolveOverrides;
+			if (ro?.checkLimit !== undefined) pollOpts.checkLimit = ro.checkLimit;
+			if (ro?.loadConfig !== undefined) pollOpts.loadConfig = ro.loadConfig;
+			if (ro?.config !== undefined) pollOpts.config = ro.config;
+			const agent = await pollForAgent(pollOpts);
+			excluded.length = 0;
+			this.resolvedAgent = agent;
+			const merged = applyResolvedAgent(agent.kind, this.opts, agent);
+			this.instance = buildInstance(agent.kind, merged);
+			return "retry";
+		}
+		return "rethrow";
+	}
+
 	/**
 	 * Always pin the run to the resolved model unless the caller explicitly
 	 * overrides via `runOpts.model`. Explicit-kind users without a resolved
@@ -285,4 +413,4 @@ export class SeherSDK {
 	}
 }
 
-export { AllAgentsLimitedError, NoMatchingAgentError };
+export { AllAgentsLimitedError, type LimitError, NoMatchingAgentError };

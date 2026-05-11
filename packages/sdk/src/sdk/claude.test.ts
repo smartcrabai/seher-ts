@@ -29,6 +29,7 @@ mock.module("@anthropic-ai/claude-agent-sdk", () => {
 });
 
 const { ClaudeSDK } = await import("./claude.ts");
+const { LimitError } = await import("./errors.ts");
 
 function successResult(text: string) {
 	return {
@@ -221,5 +222,64 @@ describe("ClaudeSDK", () => {
 		const sdk = new ClaudeSDK({ tools: [] });
 		await sdk.run({ prompt: "p" });
 		expect(lastCall().options.mcpServers).toBeUndefined();
+	});
+
+	test("run() throws LimitError on rate_limit_event with status=rejected", async () => {
+		const resetMs = 4102444800000;
+		queryMessages = [
+			{
+				type: "rate_limit_event",
+				rate_limit_info: { status: "rejected", resetsAt: resetMs },
+				uuid: "u",
+				session_id: "s",
+			},
+		];
+		const sdk = new ClaudeSDK();
+		try {
+			await sdk.run({ prompt: "p" });
+			throw new Error("expected LimitError");
+		} catch (err) {
+			expect(err).toBeInstanceOf(LimitError);
+			const le = err as InstanceType<typeof LimitError>;
+			expect(le.kind).toBe("claude");
+			expect(le.resetAt?.getTime()).toBe(resetMs);
+		}
+	});
+
+	test("rate_limit_event with status=allowed does not throw", async () => {
+		queryMessages = [
+			{
+				type: "rate_limit_event",
+				rate_limit_info: { status: "allowed_warning" },
+				uuid: "u",
+				session_id: "s",
+			},
+			successResult("normal"),
+		];
+		const sdk = new ClaudeSDK();
+		const result = await sdk.run({ prompt: "p" });
+		expect(result.text).toBe("normal");
+	});
+
+	test("stream() throws LimitError mid-stream on rate_limit_event", async () => {
+		queryMessages = [
+			assistantMessage("partial"),
+			{
+				type: "rate_limit_event",
+				rate_limit_info: { status: "rejected" },
+				uuid: "u",
+				session_id: "s",
+			},
+		];
+		const sdk = new ClaudeSDK();
+		const deltas: string[] = [];
+		await expect(
+			(async () => {
+				for await (const chunk of sdk.stream({ prompt: "p" })) {
+					deltas.push(chunk.delta);
+				}
+			})(),
+		).rejects.toBeInstanceOf(LimitError);
+		expect(deltas).toEqual(["partial"]);
 	});
 });

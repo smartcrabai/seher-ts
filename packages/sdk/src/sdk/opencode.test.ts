@@ -18,6 +18,7 @@ let promptResponse: unknown = {
 };
 
 let sessionId = "session_1";
+let promptShouldThrow: Error | null = null;
 
 mock.module("@opencode-ai/sdk", () => {
 	const fakeClient = {
@@ -30,6 +31,7 @@ mock.module("@opencode-ai/sdk", () => {
 			},
 			prompt: async (opts: unknown) => {
 				promptCalls.push(opts);
+				if (promptShouldThrow !== null) throw promptShouldThrow;
 				return promptResponse;
 			},
 			delete: async (opts: unknown) => {
@@ -59,6 +61,7 @@ mock.module("@opencode-ai/sdk", () => {
 });
 
 const { OpencodeSDK } = await import("./opencode.ts");
+const { LimitError } = await import("./errors.ts");
 
 describe("OpencodeSDK", () => {
 	beforeEach(() => {
@@ -69,6 +72,7 @@ describe("OpencodeSDK", () => {
 		createOpencodeClientCalls.length = 0;
 		serverClosed.value = false;
 		sessionId = "session_1";
+		promptShouldThrow = null;
 		promptResponse = {
 			data: {
 				info: { id: "msg_1" },
@@ -93,6 +97,18 @@ describe("OpencodeSDK", () => {
 			hostname?: string;
 		};
 		expect(startOpts.port).toBe(4096);
+		expect(startOpts.hostname).toBe("127.0.0.1");
+	});
+
+	test("port defaults to 0 so OS auto-selects a free port", async () => {
+		const sdk = new OpencodeSDK({ hostname: "127.0.0.1" });
+		await sdk.run({ prompt: "hi" });
+		expect(createOpencodeCalls.length).toBe(1);
+		const startOpts = createOpencodeCalls[0] as {
+			port?: number;
+			hostname?: string;
+		};
+		expect(startOpts.port).toBe(0);
 		expect(startOpts.hostname).toBe("127.0.0.1");
 	});
 
@@ -212,5 +228,26 @@ describe("OpencodeSDK", () => {
 		promptResponse = Promise.reject(new Error("boom"));
 		await expect(sdk.run({ prompt: "p" })).rejects.toThrow("boom");
 		expect(deleteCalls.length).toBe(1);
+	});
+
+	test("run() converts cause.status === 429 into LimitError", async () => {
+		const err = new Error("opencode upstream 429") as Error & {
+			cause?: { status: number };
+		};
+		err.cause = { status: 429 };
+		promptShouldThrow = err;
+		const sdk = new OpencodeSDK();
+		await expect(sdk.run({ prompt: "p" })).rejects.toBeInstanceOf(LimitError);
+		expect(deleteCalls.length).toBe(1);
+	});
+
+	test("run() passes through non-429 errors unchanged", async () => {
+		const err = new Error("opencode upstream 500") as Error & {
+			cause?: { status: number };
+		};
+		err.cause = { status: 500 };
+		promptShouldThrow = err;
+		const sdk = new OpencodeSDK();
+		await expect(sdk.run({ prompt: "p" })).rejects.toBe(err);
 	});
 });

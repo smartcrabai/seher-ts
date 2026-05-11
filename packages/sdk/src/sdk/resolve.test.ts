@@ -5,6 +5,7 @@ import { mkConfig } from "./__test__/mkConfig.ts";
 import {
 	AllAgentsLimitedError,
 	NoMatchingAgentError,
+	pollForAgent,
 	resolveAgent,
 } from "./resolve.ts";
 
@@ -235,6 +236,34 @@ describe("resolveAgent", () => {
 		expect(agent.api).toEqual({ key: "sk-za", endpoint: "https://zai.test" });
 	});
 
+	test("excludeProviders filters candidates", async () => {
+		const config = mkConfig(
+			{
+				key: "claude",
+				order: 0,
+				sdk: "claude",
+				priority: 5,
+				models: { build: { model: "sonnet" } },
+			},
+			{
+				key: "codex",
+				order: 1,
+				sdk: "codex",
+				priority: 3,
+				models: { build: { model: "gpt-5.5" } },
+			},
+		);
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await resolveAgent({
+			config,
+			checkLimit,
+			excludeProviders: ["claude"],
+		});
+		expect(agent.provider).toBe("codex");
+	});
+
 	test("invokes onSleep callback before sleeping", async () => {
 		const config = mkConfig({
 			key: "claude",
@@ -260,5 +289,121 @@ describe("resolveAgent", () => {
 			quiet: true,
 		});
 		expect(onSleep).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("pollForAgent", () => {
+	test("returns immediately when a candidate is not_limited", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "sonnet" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const onTick = mock(() => {});
+		const agent = await pollForAgent({
+			config,
+			checkLimit,
+			onTick,
+			intervalMs: 50,
+		});
+		expect(agent.provider).toBe("claude");
+		expect(onTick).toHaveBeenCalledTimes(1);
+	});
+
+	test("polls intervalMs until a candidate recovers", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "sonnet" } },
+		});
+		const reset = new Date("2099-01-01T00:00:00Z");
+		let calls = 0;
+		const checkLimit = mock(async (): Promise<AgentLimit> => {
+			calls += 1;
+			if (calls < 3) return { kind: "limited", resetTime: reset };
+			return { kind: "not_limited" };
+		});
+		const ticks: number[] = [];
+		const onTick = mock((n: number) => {
+			ticks.push(n);
+		});
+		const agent = await pollForAgent({
+			config,
+			checkLimit,
+			onTick,
+			intervalMs: 10,
+		});
+		expect(agent.provider).toBe("claude");
+		expect(calls).toBe(3);
+		expect(ticks).toEqual([1, 2, 3]);
+	});
+
+	test("rejects with AbortError when signal aborts", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "sonnet" } },
+		});
+		const reset = new Date("2099-01-01T00:00:00Z");
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "limited", resetTime: reset }),
+		);
+		const ac = new AbortController();
+		const p = pollForAgent({
+			config,
+			checkLimit,
+			intervalMs: 1000,
+			signal: ac.signal,
+		});
+		queueMicrotask(() => ac.abort());
+		await expect(p).rejects.toMatchObject({ name: "AbortError" });
+	});
+
+	test("respects excludeProviders", async () => {
+		const config = mkConfig(
+			{
+				key: "claude",
+				order: 0,
+				sdk: "claude",
+				priority: 5,
+				models: { build: { model: "sonnet" } },
+			},
+			{
+				key: "codex",
+				order: 1,
+				sdk: "codex",
+				models: { build: { model: "gpt-5.5" } },
+			},
+		);
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await pollForAgent({
+			config,
+			checkLimit,
+			excludeProviders: ["claude"],
+		});
+		expect(agent.provider).toBe("codex");
+	});
+
+	test("throws NoMatchingAgentError when all candidates errored without reset", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "sonnet" } },
+		});
+		const checkLimit = mock(async () => {
+			throw new Error("non-codexbar transient");
+		});
+		await expect(
+			pollForAgent({ config, checkLimit, intervalMs: 10 }),
+		).rejects.toBeInstanceOf(NoMatchingAgentError);
 	});
 });

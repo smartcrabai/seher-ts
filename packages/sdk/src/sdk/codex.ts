@@ -1,4 +1,5 @@
 import { type ApprovalMode, Codex, type SandboxMode } from "@openai/codex-sdk";
+import { rethrowAsLimit } from "./errors.ts";
 import { joinSystemPrompt } from "./text.ts";
 import type {
 	SdkKind,
@@ -7,6 +8,13 @@ import type {
 	SeherSDKInstance,
 	SeherStreamChunk,
 } from "./types.ts";
+
+const CODEX_LIMIT_PATTERN =
+	/rate.?limit|usage.?limit|429|quota|too many requests/i;
+
+function isCodexLimit(err: unknown): boolean {
+	return err instanceof Error && CODEX_LIMIT_PATTERN.test(err.message);
+}
 
 export interface CodexSDKConfig {
 	apiKey?: string;
@@ -79,7 +87,12 @@ export class CodexSDK implements SeherSDKInstance {
 
 	async run(opts: SeherRunOptions): Promise<SeherRunResult> {
 		const thread = this.startThread(opts);
-		const result = await thread.run(joinSystemPrompt(opts));
+		let result: unknown;
+		try {
+			result = await thread.run(joinSystemPrompt(opts));
+		} catch (err) {
+			rethrowAsLimit("codex", err, isCodexLimit);
+		}
 		const text = extractFinalText(result);
 		return { text, kind: this.kind, raw: result };
 	}

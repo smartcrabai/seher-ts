@@ -6,6 +6,7 @@ import {
 	tool,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { z } from "zod";
+import { LimitError } from "./errors.ts";
 import { extractTextBlocks } from "./text.ts";
 import type { SeherTool } from "./tools.ts";
 import type {
@@ -15,6 +16,37 @@ import type {
 	SeherSDKInstance,
 	SeherStreamChunk,
 } from "./types.ts";
+
+type RateLimitEventLike = {
+	type: "rate_limit_event";
+	rate_limit_info?: {
+		status?: string;
+		resetsAt?: number;
+		overageStatus?: string;
+		overageResetsAt?: number;
+	};
+};
+
+function tryLimitFromMessage(message: unknown): LimitError | null {
+	if (
+		message === null ||
+		typeof message !== "object" ||
+		(message as { type?: unknown }).type !== "rate_limit_event"
+	) {
+		return null;
+	}
+	const info = (message as RateLimitEventLike).rate_limit_info;
+	if (info === undefined) return null;
+	if (info.status !== "rejected" && info.overageStatus !== "rejected") {
+		return null;
+	}
+	const opts: ConstructorParameters<typeof LimitError>[1] = {
+		provider: "claude",
+	};
+	const reset = info.resetsAt ?? info.overageResetsAt;
+	if (typeof reset === "number") opts.resetAt = new Date(reset);
+	return new LimitError("claude", opts);
+}
 
 export interface ClaudeSDKConfig {
 	apiKey?: string;
@@ -106,6 +138,8 @@ export class ClaudeSDK implements SeherSDKInstance {
 		let text = "";
 		let raw: unknown;
 		for await (const message of q) {
+			const limit = tryLimitFromMessage(message);
+			if (limit !== null) throw limit;
 			if (message.type === "result") {
 				raw = message;
 				if (message.subtype === "success") text = message.result;
@@ -124,6 +158,8 @@ export class ClaudeSDK implements SeherSDKInstance {
 					options: self.buildOptions(opts),
 				});
 				for await (const message of q) {
+					const limit = tryLimitFromMessage(message);
+					if (limit !== null) throw limit;
 					if (message.type !== "assistant") continue;
 					const delta = extractTextBlocks(message.message.content);
 					if (delta.length === 0) continue;

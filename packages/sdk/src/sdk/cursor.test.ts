@@ -16,6 +16,16 @@ let streamEvents: unknown[] = [
 	},
 ];
 
+class MockRateLimitError extends Error {
+	readonly status = 429;
+	constructor(message: string) {
+		super(message);
+		this.name = "RateLimitError";
+	}
+}
+
+let sendShouldThrow: Error | null = null;
+
 mock.module("@cursor/sdk", () => {
 	const FakeAgent = {
 		create: async (options: Record<string, unknown>) => {
@@ -25,6 +35,7 @@ mock.module("@cursor/sdk", () => {
 				model: undefined,
 				send: async (message: unknown) => {
 					sendCalls.push(message);
+					if (sendShouldThrow !== null) throw sendShouldThrow;
 					return {
 						id: "run_x",
 						agentId: "agent_x",
@@ -51,12 +62,13 @@ mock.module("@cursor/sdk", () => {
 				downloadArtifact: async () => Buffer.from(""),
 				[Symbol.asyncDispose]: async () => {},
 			};
-		},
-	};
-	return { Agent: FakeAgent };
+		}
+	}
+	return { Agent: FakeAgent, RateLimitError: MockRateLimitError };
 });
 
 const { CursorSDK } = await import("./cursor.ts");
+const { LimitError } = await import("./errors.ts");
 
 describe("CursorSDK", () => {
 	beforeEach(() => {
@@ -65,6 +77,7 @@ describe("CursorSDK", () => {
 		closeCalls.count = 0;
 		waitResult = { status: "finished", result: "cursor reply" };
 		waitShouldThrow = false;
+		sendShouldThrow = null;
 		streamEvents = [
 			{
 				type: "assistant",
@@ -161,6 +174,22 @@ describe("CursorSDK", () => {
 		waitShouldThrow = true;
 		const sdk = new CursorSDK();
 		await expect(sdk.run({ prompt: "p" })).rejects.toThrow("wait failed");
+		expect(closeCalls.count).toBe(1);
+	});
+
+	test("run() converts RateLimitError into LimitError", async () => {
+		sendShouldThrow = new MockRateLimitError("too many requests");
+		const sdk = new CursorSDK();
+		await expect(sdk.run({ prompt: "p" })).rejects.toBeInstanceOf(LimitError);
+		expect(closeCalls.count).toBe(1);
+	});
+
+	test("run() converts status===429 error into LimitError", async () => {
+		const err = new Error("rate limited") as Error & { status: number };
+		err.status = 429;
+		sendShouldThrow = err;
+		const sdk = new CursorSDK();
+		await expect(sdk.run({ prompt: "p" })).rejects.toBeInstanceOf(LimitError);
 		expect(closeCalls.count).toBe(1);
 	});
 });
