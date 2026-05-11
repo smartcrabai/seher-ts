@@ -70,7 +70,7 @@ export function mockCursorAgent(
 			return {
 				agentId: "agent_x",
 				model: undefined,
-				send: async (message: unknown) => ({
+				send: async (_message: unknown) => ({
 					id: "run_x",
 					agentId: "agent_x",
 					status: "running",

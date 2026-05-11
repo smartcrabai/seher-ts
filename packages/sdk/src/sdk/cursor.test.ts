@@ -62,8 +62,8 @@ mock.module("@cursor/sdk", () => {
 				downloadArtifact: async () => Buffer.from(""),
 				[Symbol.asyncDispose]: async () => {},
 			};
-		}
-	}
+		},
+	};
 	return { Agent: FakeAgent, RateLimitError: MockRateLimitError };
 });
 
