@@ -202,8 +202,8 @@ mock.module("@opencode-ai/sdk", () => {
 const cursorCreateOpts: Array<Record<string, unknown>> = [];
 const cursorSendCalls: unknown[] = [];
 mock.module("@cursor/sdk", () => {
-	class FakeAgent {
-		static async create(options: Record<string, unknown>) {
+	const FakeAgent = {
+		create: async (options: Record<string, unknown>) => {
 			cursorCreateOpts.push(options);
 			return {
 				agentId: "agent_x",
@@ -234,8 +234,8 @@ mock.module("@cursor/sdk", () => {
 				downloadArtifact: async () => Buffer.from(""),
 				[Symbol.asyncDispose]: async () => {},
 			};
-		}
-	}
+		},
+	};
 	class MockRateLimitError extends Error {
 		readonly status = 429;
 		constructor(message: string) {

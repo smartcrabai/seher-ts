@@ -26,7 +26,7 @@ export class NoMatchingAgentError extends Error {
 export interface ResolveAgentOptions {
 	/** Mode key (e.g., `plan`, `build`, or a custom key). Defaults to `build`. */
 	modeKey?: string;
-	/** Force a specific provider key (skips priority). */
+	/** Force a resolved provider name (skips priority, filters by `entry.provider`). */
 	provider?: string;
 	/** Path to the YAML config file. */
 	configPath?: string;

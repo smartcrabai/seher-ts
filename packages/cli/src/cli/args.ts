@@ -42,42 +42,18 @@ function configureCommonOptions(cmd: Command): Command {
 		.option("-q, --quiet", "Suppress informational output", false);
 }
 
-/**
- * commander has no first-class default subcommand, so we sniff the first
- * non-flag token. If it is `plan` or `build`, leave argv alone; otherwise
- * inject `build` so the rest of the flags/prompt are parsed against that
- * subcommand.
- */
-function withDefaultMode(argv: string[]): string[] {
-	for (const tok of argv) {
-		if (tok === "--") break;
-		if (tok === "-h" || tok === "--help") return argv;
-		if (tok === "-v" || tok === "--version") return argv;
-		if (tok === "plan" || tok === "build") return argv;
-		if (!tok.startsWith("-")) return ["build", ...argv];
-	}
-	return argv;
-}
-
 export function parseArgs(argv: string[]): ParsedArgs {
 	const program = new Command();
 	let captured = "";
 
-	let mode: Mode = "build";
-	let common: CommonOpts = {};
-	let trailing: string[] = [];
-
-	const handleSubcommand =
-		(m: Mode) =>
-		(rest: string[], opts: CommonOpts): void => {
-			mode = m;
-			common = opts;
-			trailing = rest;
-		};
+	let opts: CommonOpts = {};
+	let positional: string[] = [];
 
 	program
 		.name("seher")
 		.description(DESCRIPTION)
+		.usage("[options] [plan|build] [prompt...]")
+		.argument("[args...]", "Optional 'plan' or 'build' followed by prompt text")
 		.version(VERSION, "-v, --version", "Show version information and exit")
 		.helpOption("-h, --help", "Show this help and exit")
 		.exitOverride()
@@ -90,26 +66,17 @@ export function parseArgs(argv: string[]): ParsedArgs {
 			},
 		});
 
-	configureCommonOptions(
-		program
-			.command("plan")
-			.description(
-				"Generate an implementation plan, edit it, then build from approval",
-			)
-			.argument("[prompt...]", "Prompt text (joined with spaces)"),
-	).action(handleSubcommand("plan"));
+	configureCommonOptions(program);
 
-	configureCommonOptions(
-		program
-			.command("build", { isDefault: true })
-			.description("Stream the prompt through the resolved agent")
-			.argument("[prompt...]", "Prompt text (joined with spaces)"),
-	).action(handleSubcommand("build"));
+	program.action((args: string[], parsedOpts: CommonOpts) => {
+		positional = args;
+		opts = parsedOpts;
+	});
 
 	let help = false;
 	let version = false;
 	try {
-		program.parse(withDefaultMode(argv), { from: "user" });
+		program.parse(argv, { from: "user" });
 	} catch (e) {
 		if (e instanceof CommanderError) {
 			if (e.code === "commander.helpDisplayed" || e.code === "commander.help") {
@@ -124,16 +91,23 @@ export function parseArgs(argv: string[]): ParsedArgs {
 		}
 	}
 
+	let mode: Mode = "build";
+	let trailing = positional;
+	if (positional[0] === "plan" || positional[0] === "build") {
+		mode = positional[0] as Mode;
+		trailing = positional.slice(1);
+	}
+
 	const result: ParsedArgs = {
 		mode,
-		quiet: common.quiet ?? false,
+		quiet: opts.quiet ?? false,
 		help,
 		version,
 		trailing,
 	};
 	if (captured.length > 0) result.output = captured;
-	if (common.provider !== undefined) result.provider = common.provider;
-	if (common.model !== undefined) result.model = common.model;
-	if (common.config !== undefined) result.config = common.config;
+	if (opts.provider !== undefined) result.provider = opts.provider;
+	if (opts.model !== undefined) result.model = opts.model;
+	if (opts.config !== undefined) result.config = opts.config;
 	return result;
 }
