@@ -2,14 +2,18 @@
  * Shared type definitions for seher-ts (provider/mode/YAML spec).
  */
 
+/** Canonical list of all SDK kinds (runtime source of truth). */
+export const ALL_SDK_KINDS = [
+	"claude",
+	"codex",
+	"copilot",
+	"kimi",
+	"opencode",
+	"cursor",
+] as const;
+
 /** Which provider SDK to drive. */
-export type SdkKind =
-	| "claude"
-	| "codex"
-	| "copilot"
-	| "kimi"
-	| "opencode"
-	| "cursor";
+export type SdkKind = (typeof ALL_SDK_KINDS)[number];
 
 /** Per-mode model entry inside a `ProviderEntry`. */
 export interface ModelEntry {
