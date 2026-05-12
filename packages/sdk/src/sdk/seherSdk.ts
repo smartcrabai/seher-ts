@@ -1,4 +1,5 @@
 import type { ResolvedAgent, SdkKind } from "../types.ts";
+import { ALL_SDK_KINDS } from "../types.ts";
 import { ClaudeSDK, type ClaudeSDKConfig } from "./claude.ts";
 import { CodexSDK, type CodexSDKConfig } from "./codex.ts";
 import { CopilotSDK, type CopilotSDKConfig } from "./copilot.ts";
@@ -12,6 +13,7 @@ import {
 	pollForAgent,
 	type ResolveAgentOptions,
 	resolveAgent,
+	TOOL_SUPPORTING_KINDS,
 } from "./resolve.ts";
 import type {
 	SeherRunOptions,
@@ -20,12 +22,10 @@ import type {
 	SeherStreamChunk,
 } from "./types.ts";
 
-/** SDKs that don't support in-process JS tool registration. */
-const NO_TOOL_SUPPORT: ReadonlySet<SdkKind> = new Set<SdkKind>([
-	"codex",
-	"cursor",
-	"opencode",
-]);
+/** SDKs that don't support in-process JS tool registration (derived from TOOL_SUPPORTING_KINDS). */
+const NO_TOOL_SUPPORT: ReadonlySet<SdkKind> = new Set<SdkKind>(
+	ALL_SDK_KINDS.filter((k) => !TOOL_SUPPORTING_KINDS.has(k)),
+);
 
 /** SDKs whose underlying lib does not accept env passthrough. */
 const NO_ENV_SUPPORT: ReadonlySet<SdkKind> = new Set<SdkKind>([
@@ -37,6 +37,10 @@ const NO_ENV_SUPPORT: ReadonlySet<SdkKind> = new Set<SdkKind>([
 
 function hasTools(config: SeherSDKConfig): boolean {
 	return config.tools !== undefined && config.tools.length > 0;
+}
+
+function requiresToolsSupport(opts: SeherSDKOptions): boolean {
+	return opts.kind === undefined && hasTools(opts);
 }
 
 function stripTools(config: SeherSDKConfig): SeherSDKConfig {
@@ -324,6 +328,9 @@ export class SeherSDK {
 			...(noWait !== undefined && { noWait }),
 			...(maxRescans !== undefined && { maxRescans }),
 		};
+		if (requiresToolsSupport(this.opts)) {
+			resolveOpts.requireToolsSupport = true;
+		}
 
 		const agent = await resolveAgent(resolveOpts);
 		this.resolvedAgent = agent;
@@ -350,6 +357,9 @@ export class SeherSDK {
 			...(maxRescans !== undefined && { maxRescans }),
 			...(excluded.length > 0 && { excludeProviders: [...excluded] }),
 		};
+		if (requiresToolsSupport(this.opts)) {
+			resolveOpts.requireToolsSupport = true;
+		}
 		const agent = await resolveAgent(resolveOpts);
 		this.resolvedAgent = agent;
 		const merged = applyResolvedAgent(agent.kind, this.opts, agent);
@@ -390,6 +400,9 @@ export class SeherSDK {
 			if (ro?.checkLimit !== undefined) pollOpts.checkLimit = ro.checkLimit;
 			if (ro?.loadConfig !== undefined) pollOpts.loadConfig = ro.loadConfig;
 			if (ro?.config !== undefined) pollOpts.config = ro.config;
+			if (requiresToolsSupport(this.opts)) {
+				pollOpts.requireToolsSupport = true;
+			}
 			const agent = await pollForAgent(pollOpts);
 			excluded.length = 0;
 			this.resolvedAgent = agent;

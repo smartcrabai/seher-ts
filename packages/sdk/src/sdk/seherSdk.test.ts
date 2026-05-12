@@ -247,7 +247,9 @@ mock.module("@cursor/sdk", () => {
 });
 
 const { SeherSDK } = await import("./seherSdk.ts");
-const { AllAgentsLimitedError } = await import("./resolve.ts");
+const { AllAgentsLimitedError, NoMatchingAgentError } = await import(
+	"./resolve.ts"
+);
 const { LimitError } = await import("./errors.ts");
 
 describe("SeherSDK class", () => {
@@ -747,5 +749,66 @@ describe("SeherSDK class", () => {
 		};
 		expect(opts.gitHubToken).toBe("gh-tok");
 		expect(opts.cliUrl).toBe("https://copilot.test/cli");
+	});
+
+	test("auto-resolution with tools excludes non-tools-supporting providers", async () => {
+		const { z } = await import("zod");
+		const echo = {
+			name: "echo",
+			description: "Echo",
+			parameters: z.object({ msg: z.string() }),
+			handler: async ({ msg }: { msg: string }) => msg,
+		};
+		const config = mkConfig(
+			{
+				key: "codex",
+				order: 0,
+				sdk: "codex",
+				priority: 9,
+				models: { build: { model: "gpt-5.5" } },
+			},
+			{
+				key: "claude",
+				order: 1,
+				sdk: "claude",
+				priority: 1,
+				models: { build: { model: "sonnet" } },
+			},
+		);
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			tools: [echo],
+			resolveOverrides: { config, checkLimit },
+		});
+		const result = await sdk.run({ prompt: "hi" });
+		expect(result.kind).toBe("claude");
+	});
+
+	test("auto-resolution with tools throws when no tools-supporting provider configured", async () => {
+		const { z } = await import("zod");
+		const echo = {
+			name: "echo",
+			description: "Echo",
+			parameters: z.object({ msg: z.string() }),
+			handler: async ({ msg }: { msg: string }) => msg,
+		};
+		const config = mkConfig({
+			key: "codex",
+			order: 0,
+			sdk: "codex",
+			models: { build: { model: "gpt-5.5" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			tools: [echo],
+			resolveOverrides: { config, checkLimit },
+		});
+		await expect(sdk.run({ prompt: "hi" })).rejects.toBeInstanceOf(
+			NoMatchingAgentError,
+		);
 	});
 });

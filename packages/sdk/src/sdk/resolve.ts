@@ -3,7 +3,17 @@ import { checkLimit as checkLimitImpl } from "../codexbar/limit.ts";
 import { loadConfig as loadConfigImpl } from "../config/load.ts";
 import { scanCandidates } from "../scan.ts";
 import { sleepUntil as sleepUntilImpl } from "../sleep/sleepUntil.ts";
-import type { AgentLimit, Config, ResolvedAgent } from "../types.ts";
+import type { AgentLimit, Config, ResolvedAgent, SdkKind } from "../types.ts";
+
+/** SDKs that support in-process JS tool registration. */
+export const TOOL_SUPPORTING_KINDS: ReadonlySet<SdkKind> = new Set<SdkKind>([
+	"claude",
+	"copilot",
+	"kimi",
+]);
+
+const NO_PROVIDERS_WITH_TOOLS_ERROR = (modeKey: string) =>
+	`No providers with tools support define models.${modeKey}`;
 
 export class AllAgentsLimitedError extends Error {
 	readonly minReset: Date;
@@ -38,6 +48,8 @@ export interface ResolveAgentOptions {
 	noWait?: boolean;
 	/** Maximum rescans after a sleep cycle. Defaults to 1. */
 	maxRescans?: number;
+	/** When true, only consider providers whose SDK kind supports tools. */
+	requireToolsSupport?: boolean;
 	loadConfig?: typeof loadConfigImpl;
 	checkLimit?: typeof checkLimitImpl;
 	sleepUntil?: typeof sleepUntilImpl;
@@ -63,6 +75,8 @@ export interface PollForAgentOptions {
 	signal?: AbortSignal;
 	/** Called once before each scan attempt (1-based). */
 	onTick?: (attempt: number) => void;
+	/** When true, only consider providers whose SDK kind supports tools. */
+	requireToolsSupport?: boolean;
 	loadConfig?: typeof loadConfigImpl;
 	checkLimit?: typeof checkLimitImpl;
 }
@@ -86,6 +100,7 @@ function buildCandidates(
 	modeKey: string,
 	providerFilter: string | undefined,
 	excludeProviders: readonly string[] | undefined,
+	requireToolsSupport?: boolean,
 ): Candidate[] {
 	const excluded =
 		excludeProviders !== undefined && excludeProviders.length > 0
@@ -97,6 +112,9 @@ function buildCandidates(
 			continue;
 		}
 		if (excluded?.has(entry.provider)) continue;
+		if (requireToolsSupport && !TOOL_SUPPORTING_KINDS.has(entry.sdk)) {
+			continue;
+		}
 		const model = entry.models[modeKey];
 		if (model === undefined) continue;
 		const priority = effectivePriority(entry.priority, model.priority);
@@ -155,9 +173,13 @@ export async function resolveAgent(
 		modeKey,
 		opts.provider,
 		opts.excludeProviders,
+		opts.requireToolsSupport,
 	);
 
 	if (candidates.length === 0) {
+		if (opts.requireToolsSupport) {
+			throw new NoMatchingAgentError(NO_PROVIDERS_WITH_TOOLS_ERROR(modeKey));
+		}
 		throw new NoMatchingAgentError(
 			opts.provider !== undefined
 				? `No provider "${opts.provider}" defines models.${modeKey}`
@@ -218,9 +240,13 @@ export async function pollForAgent(
 		modeKey,
 		opts.provider,
 		opts.excludeProviders,
+		opts.requireToolsSupport,
 	);
 
 	if (candidates.length === 0) {
+		if (opts.requireToolsSupport) {
+			throw new NoMatchingAgentError(NO_PROVIDERS_WITH_TOOLS_ERROR(modeKey));
+		}
 		throw new NoMatchingAgentError(
 			opts.provider !== undefined
 				? `No provider "${opts.provider}" defines models.${modeKey}`

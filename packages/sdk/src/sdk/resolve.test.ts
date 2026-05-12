@@ -290,6 +290,75 @@ describe("resolveAgent", () => {
 		});
 		expect(onSleep).toHaveBeenCalledTimes(1);
 	});
+
+	test("requireToolsSupport excludes non-tools-supporting SDKs", async () => {
+		const config = mkConfig(
+			{
+				key: "codex",
+				order: 0,
+				sdk: "codex",
+				priority: 9,
+				models: { build: { model: "gpt-5.5" } },
+			},
+			{
+				key: "claude",
+				order: 1,
+				sdk: "claude",
+				priority: 1,
+				models: { build: { model: "sonnet" } },
+			},
+		);
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await resolveAgent({
+			config,
+			checkLimit,
+			requireToolsSupport: true,
+		});
+		expect(agent.provider).toBe("claude");
+	});
+
+	test("requireToolsSupport throws NoMatchingAgentError with tools message when no tools-supporting providers", async () => {
+		const config = mkConfig({
+			key: "codex",
+			order: 0,
+			sdk: "codex",
+			models: { build: { model: "gpt-5.5" } },
+		});
+		let err: unknown;
+		try {
+			await resolveAgent({ config, requireToolsSupport: true });
+		} catch (e) {
+			err = e;
+		}
+		expect(err).toBeInstanceOf(NoMatchingAgentError);
+		expect(String((err as Error).message)).toInclude("tools");
+	});
+
+	test("requireToolsSupport with noWait throws AllAgentsLimitedError when all candidates limited", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "sonnet" } },
+		});
+		const reset = new Date("2099-01-01T00:00:00Z");
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "limited", resetTime: reset }),
+		);
+		const sleepUntil = mock(async () => {});
+		await expect(
+			resolveAgent({
+				config,
+				checkLimit,
+				sleepUntil,
+				requireToolsSupport: true,
+				noWait: true,
+			}),
+		).rejects.toBeInstanceOf(AllAgentsLimitedError);
+		expect(sleepUntil).toHaveBeenCalledTimes(0);
+	});
 });
 
 describe("pollForAgent", () => {
@@ -405,5 +474,54 @@ describe("pollForAgent", () => {
 		await expect(
 			pollForAgent({ config, checkLimit, intervalMs: 10 }),
 		).rejects.toBeInstanceOf(NoMatchingAgentError);
+	});
+
+	test("requireToolsSupport filters non-tools-supporting SDKs", async () => {
+		const config = mkConfig(
+			{
+				key: "codex",
+				order: 0,
+				sdk: "codex",
+				priority: 9,
+				models: { build: { model: "gpt-5.5" } },
+			},
+			{
+				key: "claude",
+				order: 1,
+				sdk: "claude",
+				priority: 1,
+				models: { build: { model: "sonnet" } },
+			},
+		);
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await pollForAgent({
+			config,
+			checkLimit,
+			requireToolsSupport: true,
+		});
+		expect(agent.provider).toBe("claude");
+	});
+
+	test("requireToolsSupport throws NoMatchingAgentError with tools message", async () => {
+		const config = mkConfig({
+			key: "cursor",
+			order: 0,
+			sdk: "cursor",
+			models: { build: { model: "x" } },
+		});
+		let err: unknown;
+		try {
+			await pollForAgent({
+				config,
+				requireToolsSupport: true,
+				intervalMs: 10,
+			});
+		} catch (e) {
+			err = e;
+		}
+		expect(err).toBeInstanceOf(NoMatchingAgentError);
+		expect(String((err as Error).message)).toInclude("tools");
 	});
 });
