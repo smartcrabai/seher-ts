@@ -28,6 +28,7 @@ const SDK_KINDS: ReadonlySet<SdkKind> = new Set<SdkKind>([
 	"kimi",
 	"opencode",
 	"cursor",
+	"pi",
 ]);
 
 /** Provider key -> default SDK kind for the six built-in providers. */
@@ -46,7 +47,7 @@ function parseSdk(raw: unknown, label: string): SdkKind {
 	}
 	if (!SDK_KINDS.has(raw as SdkKind)) {
 		fail(
-			`${label}.sdk must be one of "claude", "codex", "copilot", "kimi", "opencode", "cursor"`,
+			`${label}.sdk must be one of "claude", "codex", "copilot", "kimi", "opencode", "cursor", "pi"`,
 		);
 	}
 	return raw as SdkKind;

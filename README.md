@@ -19,9 +19,12 @@ rate-limit checks. Providers that CodexBar does not know about
 | `opencodego` | `opencode` | `@opencode-ai/sdk` |
 | `copilot` | `copilot` | `@github/copilot-sdk` |
 | `kimi` | `kimi` | `@moonshot-ai/kimi-agent-sdk` |
+| — | `pi` | `@earendil-works/pi-coding-agent` |
 
 Provider keys outside this table must declare `sdk: <kind>` and an `api`
-block.
+block. Use `sdk: pi` with any provider key to drive the pi.dev agent.
+There is no default provider mapping for pi; setting `sdk: pi` is the only
+way to opt in.
 
 ## Install
 
@@ -99,7 +102,7 @@ and the JSON Schema at
 | Field | Type | Notes |
 |---|---|---|
 | `provider` | string | Resolved provider name. Defaults to the YAML map key. Drives the built-in SDK default lookup, the CodexBar usage query, and the `-p` filter. Use this to share a CodexBar pool between multiple entries (e.g. two `provider: claude` entries with different priorities/models). |
-| `sdk` | `"claude" \| "codex" \| "copilot" \| "kimi" \| "opencode" \| "cursor"` | Required when the resolved provider name is outside the built-in set; optional otherwise (defaults from the table above). |
+| `sdk` | `"claude" \| "codex" \| "copilot" \| "kimi" \| "opencode" \| "cursor" \| "pi"` | Required when the resolved provider name is outside the built-in set; optional otherwise (defaults from the table above). |
 | `priority` | number | Provider-level shorthand. Used when a model entry omits its own priority. |
 | `api.key` | string | Mapped to the SDK's native key field (e.g. `ANTHROPIC_API_KEY`, `gitHubToken`, …). |
 | `api.endpoint` | string | Mapped to the SDK's native base URL field (e.g. `ANTHROPIC_BASE_URL`, OpenCode `baseURL`, …). |
@@ -163,6 +166,7 @@ import { CopilotSDK } from "@seher-ts/sdk/copilot";
 import { CursorSDK } from "@seher-ts/sdk/cursor";
 import { KimiSDK } from "@seher-ts/sdk/kimi";
 import { OpencodeSDK } from "@seher-ts/sdk/opencode";
+import { PiSDK } from "@seher-ts/sdk/pi";
 ```
 
 All implement the shared `SeherSDKInstance` interface (`kind`, `run`,

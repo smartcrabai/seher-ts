@@ -10,6 +10,7 @@ export const ALL_SDK_KINDS = [
 	"kimi",
 	"opencode",
 	"cursor",
+	"pi",
 ] as const;
 
 /** Which provider SDK to drive. */

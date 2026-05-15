@@ -7,6 +7,7 @@ import { CursorSDK, type CursorSDKConfig } from "./cursor.ts";
 import { LimitError } from "./errors.ts";
 import { KimiSDK, type KimiSDKConfig } from "./kimi.ts";
 import { OpencodeSDK, type OpencodeSDKConfig } from "./opencode.ts";
+import { PiSDK, type PiSDKConfig } from "./pi.ts";
 import {
 	AllAgentsLimitedError,
 	NoMatchingAgentError,
@@ -33,6 +34,7 @@ const NO_ENV_SUPPORT: ReadonlySet<SdkKind> = new Set<SdkKind>([
 	"copilot",
 	"cursor",
 	"opencode",
+	"pi",
 ]);
 
 function hasTools(config: SeherSDKConfig): boolean {
@@ -58,7 +60,8 @@ export type SeherSDKConfig = ClaudeSDKConfig &
 	CopilotSDKConfig &
 	CursorSDKConfig &
 	KimiSDKConfig &
-	OpencodeSDKConfig;
+	OpencodeSDKConfig &
+	PiSDKConfig;
 
 export interface LimitRetryInfo {
 	provider: string;
@@ -121,12 +124,14 @@ function applyResolvedAgent(
 	const apiEndpoint = agent.api?.endpoint;
 	switch (kind) {
 		case "claude":
+		case "pi":
 			if (apiKey !== undefined && out.apiKey === undefined) out.apiKey = apiKey;
 			if (apiEndpoint !== undefined && out.baseURL === undefined) {
 				out.baseURL = apiEndpoint;
 			}
 			break;
 		case "codex":
+		case "cursor":
 			if (apiKey !== undefined && out.apiKey === undefined) out.apiKey = apiKey;
 			break;
 		case "copilot":
@@ -136,9 +141,6 @@ function applyResolvedAgent(
 			if (apiEndpoint !== undefined && out.cliUrl === undefined) {
 				out.cliUrl = apiEndpoint;
 			}
-			break;
-		case "cursor":
-			if (apiKey !== undefined && out.apiKey === undefined) out.apiKey = apiKey;
 			break;
 		case "kimi":
 			if (apiKey !== undefined || apiEndpoint !== undefined) {
@@ -207,6 +209,8 @@ function buildInstance(
 			return new OpencodeSDK(effective);
 		case "cursor":
 			return new CursorSDK(effective);
+		case "pi":
+			return new PiSDK(effective);
 	}
 }
 

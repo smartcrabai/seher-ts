@@ -359,6 +359,69 @@ describe("resolveAgent", () => {
 		).rejects.toBeInstanceOf(AllAgentsLimitedError);
 		expect(sleepUntil).toHaveBeenCalledTimes(0);
 	});
+
+	test("pi: sdk: pi entry resolves with kind: pi", async () => {
+		const config = mkConfig({
+			key: "mypi",
+			order: 0,
+			sdk: "pi",
+			models: { build: { model: "anthropic/claude-sonnet-4-5" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.kind).toBe("pi");
+		expect(agent.provider).toBe("mypi");
+		expect(agent.modelId).toBe("anthropic/claude-sonnet-4-5");
+	});
+
+	test("pi: sdk: pi entry with api forwards api to ResolvedAgent", async () => {
+		const config = mkConfig({
+			key: "pi-endpoint",
+			order: 0,
+			sdk: "pi",
+			api: { key: "sk-pi", endpoint: "https://pi.example.com" },
+			models: { build: { model: "anthropic/claude-sonnet-4-5" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.kind).toBe("pi");
+		expect(agent.api).toEqual({
+			key: "sk-pi",
+			endpoint: "https://pi.example.com",
+		});
+	});
+
+	test("pi: requireToolsSupport excludes pi from candidates", async () => {
+		const config = mkConfig(
+			{
+				key: "mypi",
+				order: 0,
+				sdk: "pi",
+				priority: 9,
+				models: { build: { model: "anthropic/claude-sonnet-4-5" } },
+			},
+			{
+				key: "claude",
+				order: 1,
+				sdk: "claude",
+				priority: 1,
+				models: { build: { model: "sonnet" } },
+			},
+		);
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await resolveAgent({
+			config,
+			checkLimit,
+			requireToolsSupport: true,
+		});
+		expect(agent.provider).toBe("claude");
+	});
 });
 
 describe("pollForAgent", () => {
