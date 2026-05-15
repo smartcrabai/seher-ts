@@ -250,7 +250,6 @@ mock.module("@cursor/sdk", () => {
 	return { Agent: FakeAgent, RateLimitError: MockRateLimitError };
 });
 
-
 mock.module("@earendil-works/pi-coding-agent", () => ({
 	createAgentSession: async (options?: Record<string, unknown>) => {
 		piCreateSessionCalls.push(options ?? {});
