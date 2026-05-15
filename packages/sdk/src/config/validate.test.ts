@@ -214,4 +214,63 @@ describe("validateConfig", () => {
 		]);
 		expect(cfg.providers.map((p) => p.provider)).toEqual(["claude", "claude"]);
 	});
+
+	test("pi: no default SDK mapping — explicit sdk: pi is required", () => {
+		expect(() =>
+			validateConfig({
+				providers: { pi: { models: { build: "anthropic/claude-sonnet-4-5" } } },
+			}),
+		).toThrow(/sdk is required/);
+	});
+
+	test("pi: explicit sdk: pi passes validation (api required for non-builtin)", () => {
+		const cfg = validateConfig({
+			providers: {
+				pi: {
+					sdk: "pi",
+					api: { key: "sk-test" },
+					models: { build: "anthropic/claude-sonnet-4-5" },
+				},
+			},
+		});
+		expect(cfg.providers).toHaveLength(1);
+		const entry = cfg.providers[0];
+		expect(entry?.key).toBe("pi");
+		expect(entry?.sdk).toBe("pi");
+	});
+
+	test("pi: explicit sdk: pi with full api config passes", () => {
+		const cfg = validateConfig({
+			providers: {
+				"my-pi-endpoint": {
+					sdk: "pi",
+					api: { key: "sk-xxxxx", endpoint: "https://api.example.com" },
+					models: { build: "anthropic/claude-sonnet-4-5" },
+				},
+			},
+		});
+		expect(cfg.providers).toHaveLength(1);
+		const entry = cfg.providers[0];
+		expect(entry?.key).toBe("my-pi-endpoint");
+		expect(entry?.sdk).toBe("pi");
+		expect(entry?.api).toEqual({
+			key: "sk-xxxxx",
+			endpoint: "https://api.example.com",
+		});
+	});
+
+	test("pi: custom map key with sdk: pi and api works", () => {
+		const cfg = validateConfig({
+			providers: {
+				mypi: {
+					sdk: "pi",
+					api: { key: "sk-test" },
+					models: { build: "openai/gpt-5" },
+				},
+			},
+		});
+		expect(cfg.providers[0]?.key).toBe("mypi");
+		expect(cfg.providers[0]?.provider).toBe("mypi");
+		expect(cfg.providers[0]?.sdk).toBe("pi");
+	});
 });

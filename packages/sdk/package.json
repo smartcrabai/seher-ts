@@ -45,6 +45,10 @@
 			"types": "./dist/entries/cursor.d.ts",
 			"import": "./dist/entries/cursor.js"
 		},
+		"./pi": {
+			"types": "./dist/entries/pi.d.ts",
+			"import": "./dist/entries/pi.js"
+		},
 		"./seher": {
 			"types": "./dist/entries/seher.d.ts",
 			"import": "./dist/entries/seher.js"
@@ -78,6 +82,7 @@
 	"dependencies": {
 		"@anthropic-ai/claude-agent-sdk": "^0.2.123",
 		"@cursor/sdk": "^1.0.10",
+		"@earendil-works/pi-coding-agent": "^0.74.0",
 		"@github/copilot-sdk": "^0.3.0",
 		"@moonshot-ai/kimi-agent-sdk": "^0.1.8",
 		"@openai/codex-sdk": "^0.130.0",

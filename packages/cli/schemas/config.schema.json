@@ -15,7 +15,7 @@
 	"definitions": {
 		"sdkKind": {
 			"type": "string",
-			"enum": ["claude", "codex", "copilot", "kimi", "opencode", "cursor"]
+			"enum": ["claude", "codex", "copilot", "kimi", "opencode", "cursor", "pi"]
 		},
 		"modelEntry": {
 			"oneOf": [

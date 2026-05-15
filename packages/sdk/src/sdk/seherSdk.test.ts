@@ -201,6 +201,10 @@ mock.module("@opencode-ai/sdk", () => {
 
 const cursorCreateOpts: Array<Record<string, unknown>> = [];
 const cursorSendCalls: unknown[] = [];
+
+const piCreateSessionCalls: Array<Record<string, unknown>> = [];
+const piPromptCalls: string[] = [];
+const piDisposeCalls: unknown[] = [];
 mock.module("@cursor/sdk", () => {
 	const FakeAgent = {
 		create: async (options: Record<string, unknown>) => {
@@ -246,6 +250,44 @@ mock.module("@cursor/sdk", () => {
 	return { Agent: FakeAgent, RateLimitError: MockRateLimitError };
 });
 
+mock.module("@earendil-works/pi-coding-agent", () => ({
+	createAgentSession: async (options?: Record<string, unknown>) => {
+		piCreateSessionCalls.push(options ?? {});
+		return {
+			session: {
+				prompt: async (text: string) => {
+					piPromptCalls.push(text);
+				},
+				subscribe: () => () => {},
+				state: {
+					get messages() {
+						return [
+							{
+								role: "assistant",
+								content: [{ type: "text", text: "pi reply" }],
+							},
+						];
+					},
+				},
+				dispose: async () => {
+					piDisposeCalls.push({});
+				},
+			},
+		};
+	},
+	AuthStorage: {
+		inMemory: () => ({
+			setRuntimeApiKey: () => {},
+		}),
+	},
+	ModelRegistry: {
+		inMemory: () => ({
+			find: () => ({ provider: "stub" }),
+			registerProvider: () => {},
+		}),
+	},
+}));
+
 const { SeherSDK } = await import("./seherSdk.ts");
 const { AllAgentsLimitedError, NoMatchingAgentError } = await import(
 	"./resolve.ts"
@@ -266,6 +308,9 @@ describe("SeherSDK class", () => {
 		opencodeClientOpts.length = 0;
 		cursorCreateOpts.length = 0;
 		cursorSendCalls.length = 0;
+		piCreateSessionCalls.length = 0;
+		piPromptCalls.length = 0;
+		piDisposeCalls.length = 0;
 		claudeBehavior.mode = "success";
 	});
 
@@ -810,5 +855,55 @@ describe("SeherSDK class", () => {
 		await expect(sdk.run({ prompt: "hi" })).rejects.toBeInstanceOf(
 			NoMatchingAgentError,
 		);
+	});
+
+	test("kind=pi: synchronous construction, run dispatches to PiSDK", async () => {
+		const sdk = new SeherSDK({
+			kind: "pi",
+			apiKey: "sk-test",
+			defaultModel: "anthropic/claude-sonnet-4-5",
+		});
+		expect(sdk.kind).toBe("pi");
+
+		const result = await sdk.run({ prompt: "hi" });
+		expect(result.kind).toBe("pi");
+		expect(result.text).toBe("pi reply");
+		expect(piCreateSessionCalls.length).toBe(1);
+		expect(piPromptCalls.length).toBe(1);
+	});
+
+	test("pi: api.key becomes apiKey, api.endpoint becomes baseURL", async () => {
+		const config = mkConfig({
+			key: "mypi",
+			order: 0,
+			sdk: "pi",
+			api: { key: "sk-pi-key", endpoint: "https://pi.test" },
+			models: { build: { model: "anthropic/claude-sonnet" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			resolveOverrides: { config, checkLimit },
+		});
+		await sdk.run({ prompt: "hi" });
+		expect(piCreateSessionCalls.length).toBe(1);
+	});
+
+	test("pi: auto-resolution resolves with kind: pi", async () => {
+		const config = mkConfig({
+			key: "mypi",
+			order: 0,
+			sdk: "pi",
+			models: { build: { model: "anthropic/claude-sonnet" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			resolveOverrides: { config, checkLimit },
+		});
+		const result = await sdk.run({ prompt: "hi" });
+		expect(result.kind).toBe("pi");
 	});
 });

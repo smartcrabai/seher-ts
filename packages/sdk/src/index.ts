@@ -9,6 +9,7 @@ export {
 } from "./config/load.ts";
 export { ConfigValidationError, validateConfig } from "./config/validate.ts";
 export { LimitError, type LimitErrorOptions } from "./sdk/errors.ts";
+export { PiSDK, type PiSDKConfig } from "./sdk/pi.ts";
 export {
 	AllAgentsLimitedError,
 	NoMatchingAgentError,
