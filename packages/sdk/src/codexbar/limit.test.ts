@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { checkLimit } from "./limit.ts";
-import type { CodexBarUsageResponse, CodexBarWindow } from "./types.ts";
+import type {
+	CodexBarUsageResponse,
+	CodexBarWindow,
+	NamedCodexBarWindow,
+} from "./types.ts";
 
 function makeWindow(
 	usedPercent: number,
@@ -11,14 +15,18 @@ function makeWindow(
 }
 
 function makeResponse(
-	primary?: CodexBarWindow,
-	secondary?: CodexBarWindow,
+	primary?: CodexBarWindow | null,
+	secondary?: CodexBarWindow | null,
+	tertiary?: CodexBarWindow | null,
+	extraRateWindows?: NamedCodexBarWindow[],
 ): CodexBarUsageResponse {
 	return {
 		provider: "codex",
 		usage: {
-			...(primary ? { primary } : {}),
-			...(secondary ? { secondary } : {}),
+			...(primary !== undefined ? { primary } : {}),
+			...(secondary !== undefined ? { secondary } : {}),
+			...(tertiary !== undefined ? { tertiary } : {}),
+			...(extraRateWindows ? { extraRateWindows } : {}),
 		},
 	};
 }
@@ -92,6 +100,85 @@ describe("checkLimit", () => {
 			expect(ts).toBeGreaterThanOrEqual(before + 5 * 60 * 1000);
 			expect(ts).toBeLessThanOrEqual(after + 5 * 60 * 1000 + 50);
 		}
+	});
+
+	test("returns limited when tertiary window is 100%", async () => {
+		const now = Date.now();
+		const tertiaryReset = new Date(now + 45 * 60 * 1000);
+		const response = makeResponse(
+			makeWindow(40, new Date(now + 60 * 60 * 1000).toISOString()),
+			makeWindow(60, new Date(now + 2 * 60 * 60 * 1000).toISOString()),
+			makeWindow(100, tertiaryReset.toISOString()),
+		);
+		const result = await checkLimit("codex", {
+			runUsage: async () => response,
+		});
+		expect(result.kind).toBe("limited");
+		if (result.kind === "limited") {
+			expect(result.resetTime.getTime()).toBe(tertiaryReset.getTime());
+		}
+	});
+
+	test("returns limited when an extraRateWindows entry is 100%", async () => {
+		const now = Date.now();
+		const extraReset = new Date(now + 20 * 60 * 1000);
+		const response = makeResponse(
+			makeWindow(40, new Date(now + 60 * 60 * 1000).toISOString()),
+			null,
+			null,
+			[
+				{
+					id: "claude-design",
+					title: "Designs",
+					window: makeWindow(100, extraReset.toISOString()),
+				},
+			],
+		);
+		const result = await checkLimit("codex", {
+			runUsage: async () => response,
+		});
+		expect(result.kind).toBe("limited");
+		if (result.kind === "limited") {
+			expect(result.resetTime.getTime()).toBe(extraReset.getTime());
+		}
+	});
+
+	test("picks the earliest reset across all window slots", async () => {
+		const now = Date.now();
+		const primaryReset = new Date(now + 60 * 60 * 1000);
+		const secondaryReset = new Date(now + 50 * 60 * 1000);
+		const tertiaryReset = new Date(now + 40 * 60 * 1000);
+		const extraReset = new Date(now + 30 * 60 * 1000);
+		const response = makeResponse(
+			makeWindow(100, primaryReset.toISOString()),
+			makeWindow(100, secondaryReset.toISOString()),
+			makeWindow(100, tertiaryReset.toISOString()),
+			[
+				{
+					id: "claude-routines",
+					title: "Routines",
+					window: makeWindow(100, extraReset.toISOString()),
+				},
+			],
+		);
+		const result = await checkLimit("codex", {
+			runUsage: async () => response,
+		});
+		expect(result.kind).toBe("limited");
+		if (result.kind === "limited") {
+			expect(result.resetTime.getTime()).toBe(extraReset.getTime());
+		}
+	});
+
+	test("ignores null primary/secondary/tertiary", async () => {
+		const response: CodexBarUsageResponse = {
+			provider: "codex",
+			usage: { primary: null, secondary: null, tertiary: null },
+		};
+		const result = await checkLimit("codex", {
+			runUsage: async () => response,
+		});
+		expect(result).toEqual({ kind: "not_limited" });
 	});
 
 	test("returns not_limited when usage has no windows", async () => {

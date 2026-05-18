@@ -13,7 +13,7 @@ export interface CheckLimitOptions extends RunCodexBarUsageOptions {
 
 const FALLBACK_RESET_MS = 5 * 60 * 1000;
 
-function parseResetsAt(resetsAt: string | undefined): Date {
+function parseResetsAt(resetsAt: string | null | undefined): Date {
 	if (resetsAt) {
 		const parsed = new Date(resetsAt);
 		if (!Number.isNaN(parsed.getTime())) {
@@ -40,6 +40,14 @@ export async function checkLimit(
 	}
 	if (response.usage.secondary) {
 		windows.push(response.usage.secondary);
+	}
+	if (response.usage.tertiary) {
+		windows.push(response.usage.tertiary);
+	}
+	if (response.usage.extraRateWindows) {
+		for (const named of response.usage.extraRateWindows) {
+			windows.push(named.window);
+		}
 	}
 
 	const limitedResetTimes = windows
