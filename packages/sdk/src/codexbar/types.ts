@@ -1,7 +1,15 @@
 export interface CodexBarWindow {
 	usedPercent: number;
-	windowMinutes: number;
-	resetsAt: string;
+	windowMinutes?: number | null;
+	resetsAt?: string | null;
+	resetDescription?: string | null;
+	nextRegenPercent?: number | null;
+}
+
+export interface NamedCodexBarWindow {
+	id: string;
+	title: string;
+	window: CodexBarWindow;
 }
 
 export interface CodexBarStatus {
@@ -19,9 +27,10 @@ export interface CodexBarIdentity {
 }
 
 export interface CodexBarUsage {
-	primary?: CodexBarWindow;
-	secondary?: CodexBarWindow;
+	primary?: CodexBarWindow | null;
+	secondary?: CodexBarWindow | null;
 	tertiary?: CodexBarWindow | null;
+	extraRateWindows?: NamedCodexBarWindow[] | null;
 	updatedAt?: string;
 	identity?: CodexBarIdentity;
 }
