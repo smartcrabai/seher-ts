@@ -1,6 +1,10 @@
 import type { ResolvedAgent, SdkKind } from "../types.ts";
 import { ALL_SDK_KINDS } from "../types.ts";
 import { ClaudeSDK, type ClaudeSDKConfig } from "./claude.ts";
+import {
+	ClaudeTerminalSDK,
+	type ClaudeTerminalSDKConfig,
+} from "./claude-terminal/index.ts";
 import { CodexSDK, type CodexSDKConfig } from "./codex.ts";
 import { CopilotSDK, type CopilotSDKConfig } from "./copilot.ts";
 import { CursorSDK, type CursorSDKConfig } from "./cursor.ts";
@@ -30,6 +34,7 @@ const NO_TOOL_SUPPORT: ReadonlySet<SdkKind> = new Set<SdkKind>(
 
 /** SDKs whose underlying lib does not accept env passthrough. */
 const NO_ENV_SUPPORT: ReadonlySet<SdkKind> = new Set<SdkKind>([
+	"claude-terminal",
 	"codex",
 	"copilot",
 	"cursor",
@@ -56,6 +61,7 @@ function stripEnv(config: SeherSDKConfig): SeherSDKConfig {
 }
 
 export type SeherSDKConfig = ClaudeSDKConfig &
+	ClaudeTerminalSDKConfig &
 	CodexSDKConfig &
 	CopilotSDKConfig &
 	CursorSDKConfig &
@@ -199,6 +205,8 @@ function buildInstance(
 	switch (kind) {
 		case "claude":
 			return new ClaudeSDK(effective);
+		case "claude-terminal":
+			return new ClaudeTerminalSDK(effective);
 		case "codex":
 			return new CodexSDK(effective);
 		case "copilot":

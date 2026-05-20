@@ -134,6 +134,30 @@ describe("validateConfig", () => {
 		expect(cfg.providers[0]?.sdk).toBe("opencode");
 	});
 
+	test("claude-terminal is a built-in provider that maps to claude-terminal SDK", () => {
+		const cfg = validateConfig({
+			providers: {
+				"claude-terminal": { models: { build: "claude-opus-4-7" } },
+			},
+		});
+		const entry = cfg.providers[0];
+		expect(entry?.provider).toBe("claude-terminal");
+		expect(entry?.sdk).toBe("claude-terminal");
+	});
+
+	test("explicit sdk: claude-terminal passes validation (api required for non-builtin)", () => {
+		const cfg = validateConfig({
+			providers: {
+				"my-claude-terminal": {
+					sdk: "claude-terminal",
+					api: { key: "sk-ct" },
+					models: { build: "claude-opus-4-7" },
+				},
+			},
+		});
+		expect(cfg.providers[0]?.sdk).toBe("claude-terminal");
+	});
+
 	test("provider defaults to YAML key when omitted", () => {
 		const cfg = validateConfig({
 			providers: { claude: { models: { build: "sonnet" } } },

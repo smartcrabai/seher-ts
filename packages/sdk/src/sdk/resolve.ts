@@ -1,5 +1,8 @@
 import { CodexBarError, CodexBarNotFoundError } from "../codexbar/errors.ts";
-import { checkLimit as checkLimitImpl } from "../codexbar/limit.ts";
+import {
+	checkLimit as checkLimitImpl,
+	codexbarProviderName,
+} from "../codexbar/limit.ts";
 import { loadConfig as loadConfigImpl } from "../config/load.ts";
 import { scanCandidates } from "../scan.ts";
 import { sleepUntil as sleepUntilImpl } from "../sleep/sleepUntil.ts";
@@ -190,7 +193,7 @@ export async function resolveAgent(
 	let rescans = 0;
 	while (true) {
 		const scan = await scanCandidates(candidates, async (c) =>
-			probe(checkLimit, c.provider),
+			probe(checkLimit, codexbarProviderName(c.resolved.kind, c.provider)),
 		);
 
 		if (scan.kind === "available") {
@@ -260,7 +263,7 @@ export async function pollForAgent(
 		attempt += 1;
 		opts.onTick?.(attempt);
 		const scan = await scanCandidates(candidates, async (c) =>
-			probe(checkLimit, c.provider),
+			probe(checkLimit, codexbarProviderName(c.resolved.kind, c.provider)),
 		);
 		if (scan.kind === "available") {
 			const c = candidates[scan.index];

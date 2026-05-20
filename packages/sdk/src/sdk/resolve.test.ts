@@ -588,3 +588,57 @@ describe("pollForAgent", () => {
 		expect(String((err as Error).message)).toInclude("tools");
 	});
 });
+
+describe("codexbar provider name alias", () => {
+	test("resolveAgent queries checkLimit with 'claude' when the candidate is claude-terminal", async () => {
+		const config = mkConfig({
+			key: "claude-terminal",
+			order: 0,
+			sdk: "claude-terminal",
+			models: { build: { model: "claude-opus-4-7" } },
+		});
+		const seen: string[] = [];
+		const checkLimit = mock(async (provider: string): Promise<AgentLimit> => {
+			seen.push(provider);
+			return { kind: "not_limited" };
+		});
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.provider).toBe("claude-terminal");
+		expect(agent.kind).toBe("claude-terminal");
+		expect(seen).toEqual(["claude"]);
+	});
+
+	test("claude-terminal is reported as limited when codexbar says claude is limited", async () => {
+		const config = mkConfig({
+			key: "claude-terminal",
+			order: 0,
+			sdk: "claude-terminal",
+			models: { build: { model: "claude-opus-4-7" } },
+		});
+		const reset = new Date("2099-01-01T00:00:00Z");
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "limited", resetTime: reset }),
+		);
+		const sleepUntil = mock(async () => {});
+		await expect(
+			resolveAgent({ config, checkLimit, sleepUntil, noWait: true }),
+		).rejects.toBeInstanceOf(AllAgentsLimitedError);
+	});
+
+	test("pollForAgent applies the same alias", async () => {
+		const config = mkConfig({
+			key: "claude-terminal",
+			order: 0,
+			sdk: "claude-terminal",
+			models: { build: { model: "claude-opus-4-7" } },
+		});
+		const seen: string[] = [];
+		const checkLimit = mock(async (provider: string): Promise<AgentLimit> => {
+			seen.push(provider);
+			return { kind: "not_limited" };
+		});
+		const agent = await pollForAgent({ config, checkLimit });
+		expect(agent.provider).toBe("claude-terminal");
+		expect(seen).toEqual(["claude"]);
+	});
+});
