@@ -1,6 +1,21 @@
-import type { AgentLimit } from "../types.ts";
+import type { AgentLimit, SdkKind } from "../types.ts";
 import { type RunCodexBarUsageOptions, runCodexBarUsage } from "./client.ts";
 import type { CodexBarUsageResponse, CodexBarWindow } from "./types.ts";
+
+/**
+ * Some SDK kinds share their codexbar account with a different provider name —
+ * `claude-terminal` invokes the Claude CLI which authenticates as `claude`.
+ */
+const CODEXBAR_PROVIDER_ALIAS: Partial<Record<SdkKind, string>> = {
+	"claude-terminal": "claude",
+};
+
+export function codexbarProviderName(
+	sdkKind: SdkKind,
+	provider: string,
+): string {
+	return CODEXBAR_PROVIDER_ALIAS[sdkKind] ?? provider;
+}
 
 export type RunCodexBarUsageFn = (
 	provider: string,

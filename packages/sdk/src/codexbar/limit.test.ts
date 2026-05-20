@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { checkLimit } from "./limit.ts";
+import { checkLimit, codexbarProviderName } from "./limit.ts";
 import type {
 	CodexBarUsageResponse,
 	CodexBarWindow,
@@ -190,6 +190,19 @@ describe("checkLimit", () => {
 			runUsage: async () => response,
 		});
 		expect(result).toEqual({ kind: "not_limited" });
+	});
+
+	test("codexbarProviderName maps claude-terminal to claude", () => {
+		expect(codexbarProviderName("claude-terminal", "claude-terminal")).toBe(
+			"claude",
+		);
+		expect(codexbarProviderName("claude-terminal", "my-claude")).toBe("claude");
+	});
+
+	test("codexbarProviderName returns the provider name unchanged for other kinds", () => {
+		expect(codexbarProviderName("claude", "claude")).toBe("claude");
+		expect(codexbarProviderName("codex", "codex")).toBe("codex");
+		expect(codexbarProviderName("opencode", "opencodego")).toBe("opencodego");
 	});
 
 	test("forwards options to runUsage", async () => {

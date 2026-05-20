@@ -5,6 +5,7 @@
 /** Canonical list of all SDK kinds (runtime source of truth). */
 export const ALL_SDK_KINDS = [
 	"claude",
+	"claude-terminal",
 	"codex",
 	"copilot",
 	"kimi",

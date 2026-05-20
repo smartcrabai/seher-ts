@@ -15,7 +15,16 @@
 	"definitions": {
 		"sdkKind": {
 			"type": "string",
-			"enum": ["claude", "codex", "copilot", "kimi", "opencode", "cursor", "pi"]
+			"enum": [
+				"claude",
+				"claude-terminal",
+				"codex",
+				"copilot",
+				"kimi",
+				"opencode",
+				"cursor",
+				"pi"
+			]
 		},
 		"modelEntry": {
 			"oneOf": [
@@ -55,7 +64,7 @@
 			"properties": {
 				"provider": {
 					"type": "string",
-					"description": "Resolved provider name. Defaults to the YAML map key. Drives the built-in SDK default (codex / claude / cursor / opencodego / copilot / kimi), the CodexBar usage lookup, and the `-p` filter."
+					"description": "Resolved provider name. Defaults to the YAML map key. Drives the built-in SDK default (codex / claude / claude-terminal / cursor / opencodego / copilot / kimi), the CodexBar usage lookup, and the `-p` filter."
 				},
 				"sdk": {
 					"$ref": "#/definitions/sdkKind",

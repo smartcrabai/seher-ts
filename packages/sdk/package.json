@@ -25,6 +25,10 @@
 			"types": "./dist/entries/claude.d.ts",
 			"import": "./dist/entries/claude.js"
 		},
+		"./claude-terminal": {
+			"types": "./dist/entries/claude-terminal.d.ts",
+			"import": "./dist/entries/claude-terminal.js"
+		},
 		"./codex": {
 			"types": "./dist/entries/codex.d.ts",
 			"import": "./dist/entries/codex.js"
