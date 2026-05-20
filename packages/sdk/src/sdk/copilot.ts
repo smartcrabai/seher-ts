@@ -41,6 +41,8 @@ export interface CopilotSDKConfig {
 	cliPath?: string;
 	cliUrl?: string;
 	defaultModel?: string;
+	/** Default timeout (ms) forwarded to `sendAndWait`. Unset → upstream default 60_000. Per-call: `SeherRunOptions.timeoutMs`. */
+	timeoutMs?: number;
 	/**
 	 * In-process tools registered via SeherSDK. Forwarded as `sessionConfig.tools`
 	 * to the Copilot CLI.
@@ -65,9 +67,10 @@ const DEFAULT_MODEL = "gpt-5";
 
 type SessionLike = {
 	send: (opts: { prompt: string }) => Promise<unknown>;
-	sendAndWait: (opts: {
-		prompt: string;
-	}) => Promise<{ data?: { content?: string } } | undefined>;
+	sendAndWait: (
+		opts: { prompt: string },
+		timeout?: number,
+	) => Promise<{ data?: { content?: string } } | undefined>;
 	on: ((
 		eventType: "assistant.message_delta" | "assistant.message",
 		handler: (event: {
@@ -142,6 +145,7 @@ export class CopilotSDK implements SeherSDKInstance {
 
 	async run(opts: SeherRunOptions): Promise<SeherRunResult> {
 		const session = await this.createSession(opts, false);
+		const timeoutMs = opts.timeoutMs ?? this.config.timeoutMs;
 		let limitError: LimitError | null = null;
 		const unsubError = session.on("session.error", (event) => {
 			if (limitError !== null) return;
@@ -149,7 +153,10 @@ export class CopilotSDK implements SeherSDKInstance {
 			if (detected !== null) limitError = detected;
 		});
 		try {
-			const event = await session.sendAndWait({ prompt: opts.prompt });
+			const event = await session.sendAndWait(
+				{ prompt: opts.prompt },
+				timeoutMs,
+			);
 			// Snapshot to a local so TS narrows past the closure write.
 			const captured = limitError;
 			if (captured !== null) throw captured;
@@ -166,6 +173,7 @@ export class CopilotSDK implements SeherSDKInstance {
 		return {
 			async *[Symbol.asyncIterator]() {
 				const session = await self.createSession(opts, true);
+				const timeoutMs = opts.timeoutMs ?? self.config.timeoutMs;
 				const queue: SeherStreamChunk[] = [];
 				let resolveNext: (() => void) | null = null;
 				let done = false;
@@ -201,7 +209,7 @@ export class CopilotSDK implements SeherSDKInstance {
 
 				const sendPromise = (async () => {
 					try {
-						await session.sendAndWait({ prompt: opts.prompt });
+						await session.sendAndWait({ prompt: opts.prompt }, timeoutMs);
 					} finally {
 						done = true;
 						wake();

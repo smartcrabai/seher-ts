@@ -1,6 +1,7 @@
 import { type ApprovalMode, Codex, type SandboxMode } from "@openai/codex-sdk";
 import { rethrowAsLimit } from "./errors.ts";
 import { joinSystemPrompt } from "./text.ts";
+import { withTimeout } from "./timeout.ts";
 import type {
 	SdkKind,
 	SeherRunOptions,
@@ -21,6 +22,8 @@ export interface CodexSDKConfig {
 	defaultModel?: string;
 	sandboxMode?: SandboxMode;
 	approvalPolicy?: ApprovalMode;
+	/** Default `run()` / `stream()` timeout in ms. Per-call: `SeherRunOptions.timeoutMs`. */
+	timeoutMs?: number;
 }
 
 // seher-ts delegates safety to the caller, so default to maximally permissive.
@@ -86,21 +89,26 @@ export class CodexSDK implements SeherSDKInstance {
 	}
 
 	async run(opts: SeherRunOptions): Promise<SeherRunResult> {
-		const thread = this.startThread(opts);
-		let result: unknown;
-		try {
-			result = await thread.run(joinSystemPrompt(opts));
-		} catch (err) {
-			rethrowAsLimit("codex", err, isCodexLimit);
-		}
-		const text = extractFinalText(result);
-		return { text, kind: this.kind, raw: result };
+		const timeoutMs = opts.timeoutMs ?? this.config.timeoutMs;
+		const work = (async (): Promise<SeherRunResult> => {
+			const thread = this.startThread(opts);
+			let result: unknown;
+			try {
+				result = await thread.run(joinSystemPrompt(opts));
+			} catch (err) {
+				rethrowAsLimit("codex", err, isCodexLimit);
+			}
+			const text = extractFinalText(result);
+			return { text, kind: this.kind, raw: result };
+		})();
+		return withTimeout(work, timeoutMs, this.kind);
 	}
 
 	stream(opts: SeherRunOptions): AsyncIterable<SeherStreamChunk> {
 		const self = this;
 		return {
 			async *[Symbol.asyncIterator]() {
+				// run() already enforces the timeout; no need to re-wrap.
 				const result = await self.run(opts);
 				yield { kind: self.kind, delta: result.text, raw: result.raw };
 			},

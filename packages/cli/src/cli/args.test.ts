@@ -87,4 +87,49 @@ describe("parseArgs", () => {
 		expect(result.trailing).toEqual([]);
 		expect(result.quiet).toBe(false);
 	});
+
+	test("--timeout parses positive integer ms", () => {
+		const result = parseArgs(["--timeout", "600000", "hi"]);
+		expect(result.timeoutMs).toBe(600_000);
+		expect(result.trailing).toEqual(["hi"]);
+	});
+
+	test("-t short flag", () => {
+		const result = parseArgs(["-t", "5000", "hi"]);
+		expect(result.timeoutMs).toBe(5000);
+	});
+
+	test("--timeout omitted leaves timeoutMs undefined", () => {
+		const result = parseArgs(["hi"]);
+		expect(result.timeoutMs).toBeUndefined();
+	});
+
+	test("--timeout rejects non-numeric value", () => {
+		expect(() => parseArgs(["--timeout", "abc", "hi"])).toThrow(
+			/Invalid --timeout/,
+		);
+	});
+
+	test("--timeout rejects zero", () => {
+		expect(() => parseArgs(["--timeout", "0", "hi"])).toThrow(
+			/Invalid --timeout/,
+		);
+	});
+
+	test("--timeout rejects negative", () => {
+		expect(() => parseArgs(["--timeout", "-100", "hi"])).toThrow(
+			/Invalid --timeout/,
+		);
+	});
+
+	test("--timeout rejects fractional", () => {
+		expect(() => parseArgs(["--timeout", "1.5", "hi"])).toThrow(
+			/Invalid --timeout/,
+		);
+	});
+
+	test("help includes --timeout", () => {
+		const result = parseArgs(["--help"]);
+		expect(result.output ?? "").toContain("--timeout");
+	});
 });

@@ -23,6 +23,7 @@ export {
 	type SeherSDKConfig,
 	type SeherSDKOptions,
 } from "./sdk/seherSdk.ts";
+export { TimeoutError } from "./sdk/timeout.ts";
 export type { SeherTool } from "./sdk/tools.ts";
 export type {
 	SeherRunOptions,

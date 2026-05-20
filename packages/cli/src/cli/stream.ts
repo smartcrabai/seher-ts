@@ -5,6 +5,8 @@ export type WriteFn = (text: string) => void;
 export interface StreamToStdoutOptions {
 	prompt: string;
 	systemPrompt?: string;
+	/** Per-run timeout (ms). Forwarded to `sdk.stream({ timeoutMs })`. */
+	timeoutMs?: number;
 	/** Callback used for stdout deltas. Defaults to `process.stdout.write`. */
 	write?: WriteFn;
 	/** Append a trailing newline once streaming is done. Defaults to `true`. */
@@ -22,10 +24,12 @@ export async function streamToStdout(
 ): Promise<string> {
 	const write = opts.write ?? ((text: string) => process.stdout.write(text));
 	const buf: string[] = [];
-	const runOpts: { prompt: string; systemPrompt?: string } = {
-		prompt: opts.prompt,
-	};
+	const runOpts: { prompt: string; systemPrompt?: string; timeoutMs?: number } =
+		{
+			prompt: opts.prompt,
+		};
 	if (opts.systemPrompt !== undefined) runOpts.systemPrompt = opts.systemPrompt;
+	if (opts.timeoutMs !== undefined) runOpts.timeoutMs = opts.timeoutMs;
 	for await (const chunk of sdk.stream(
 		runOpts,
 	) as AsyncIterable<SeherStreamChunk>) {

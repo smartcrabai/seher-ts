@@ -6,6 +6,7 @@ import {
 } from "@opencode-ai/sdk";
 import { rethrowAsLimit } from "./errors.ts";
 import { extractTextBlocks } from "./text.ts";
+import { withTimeout } from "./timeout.ts";
 import type {
 	SdkKind,
 	SeherRunOptions,
@@ -50,6 +51,8 @@ export interface OpencodeSDKConfig {
 	defaultProviderID?: string;
 	/** Optional agent name forwarded to `session.prompt` (e.g. `"build"`). */
 	agent?: string;
+	/** Default `run()` / `stream()` timeout in ms. Per-call: `SeherRunOptions.timeoutMs`. */
+	timeoutMs?: number;
 }
 
 const DEFAULT_PROVIDER_ID = "anthropic";
@@ -176,36 +179,43 @@ export class OpencodeSDK implements SeherSDKInstance {
 	}
 
 	async run(opts: SeherRunOptions): Promise<SeherRunResult> {
-		const { client, sessionID } = await this.startSession();
-		const body: {
-			model: { providerID: string; modelID: string };
-			parts: Array<{ type: "text"; text: string }>;
-			system?: string;
-			agent?: string;
-		} = {
-			model: this.buildModel(opts),
-			parts: [{ type: "text", text: opts.prompt }],
-		};
-		if (opts.systemPrompt !== undefined) body.system = opts.systemPrompt;
-		if (this.config.agent !== undefined) body.agent = this.config.agent;
-		try {
-			const result = await client.session.prompt({
-				path: { id: sessionID },
-				body,
-			});
-			const text = extractTextBlocks(result.data?.parts);
-			return { text, kind: this.kind, raw: result };
-		} catch (err) {
-			rethrowAsLimit("opencode", err, isOpencodeLimit);
-		} finally {
-			await client.session.delete({ path: { id: sessionID } }).catch(() => {});
-		}
+		const timeoutMs = opts.timeoutMs ?? this.config.timeoutMs;
+		const work = (async (): Promise<SeherRunResult> => {
+			const { client, sessionID } = await this.startSession();
+			const body: {
+				model: { providerID: string; modelID: string };
+				parts: Array<{ type: "text"; text: string }>;
+				system?: string;
+				agent?: string;
+			} = {
+				model: this.buildModel(opts),
+				parts: [{ type: "text", text: opts.prompt }],
+			};
+			if (opts.systemPrompt !== undefined) body.system = opts.systemPrompt;
+			if (this.config.agent !== undefined) body.agent = this.config.agent;
+			try {
+				const result = await client.session.prompt({
+					path: { id: sessionID },
+					body,
+				});
+				const text = extractTextBlocks(result.data?.parts);
+				return { text, kind: this.kind, raw: result };
+			} catch (err) {
+				rethrowAsLimit("opencode", err, isOpencodeLimit);
+			} finally {
+				await client.session
+					.delete({ path: { id: sessionID } })
+					.catch(() => {});
+			}
+		})();
+		return withTimeout(work, timeoutMs, this.kind);
 	}
 
 	stream(opts: SeherRunOptions): AsyncIterable<SeherStreamChunk> {
 		const self = this;
 		return {
 			async *[Symbol.asyncIterator]() {
+				// run() already enforces the timeout; no need to re-wrap.
 				const result = await self.run(opts);
 				yield { kind: self.kind, delta: result.text, raw: result.raw };
 			},

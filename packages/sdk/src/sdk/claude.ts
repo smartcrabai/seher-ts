@@ -8,6 +8,7 @@ import {
 import type { z } from "zod";
 import { LimitError } from "./errors.ts";
 import { extractTextBlocks } from "./text.ts";
+import { withStreamTimeout, withTimeout } from "./timeout.ts";
 import type { SeherTool } from "./tools.ts";
 import type {
 	SdkKind,
@@ -61,6 +62,8 @@ export interface ClaudeSDKConfig {
 	 * take precedence over keys with the same name set here.
 	 */
 	env?: Record<string, string>;
+	/** Default `run()` / `stream()` timeout in ms. Per-call: `SeherRunOptions.timeoutMs`. */
+	timeoutMs?: number;
 	/**
 	 * In-process tools registered via SeherSDK. Forwarded to the Claude agent
 	 * as an SDK MCP server (`mcpServers.seher_tools`).
@@ -134,24 +137,32 @@ export class ClaudeSDK implements SeherSDKInstance {
 	}
 
 	async run(opts: SeherRunOptions): Promise<SeherRunResult> {
-		const q = query({ prompt: opts.prompt, options: this.buildOptions(opts) });
-		let text = "";
-		let raw: unknown;
-		for await (const message of q) {
-			const limit = tryLimitFromMessage(message);
-			if (limit !== null) throw limit;
-			if (message.type === "result") {
-				raw = message;
-				if (message.subtype === "success") text = message.result;
-				break;
+		const timeoutMs = opts.timeoutMs ?? this.config.timeoutMs;
+		const work = (async (): Promise<SeherRunResult> => {
+			const q = query({
+				prompt: opts.prompt,
+				options: this.buildOptions(opts),
+			});
+			let text = "";
+			let raw: unknown;
+			for await (const message of q) {
+				const limit = tryLimitFromMessage(message);
+				if (limit !== null) throw limit;
+				if (message.type === "result") {
+					raw = message;
+					if (message.subtype === "success") text = message.result;
+					break;
+				}
 			}
-		}
-		return { text, kind: this.kind, raw };
+			return { text, kind: this.kind, raw };
+		})();
+		return withTimeout(work, timeoutMs, this.kind);
 	}
 
 	stream(opts: SeherRunOptions): AsyncIterable<SeherStreamChunk> {
 		const self = this;
-		return {
+		const timeoutMs = opts.timeoutMs ?? self.config.timeoutMs;
+		const source: AsyncIterable<SeherStreamChunk> = {
 			async *[Symbol.asyncIterator]() {
 				const q = query({
 					prompt: opts.prompt,
@@ -167,5 +178,6 @@ export class ClaudeSDK implements SeherSDKInstance {
 				}
 			},
 		};
+		return withStreamTimeout(source, timeoutMs, self.kind);
 	}
 }

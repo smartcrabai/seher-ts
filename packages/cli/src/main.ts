@@ -1,4 +1,8 @@
-import { AllAgentsLimitedError, NoMatchingAgentError } from "@seher-ts/sdk";
+import {
+	AllAgentsLimitedError,
+	NoMatchingAgentError,
+	TimeoutError,
+} from "@seher-ts/sdk";
 import { type ParsedArgs, parseArgs as parseArgsImpl } from "./cli/args.ts";
 import { resolvePrompt as resolvePromptImpl } from "./cli/prompt.ts";
 import { runBuildMode as runBuildModeImpl } from "./mode/build.ts";
@@ -62,6 +66,7 @@ export async function runSeher(
 			};
 			if (args.provider !== undefined) planOpts.provider = args.provider;
 			if (args.config !== undefined) planOpts.configPath = args.config;
+			if (args.timeoutMs !== undefined) planOpts.timeoutMs = args.timeoutMs;
 			const result = await deps.runPlanMode(planOpts);
 			return result.exitCode;
 		}
@@ -73,12 +78,14 @@ export async function runSeher(
 		if (args.provider !== undefined) buildOpts.provider = args.provider;
 		if (args.model !== undefined) buildOpts.mode = args.model;
 		if (args.config !== undefined) buildOpts.configPath = args.config;
+		if (args.timeoutMs !== undefined) buildOpts.timeoutMs = args.timeoutMs;
 		const result = await deps.runBuildMode(buildOpts);
 		return result.exitCode;
 	} catch (err) {
 		if (
 			err instanceof AllAgentsLimitedError ||
-			err instanceof NoMatchingAgentError
+			err instanceof NoMatchingAgentError ||
+			err instanceof TimeoutError
 		) {
 			deps.stderr(`${err.message}\n`);
 			return 1;
