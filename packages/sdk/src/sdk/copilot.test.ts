@@ -4,7 +4,10 @@ import { mockDefineTool } from "./__test__/mockProviderTools.ts";
 const constructorCalls: Array<Record<string, unknown>> = [];
 const startCalls: number[] = [];
 const createSessionCalls: Array<Record<string, unknown>> = [];
-const sendAndWaitCalls: Array<Record<string, unknown>> = [];
+const sendAndWaitCalls: Array<{
+	opts: Record<string, unknown>;
+	timeout: number | undefined;
+}> = [];
 const disconnectCalls: number[] = [];
 
 let sendAndWaitResult:
@@ -41,8 +44,11 @@ mock.module("@github/copilot-sdk", () => {
 					};
 				},
 				send: async () => {},
-				sendAndWait: async (opts: Record<string, unknown>) => {
-					sendAndWaitCalls.push(opts);
+				sendAndWait: async (
+					opts: Record<string, unknown>,
+					timeout?: number,
+				) => {
+					sendAndWaitCalls.push({ opts, timeout });
 					if (emitErrorEvent !== null) {
 						const errHandler = handlers.get("session.error");
 						if (errHandler !== undefined) {
@@ -117,7 +123,9 @@ describe("CopilotSDK", () => {
 		};
 		expect(sessionConfig.model).toBe("gpt-5-codex");
 		expect(sessionConfig.onPermissionRequest).toBe(APPROVE_ALL_SENTINEL);
-		expect(sendAndWaitCalls).toEqual([{ prompt: "do it" }]);
+		expect(sendAndWaitCalls).toEqual([
+			{ opts: { prompt: "do it" }, timeout: undefined },
+		]);
 		expect(disconnectCalls.length).toBe(1);
 	});
 
@@ -152,6 +160,36 @@ describe("CopilotSDK", () => {
 		const sdk = new CopilotSDK();
 		const result = await sdk.run({ prompt: "p" });
 		expect(result.text).toBe("");
+	});
+
+	test("config.timeoutMs is forwarded to sendAndWait", async () => {
+		sendAndWaitResult = { data: { content: "x" } };
+		const sdk = new CopilotSDK({ timeoutMs: 300_000 });
+		await sdk.run({ prompt: "p" });
+		expect(sendAndWaitCalls).toEqual([
+			{ opts: { prompt: "p" }, timeout: 300_000 },
+		]);
+	});
+
+	test("runOpts.timeoutMs overrides config.timeoutMs", async () => {
+		sendAndWaitResult = { data: { content: "x" } };
+		const sdk = new CopilotSDK({ timeoutMs: 300_000 });
+		await sdk.run({ prompt: "p", timeoutMs: 600_000 });
+		expect(sendAndWaitCalls).toEqual([
+			{ opts: { prompt: "p" }, timeout: 600_000 },
+		]);
+	});
+
+	test("stream forwards timeoutMs to sendAndWait", async () => {
+		streamDeltas = ["a"];
+		sendAndWaitResult = { data: { content: "a" } };
+		const sdk = new CopilotSDK({ timeoutMs: 120_000 });
+		for await (const _chunk of sdk.stream({ prompt: "p" })) {
+			// drain
+		}
+		expect(sendAndWaitCalls).toEqual([
+			{ opts: { prompt: "p" }, timeout: 120_000 },
+		]);
 	});
 
 	test("client is lazily constructed and started", async () => {

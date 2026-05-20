@@ -10,6 +10,7 @@ export interface ParsedArgs {
 	provider?: string;
 	model?: string;
 	config?: string;
+	timeoutMs?: number;
 	quiet: boolean;
 	help: boolean;
 	version: boolean;
@@ -28,6 +29,7 @@ interface CommonOpts {
 	provider?: string;
 	model?: string;
 	config?: string;
+	timeout?: string;
 	quiet?: boolean;
 }
 
@@ -39,7 +41,23 @@ function configureCommonOptions(cmd: Command): Command {
 			"Use this model key instead of the default plan/build key",
 		)
 		.option("-c, --config <path>", "Path to YAML config file")
+		.option(
+			"-t, --timeout <ms>",
+			"Per-run timeout in milliseconds (default: SDK default — usually none, Copilot 60_000)",
+		)
 		.option("-q, --quiet", "Suppress informational output", false);
+}
+
+function parseTimeoutMs(raw: string): number {
+	const n = Number(raw);
+	if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+		throw new CommanderError(
+			1,
+			"seher.invalidTimeout",
+			`Invalid --timeout value '${raw}': expected a positive integer (ms)`,
+		);
+	}
+	return n;
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
@@ -109,5 +127,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
 	if (opts.provider !== undefined) result.provider = opts.provider;
 	if (opts.model !== undefined) result.model = opts.model;
 	if (opts.config !== undefined) result.config = opts.config;
+	if (opts.timeout !== undefined)
+		result.timeoutMs = parseTimeoutMs(opts.timeout);
 	return result;
 }

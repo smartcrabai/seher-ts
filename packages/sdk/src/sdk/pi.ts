@@ -6,6 +6,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { rethrowAsLimit } from "./errors.ts";
 import { extractTextBlocks, joinSystemPrompt } from "./text.ts";
+import { withStreamTimeout, withTimeout } from "./timeout.ts";
 import type {
 	SdkKind,
 	SeherRunOptions,
@@ -29,6 +30,8 @@ export interface PiSDKConfig {
 	cwd?: string;
 	agentDir?: string;
 	thinkingLevel?: "low" | "medium" | "high";
+	/** Default `run()` / `stream()` timeout in ms. Per-call: `SeherRunOptions.timeoutMs`. */
+	timeoutMs?: number;
 }
 
 const DEFAULT_PROVIDER_ID = "anthropic";
@@ -164,52 +167,57 @@ export class PiSDK implements SeherSDKInstance {
 	}
 
 	async run(opts: SeherRunOptions): Promise<SeherRunResult> {
-		const result = await this.ensureSession(opts);
-		const session = result.session as unknown as SubscribeFn;
-		this._session = session;
-		const promptText = joinSystemPrompt(opts);
+		const timeoutMs = opts.timeoutMs ?? this.config.timeoutMs;
+		const work = (async (): Promise<SeherRunResult> => {
+			const result = await this.ensureSession(opts);
+			const session = result.session as unknown as SubscribeFn;
+			this._session = session;
+			const promptText = joinSystemPrompt(opts);
 
-		const events: SubscribeEvent[] = [];
-		const unsub = session.subscribe((event: SubscribeEvent) => {
-			if (event.type === "agent_end") events.push(event);
-		});
+			const events: SubscribeEvent[] = [];
+			const unsub = session.subscribe((event: SubscribeEvent) => {
+				if (event.type === "agent_end") events.push(event);
+			});
 
-		let errored = false;
-		try {
-			await session.prompt(promptText);
-		} catch (err) {
-			errored = true;
-			rethrowAsLimit("pi", err, isPiLimit);
-		} finally {
-			unsub();
-			if (errored) {
-				await session.dispose().catch(() => {});
-				this._sessionResult = null;
-				this._session = null;
+			let errored = false;
+			try {
+				await session.prompt(promptText);
+			} catch (err) {
+				errored = true;
+				rethrowAsLimit("pi", err, isPiLimit);
+			} finally {
+				unsub();
+				if (errored) {
+					await session.dispose().catch(() => {});
+					this._sessionResult = null;
+					this._session = null;
+				}
 			}
-		}
 
-		const stateMessages = session.state.messages;
-		let text = extractAssistantText(stateMessages);
+			const stateMessages = session.state.messages;
+			let text = extractAssistantText(stateMessages);
 
-		if (text === "") {
-			const agentEnd = events.find((e) => e.type === "agent_end");
-			const eventMessages: Array<{
-				role: string;
-				content: Array<{ type: string; text: string }>;
-			}> = ((agentEnd?.messages as Array<unknown>) ?? []) as Array<{
-				role: string;
-				content: Array<{ type: string; text: string }>;
-			}>;
-			text = extractAssistantText(eventMessages);
-		}
+			if (text === "") {
+				const agentEnd = events.find((e) => e.type === "agent_end");
+				const eventMessages: Array<{
+					role: string;
+					content: Array<{ type: string; text: string }>;
+				}> = ((agentEnd?.messages as Array<unknown>) ?? []) as Array<{
+					role: string;
+					content: Array<{ type: string; text: string }>;
+				}>;
+				text = extractAssistantText(eventMessages);
+			}
 
-		return { text, kind: this.kind, raw: session.state.messages };
+			return { text, kind: this.kind, raw: session.state.messages };
+		})();
+		return withTimeout(work, timeoutMs, this.kind);
 	}
 
 	stream(opts: SeherRunOptions): AsyncIterable<SeherStreamChunk> {
 		const self = this;
-		return {
+		const timeoutMs = opts.timeoutMs ?? self.config.timeoutMs;
+		const source: AsyncIterable<SeherStreamChunk> = {
 			async *[Symbol.asyncIterator]() {
 				const result = await self.ensureSession(opts);
 				const session = result.session as unknown as SubscribeFn;
@@ -246,6 +254,7 @@ export class PiSDK implements SeherSDKInstance {
 				}
 			},
 		};
+		return withStreamTimeout(source, timeoutMs, self.kind);
 	}
 
 	async close(): Promise<void> {

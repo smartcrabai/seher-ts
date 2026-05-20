@@ -8,6 +8,8 @@ export interface SeherRunOptions {
 	model?: string;
 	systemPrompt?: string;
 	maxTokens?: number;
+	/** Per-call timeout (ms); overrides instance `timeoutMs`. Does NOT abort in-flight provider work. */
+	timeoutMs?: number;
 }
 
 export interface SeherRunResult {

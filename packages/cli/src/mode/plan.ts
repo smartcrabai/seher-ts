@@ -28,6 +28,7 @@ export interface PlanModeOptions {
 	prompt: string;
 	provider?: string;
 	configPath?: string;
+	timeoutMs?: number;
 	quiet?: boolean;
 	logger: Logger;
 	deps?: PlanModeDeps;
@@ -57,6 +58,7 @@ export async function runPlanMode(
 	};
 	if (opts.provider !== undefined) planSdkOpts.provider = opts.provider;
 	if (opts.configPath !== undefined) planSdkOpts.configPath = opts.configPath;
+	if (opts.timeoutMs !== undefined) planSdkOpts.timeoutMs = opts.timeoutMs;
 	applyRetryHooks(planSdkOpts, opts.logger);
 	const planSdk = createSdk(planSdkOpts);
 
@@ -71,6 +73,7 @@ export async function runPlanMode(
 		prompt: opts.prompt,
 		systemPrompt: PLAN_SYSTEM_PROMPT,
 	};
+	if (opts.timeoutMs !== undefined) planOpts.timeoutMs = opts.timeoutMs;
 	if (opts.write !== undefined) planOpts.write = opts.write;
 	const planText = await streamToStdout(planSdk, planOpts);
 
@@ -89,6 +92,7 @@ export async function runPlanMode(
 	};
 	if (opts.provider !== undefined) buildSdkOpts.provider = opts.provider;
 	if (opts.configPath !== undefined) buildSdkOpts.configPath = opts.configPath;
+	if (opts.timeoutMs !== undefined) buildSdkOpts.timeoutMs = opts.timeoutMs;
 	applyRetryHooks(buildSdkOpts, opts.logger);
 	const buildSdk = createSdk(buildSdkOpts);
 
@@ -100,6 +104,7 @@ export async function runPlanMode(
 	};
 	if (opts.provider !== undefined) buildOpts.provider = opts.provider;
 	if (opts.configPath !== undefined) buildOpts.configPath = opts.configPath;
+	if (opts.timeoutMs !== undefined) buildOpts.timeoutMs = opts.timeoutMs;
 	if (opts.quiet !== undefined) buildOpts.quiet = opts.quiet;
 	if (opts.write !== undefined) buildOpts.write = opts.write;
 	const result = await runBuildMode(buildOpts);

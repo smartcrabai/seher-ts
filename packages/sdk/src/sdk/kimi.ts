@@ -2,6 +2,7 @@ import { createExternalTool, createSession } from "@moonshot-ai/kimi-agent-sdk";
 import type { z } from "zod";
 import { rethrowAsLimit } from "./errors.ts";
 import { joinSystemPrompt } from "./text.ts";
+import { withStreamTimeout, withTimeout } from "./timeout.ts";
 import type { SeherTool } from "./tools.ts";
 import type {
 	SdkKind,
@@ -31,6 +32,8 @@ export interface KimiSDKConfig {
 	yoloMode?: boolean;
 	executable?: string;
 	env?: Record<string, string>;
+	/** Default `run()` / `stream()` timeout in ms. Per-call: `SeherRunOptions.timeoutMs`. */
+	timeoutMs?: number;
 	/**
 	 * In-process tools registered via SeherSDK. Forwarded to the Kimi session
 	 * as `externalTools`.
@@ -108,30 +111,35 @@ export class KimiSDK implements SeherSDKInstance {
 	}
 
 	async run(opts: SeherRunOptions): Promise<SeherRunResult> {
-		const { session, turn } = this.startTurn(opts);
-		const parts: string[] = [];
-		try {
-			for await (const event of turn) {
-				if (
-					event.type === "ContentPart" &&
-					event.payload?.type === "text" &&
-					typeof event.payload.text === "string"
-				) {
-					parts.push(event.payload.text);
+		const timeoutMs = opts.timeoutMs ?? this.config.timeoutMs;
+		const work = (async (): Promise<SeherRunResult> => {
+			const { session, turn } = this.startTurn(opts);
+			const parts: string[] = [];
+			try {
+				for await (const event of turn) {
+					if (
+						event.type === "ContentPart" &&
+						event.payload?.type === "text" &&
+						typeof event.payload.text === "string"
+					) {
+						parts.push(event.payload.text);
+					}
 				}
+				const result = await turn.result;
+				return { text: parts.join(""), kind: this.kind, raw: result };
+			} catch (err) {
+				rethrowAsLimit("kimi", err, isKimiLimit);
+			} finally {
+				await session.close();
 			}
-			const result = await turn.result;
-			return { text: parts.join(""), kind: this.kind, raw: result };
-		} catch (err) {
-			rethrowAsLimit("kimi", err, isKimiLimit);
-		} finally {
-			await session.close();
-		}
+		})();
+		return withTimeout(work, timeoutMs, this.kind);
 	}
 
 	stream(opts: SeherRunOptions): AsyncIterable<SeherStreamChunk> {
 		const self = this;
-		return {
+		const timeoutMs = opts.timeoutMs ?? self.config.timeoutMs;
+		const source: AsyncIterable<SeherStreamChunk> = {
 			async *[Symbol.asyncIterator]() {
 				const { session, turn } = self.startTurn(opts);
 				try {
@@ -153,5 +161,6 @@ export class KimiSDK implements SeherSDKInstance {
 				}
 			},
 		};
+		return withStreamTimeout(source, timeoutMs, self.kind);
 	}
 }

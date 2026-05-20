@@ -9,6 +9,7 @@ export interface BuildModeOptions {
 	provider?: string;
 	model?: string;
 	configPath?: string;
+	timeoutMs?: number;
 	quiet?: boolean;
 	systemPrompt?: string;
 	logger: Logger;
@@ -29,6 +30,7 @@ function buildSdkOptions(opts: BuildModeOptions): SeherSDKOptions {
 	out.mode = mode;
 	if (opts.provider !== undefined) out.provider = opts.provider;
 	if (opts.configPath !== undefined) out.configPath = opts.configPath;
+	if (opts.timeoutMs !== undefined) out.timeoutMs = opts.timeoutMs;
 	// Claude SDK: enable yolo by default for CLI agents.
 	out.permissionMode = "bypassPermissions";
 	applyRetryHooks(out, opts.logger);
@@ -50,6 +52,7 @@ export async function runBuildMode(
 	};
 	if (opts.systemPrompt !== undefined)
 		streamOpts.systemPrompt = opts.systemPrompt;
+	if (opts.timeoutMs !== undefined) streamOpts.timeoutMs = opts.timeoutMs;
 	if (opts.write !== undefined) streamOpts.write = opts.write;
 	const text = await streamToStdout(sdk, streamOpts);
 	return { exitCode: 0, text };

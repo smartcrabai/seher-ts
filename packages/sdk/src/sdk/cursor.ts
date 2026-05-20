@@ -2,6 +2,7 @@ import type { SDKAgent } from "@cursor/sdk";
 import { Agent, RateLimitError } from "@cursor/sdk";
 import { rethrowAsLimit } from "./errors.ts";
 import { extractTextBlocks, joinSystemPrompt } from "./text.ts";
+import { withStreamTimeout, withTimeout } from "./timeout.ts";
 import type {
 	SdkKind,
 	SeherRunOptions,
@@ -32,6 +33,8 @@ export interface CursorSDKConfig {
 	repos?: Array<{ url: string; startingRef?: string }>;
 	/** Optional human-readable name surfaced in `Agent.list()`. */
 	name?: string;
+	/** Default `run()` / `stream()` timeout in ms. Per-call: `SeherRunOptions.timeoutMs`. */
+	timeoutMs?: number;
 }
 
 const DEFAULT_MODEL = "composer-2";
@@ -70,21 +73,26 @@ export class CursorSDK implements SeherSDKInstance {
 	}
 
 	async run(opts: SeherRunOptions): Promise<SeherRunResult> {
-		const agent: SDKAgent = await Agent.create(this.buildAgentOptions(opts));
-		try {
-			const run = await agent.send(joinSystemPrompt(opts));
-			const result = await run.wait();
-			return { text: result.result ?? "", kind: this.kind, raw: result };
-		} catch (err) {
-			rethrowAsLimit("cursor", err, isCursorLimit);
-		} finally {
-			agent.close();
-		}
+		const timeoutMs = opts.timeoutMs ?? this.config.timeoutMs;
+		const work = (async (): Promise<SeherRunResult> => {
+			const agent: SDKAgent = await Agent.create(this.buildAgentOptions(opts));
+			try {
+				const run = await agent.send(joinSystemPrompt(opts));
+				const result = await run.wait();
+				return { text: result.result ?? "", kind: this.kind, raw: result };
+			} catch (err) {
+				rethrowAsLimit("cursor", err, isCursorLimit);
+			} finally {
+				agent.close();
+			}
+		})();
+		return withTimeout(work, timeoutMs, this.kind);
 	}
 
 	stream(opts: SeherRunOptions): AsyncIterable<SeherStreamChunk> {
 		const self = this;
-		return {
+		const timeoutMs = opts.timeoutMs ?? self.config.timeoutMs;
+		const source: AsyncIterable<SeherStreamChunk> = {
 			async *[Symbol.asyncIterator]() {
 				const agent: SDKAgent = await Agent.create(
 					self.buildAgentOptions(opts),
@@ -102,5 +110,6 @@ export class CursorSDK implements SeherSDKInstance {
 				}
 			},
 		};
+		return withStreamTimeout(source, timeoutMs, self.kind);
 	}
 }
