@@ -192,6 +192,12 @@ export class ClaudeTerminalSDK implements SeherSDKInstance {
 		// terminal lines. Without this, we might submit Enter before Claude's
 		// TUI finished consuming the pasted text — Claude buffers fast input
 		// and a too-early Enter is dropped.
+		//
+		// For long prompts Claude collapses the bracketed paste into a
+		// `[Pasted text #N +M lines]` citation; the trailing portion of the
+		// prompt is then no longer rendered in the screen capture, so the
+		// suffix-needle alone never matches. Treat the citation marker as an
+		// equally valid signal that the paste was fully consumed.
 		const needle = pasteNeedle(prompt);
 		const deadline = this.now().getTime() + opts.timeoutMs;
 		while (true) {
@@ -201,12 +207,12 @@ export class ClaudeTerminalSDK implements SeherSDKInstance {
 			} catch {
 				screen = "";
 			}
-			if (screen.includes(needle)) {
+			if (pasteIsConsumed(screen, needle)) {
 				return;
 			}
 			if (this.now().getTime() >= deadline) {
 				throw new ClaudeTerminalTimeoutError(
-					`timed out waiting for pasted prompt to appear in Claude TUI (looking for "${needle}" within ${opts.timeoutMs}ms)`,
+					`timed out waiting for pasted prompt to appear in Claude TUI (looking for "${needle}" or a collapsed-paste citation within ${opts.timeoutMs}ms)`,
 				);
 			}
 			await this.sleep(opts.pollIntervalMs);
@@ -251,4 +257,11 @@ function pasteNeedle(prompt: string): string {
 	const trimmed = prompt.trimEnd();
 	const lastLine = trimmed.split("\n").at(-1) ?? trimmed;
 	return lastLine.length > 24 ? lastLine.slice(-24) : lastLine;
+}
+
+const COLLAPSED_PASTE_PATTERN = /\[Pasted text #\d+ \+\d+ lines\]/;
+
+function pasteIsConsumed(screen: string, needle: string): boolean {
+	if (screen.includes(needle)) return true;
+	return COLLAPSED_PASTE_PATTERN.test(screen);
 }
