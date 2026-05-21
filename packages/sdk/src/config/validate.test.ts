@@ -297,4 +297,57 @@ describe("validateConfig", () => {
 		expect(cfg.providers[0]?.provider).toBe("mypi");
 		expect(cfg.providers[0]?.sdk).toBe("pi");
 	});
+
+	test("root skills.includeClaude parses", () => {
+		const cfg = validateConfig({
+			skills: { includeClaude: false },
+			providers: { claude: { models: { build: "sonnet" } } },
+		});
+		expect(cfg.skills).toEqual({ includeClaude: false });
+	});
+
+	test("provider-level skills override is parsed and preserved separately", () => {
+		const cfg = validateConfig({
+			skills: { includeClaude: true },
+			providers: {
+				mypi: {
+					sdk: "pi",
+					api: { key: "sk" },
+					skills: { includeClaude: false },
+					models: { build: "openai/gpt-5" },
+				},
+			},
+		});
+		expect(cfg.skills).toEqual({ includeClaude: true });
+		expect(cfg.providers[0]?.skills).toEqual({ includeClaude: false });
+	});
+
+	test("skills.includeClaude must be a boolean", () => {
+		expect(() =>
+			validateConfig({
+				skills: { includeClaude: "yes" },
+				providers: {},
+			}),
+		).toThrow(/includeClaude must be a boolean/);
+		expect(() =>
+			validateConfig({
+				providers: {
+					mypi: {
+						sdk: "pi",
+						api: { key: "sk" },
+						skills: { includeClaude: 1 },
+						models: { build: "x" },
+					},
+				},
+			}),
+		).toThrow(/includeClaude must be a boolean/);
+	});
+
+	test("skills section omitted yields undefined skills", () => {
+		const cfg = validateConfig({
+			providers: { claude: { models: { build: "sonnet" } } },
+		});
+		expect(cfg.skills).toBeUndefined();
+		expect(cfg.providers[0]?.skills).toBeUndefined();
+	});
 });

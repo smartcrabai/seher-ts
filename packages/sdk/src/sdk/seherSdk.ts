@@ -130,10 +130,18 @@ function applyResolvedAgent(
 	const apiEndpoint = agent.api?.endpoint;
 	switch (kind) {
 		case "claude":
+			if (apiKey !== undefined && out.apiKey === undefined) out.apiKey = apiKey;
+			if (apiEndpoint !== undefined && out.baseURL === undefined) {
+				out.baseURL = apiEndpoint;
+			}
+			break;
 		case "pi":
 			if (apiKey !== undefined && out.apiKey === undefined) out.apiKey = apiKey;
 			if (apiEndpoint !== undefined && out.baseURL === undefined) {
 				out.baseURL = apiEndpoint;
+			}
+			if (out.includeClaudeSkills === undefined) {
+				out.includeClaudeSkills = agent.skills.includeClaude;
 			}
 			break;
 		case "codex":

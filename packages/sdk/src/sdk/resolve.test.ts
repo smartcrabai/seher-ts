@@ -641,4 +641,52 @@ describe("codexbar provider name alias", () => {
 		expect(agent.provider).toBe("claude-terminal");
 		expect(seen).toEqual(["claude"]);
 	});
+
+	test("skills defaults to includeClaude=true when no config given", async () => {
+		const config = mkConfig({
+			key: "mypi",
+			order: 0,
+			sdk: "pi",
+			api: { key: "sk" },
+			models: { build: { model: "openai/gpt-5" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.skills.includeClaude).toBe(true);
+	});
+
+	test("root skills.includeClaude=false flows through to resolved agent", async () => {
+		const config = mkConfig({
+			key: "mypi",
+			order: 0,
+			sdk: "pi",
+			api: { key: "sk" },
+			models: { build: { model: "openai/gpt-5" } },
+		});
+		config.skills = { includeClaude: false };
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.skills.includeClaude).toBe(false);
+	});
+
+	test("provider-level skills.includeClaude overrides root setting", async () => {
+		const config = mkConfig({
+			key: "mypi",
+			order: 0,
+			sdk: "pi",
+			api: { key: "sk" },
+			skills: { includeClaude: false },
+			models: { build: { model: "openai/gpt-5" } },
+		});
+		config.skills = { includeClaude: true };
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.skills.includeClaude).toBe(false);
+	});
 });

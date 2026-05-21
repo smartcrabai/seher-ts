@@ -29,6 +29,24 @@ export interface ProviderApi {
 	endpoint?: string;
 }
 
+/**
+ * Opt-in / opt-out flags for skill auto-discovery applied to SDK kinds that
+ * do not natively read Claude-style skills (currently `pi`). Set at the
+ * top-level or per-provider in the YAML config.
+ */
+export interface SkillsConfig {
+	/**
+	 * When true (default), seher-ts auto-injects `~/.claude/skills` and
+	 * `<cwd>/.claude/skills` into the underlying agent's skill paths.
+	 */
+	includeClaude?: boolean;
+}
+
+/** Skills config with all fields resolved to concrete values. */
+export interface ResolvedSkillsConfig {
+	includeClaude: boolean;
+}
+
 /** A single provider in the YAML `providers` map (after normalization). */
 export interface ProviderEntry {
 	/** YAML map key as written in the config (used as a stable label). */
@@ -47,6 +65,8 @@ export interface ProviderEntry {
 	priority?: number;
 	/** Extra API config forwarded to the SDK constructor. */
 	api?: ProviderApi;
+	/** Per-provider skill discovery overrides (takes precedence over root). */
+	skills?: SkillsConfig;
 	/** Mode -> model entry. Keys include `plan`, `build`, plus user-defined keys. */
 	models: Record<string, ModelEntry>;
 }
@@ -54,6 +74,8 @@ export interface ProviderEntry {
 /** Normalized config root. */
 export interface Config {
 	providers: ProviderEntry[];
+	/** Root-level skill discovery defaults (overridden by per-provider). */
+	skills?: SkillsConfig;
 }
 
 /**
@@ -79,4 +101,6 @@ export interface ResolvedAgent {
 	api?: ProviderApi;
 	/** Env vars to forward to provider SDKs that accept env passthrough. */
 	env: Record<string, string>;
+	/** Skill discovery flags resolved from per-provider > root > defaults. */
+	skills: ResolvedSkillsConfig;
 }
