@@ -44,6 +44,20 @@ describe("encodeProjectDir", () => {
 		const r = encodeProjectDir(".");
 		expect(r.startsWith("-")).toBe(true);
 	});
+
+	test("replaces dot segments with a single dash", () => {
+		// Claude Code renames `/Users/foo/.cruise/worktrees/abc` to
+		// `-Users-foo--cruise-worktrees-abc` on disk (note: `--` for the dot).
+		expect(encodeProjectDir("/Users/foo/.cruise/worktrees/abc")).toBe(
+			"-Users-foo--cruise-worktrees-abc",
+		);
+	});
+
+	test("replaces any non-alphanumeric character with a dash", () => {
+		expect(encodeProjectDir("/Users/foo bar/.config_dir/v1.2")).toBe(
+			"-Users-foo-bar--config-dir-v1-2",
+		);
+	});
 });
 
 describe("parseJsonl", () => {
