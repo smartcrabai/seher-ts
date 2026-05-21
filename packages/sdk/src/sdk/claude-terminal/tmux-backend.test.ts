@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { SpawnImpl, SpawnResult } from "./tmux-backend.ts";
+import type { SpawnImpl, SpawnOptions, SpawnResult } from "./tmux-backend.ts";
 import { TmuxBackend } from "./tmux-backend.ts";
 import { ClaudeTerminalError } from "./types.ts";
 
@@ -7,6 +7,7 @@ interface Invocation {
 	bin: string;
 	args: string[];
 	env?: Record<string, string>;
+	stdin?: string;
 }
 
 function recordingSpawn(results: SpawnResult[]): {
@@ -15,12 +16,15 @@ function recordingSpawn(results: SpawnResult[]): {
 } {
 	const calls: Invocation[] = [];
 	let i = 0;
-	const spawn: SpawnImpl = async (bin, args, options) => {
-		calls.push({
-			bin,
-			args,
-			...(options.env !== undefined && { env: options.env }),
-		});
+	const spawn: SpawnImpl = async (
+		bin: string,
+		args: string[],
+		options: SpawnOptions,
+	) => {
+		const inv: Invocation = { bin, args };
+		if (options.env !== undefined) inv.env = options.env;
+		if (options.stdin !== undefined) inv.stdin = options.stdin;
+		calls.push(inv);
 		const r = results[i] ?? { exitCode: 0, stdout: "", stderr: "" };
 		i += 1;
 		return r;
@@ -82,28 +86,50 @@ describe("TmuxBackend.start", () => {
 });
 
 describe("TmuxBackend.pasteText", () => {
-	test("sends literal text without a terminating Enter", async () => {
-		const { spawn, calls } = recordingSpawn([ok]);
+	test("pipes text via load-buffer, pastes it, then deletes the buffer (no Enter)", async () => {
+		const { spawn, calls } = recordingSpawn([ok, ok, ok]);
 		const backend = new TmuxBackend({ spawnImpl: spawn });
 		await backend.pasteText({ id: "sid" }, "hello world");
-		expect(calls).toHaveLength(1);
-		expect(calls[0]?.args).toEqual([
-			"send-keys",
+		expect(calls).toHaveLength(3);
+		expect(calls[0]?.args).toEqual(["load-buffer", "-b", "sid-prompt", "-"]);
+		expect(calls[0]?.stdin).toBe("hello world");
+		expect(calls[1]?.args).toEqual([
+			"paste-buffer",
+			"-b",
+			"sid-prompt",
 			"-t",
 			"sid",
-			"-l",
-			"hello world",
 		]);
+		expect(calls[2]?.args).toEqual(["delete-buffer", "-b", "sid-prompt"]);
 	});
 
-	test("throws when send-keys fails", async () => {
-		const { spawn } = recordingSpawn([
-			{ exitCode: 2, stdout: "", stderr: "no such session" },
+	test("throws when load-buffer fails and skips paste-buffer", async () => {
+		const { spawn, calls } = recordingSpawn([
+			{ exitCode: 1, stdout: "", stderr: "bad buffer" },
 		]);
 		const backend = new TmuxBackend({ spawnImpl: spawn });
 		await expect(backend.pasteText({ id: "sid" }, "hi")).rejects.toBeInstanceOf(
 			ClaudeTerminalError,
 		);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.args[0]).toBe("load-buffer");
+	});
+
+	test("deletes the buffer even when paste-buffer fails, then rethrows the paste error", async () => {
+		const { spawn, calls } = recordingSpawn([
+			ok,
+			{ exitCode: 1, stdout: "", stderr: "no such session" },
+			ok,
+		]);
+		const backend = new TmuxBackend({ spawnImpl: spawn });
+		await expect(backend.pasteText({ id: "sid" }, "hi")).rejects.toBeInstanceOf(
+			ClaudeTerminalError,
+		);
+		expect(calls.map((c) => c.args[0])).toEqual([
+			"load-buffer",
+			"paste-buffer",
+			"delete-buffer",
+		]);
 	});
 });
 
@@ -140,10 +166,24 @@ describe("TmuxBackend.captureScreen", () => {
 });
 
 describe("TmuxBackend.stop", () => {
-	test("runs tmux kill-session -t <id>", async () => {
-		const { spawn, calls } = recordingSpawn([ok]);
+	test("deletes the paste buffer, then kills the tmux session", async () => {
+		const { spawn, calls } = recordingSpawn([ok, ok]);
 		const backend = new TmuxBackend({ spawnImpl: spawn });
 		await backend.stop({ id: "sid" });
-		expect(calls[0]?.args).toEqual(["kill-session", "-t", "sid"]);
+		expect(calls.map((c) => c.args)).toEqual([
+			["delete-buffer", "-b", "sid-prompt"],
+			["kill-session", "-t", "sid"],
+		]);
+	});
+
+	test("kills the session even when delete-buffer fails", async () => {
+		const { spawn, calls } = recordingSpawn([
+			{ exitCode: 1, stdout: "", stderr: "no buffer" },
+			ok,
+		]);
+		const backend = new TmuxBackend({ spawnImpl: spawn });
+		await backend.stop({ id: "sid" });
+		expect(calls).toHaveLength(2);
+		expect(calls[1]?.args).toEqual(["kill-session", "-t", "sid"]);
 	});
 });
