@@ -98,6 +98,24 @@ function asMsg(m: TranscriptMessage): TranscriptMessage {
 	return m;
 }
 
+function neverRendersBackend(): {
+	backend: TerminalBackend;
+	now: () => Date;
+} {
+	let currentTime = 1_000_000;
+	const backend: TerminalBackend = {
+		start: async () => ({ id: "tmux-1" }),
+		pasteText: async () => {},
+		submit: async () => {},
+		captureScreen: async () => {
+			currentTime += 10;
+			return "";
+		},
+		stop: async () => {},
+	};
+	return { backend, now: () => new Date(currentTime) };
+}
+
 describe("ClaudeTerminalSDK.run", () => {
 	test("starts backend with command + cwd, then pastes prompt, then waits and stops session", async () => {
 		const rb = recordingBackend({ sessionId: "tmux-1" });
@@ -322,6 +340,37 @@ describe("ClaudeTerminalSDK.run", () => {
 		});
 		await expect(sdk.run({ prompt: "hi" })).rejects.toThrow(
 			/timed out waiting for Claude TUI/,
+		);
+	});
+
+	test("opts.timeoutMs lifts the default readyTimeoutMs when no instance override is set", async () => {
+		const { backend, now } = neverRendersBackend();
+		const rr = recordingReader({ sessionId: "s", assistantMessages: [] });
+		const sdk = new ClaudeTerminalSDK({
+			backendImpl: backend,
+			transcriptReader: rr.reader,
+			readyPollIntervalMs: 1,
+			sleep: () => Promise.resolve(),
+			now,
+		});
+		await expect(sdk.run({ prompt: "hi", timeoutMs: 50 })).rejects.toThrow(
+			/within 50ms/,
+		);
+	});
+
+	test("instance readyTimeoutMs takes precedence over opts.timeoutMs", async () => {
+		const { backend, now } = neverRendersBackend();
+		const rr = recordingReader({ sessionId: "s", assistantMessages: [] });
+		const sdk = new ClaudeTerminalSDK({
+			backendImpl: backend,
+			transcriptReader: rr.reader,
+			readyTimeoutMs: 25,
+			readyPollIntervalMs: 1,
+			sleep: () => Promise.resolve(),
+			now,
+		});
+		await expect(sdk.run({ prompt: "hi", timeoutMs: 60_000 })).rejects.toThrow(
+			/within 25ms/,
 		);
 	});
 

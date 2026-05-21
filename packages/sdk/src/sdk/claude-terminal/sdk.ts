@@ -111,14 +111,15 @@ export class ClaudeTerminalSDK implements SeherSDKInstance {
 		opts: SeherRunOptions,
 	): Promise<ClaudeTerminalResponse> {
 		const cwd = this.config.cwd ?? process.cwd();
-		const timeoutMs = this.config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+		const timeoutMs =
+			opts.timeoutMs ?? this.config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 		const pollIntervalMs =
 			this.config.transcriptPollIntervalMs ??
 			DEFAULT_TRANSCRIPT_POLL_INTERVAL_MS;
 		const transcriptRoot =
 			this.config.transcriptRoot ?? defaultTranscriptRoot();
 		const readyTimeoutMs =
-			this.config.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS;
+			this.config.readyTimeoutMs ?? opts.timeoutMs ?? DEFAULT_READY_TIMEOUT_MS;
 		const readyPollIntervalMs =
 			this.config.readyPollIntervalMs ?? DEFAULT_READY_POLL_INTERVAL_MS;
 		const readyIndicator =
