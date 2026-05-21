@@ -120,6 +120,27 @@ describe("FileSystemTranscriptReader.findSession", () => {
 		expect(ref.sessionId).toBe("s");
 	});
 
+	test("skips files in excludeNames even when their mtime is newer than `after`", async () => {
+		const dir = "/transcripts/-repo";
+		const fs = makeFs(
+			{
+				[`${dir}/existing.jsonl`]: { mtimeMs: 500, content: "" },
+				[`${dir}/new.jsonl`]: { mtimeMs: 600, content: "" },
+			},
+			{ [dir]: ["existing.jsonl", "new.jsonl"] },
+		);
+		const reader = new FileSystemTranscriptReader({ fs, now: () => 1000 });
+		const ref = await reader.findSession({
+			cwd: "/repo",
+			after: new Date(100),
+			timeoutMs: 0,
+			pollIntervalMs: 10,
+			root: "/transcripts",
+			excludeNames: new Set(["existing.jsonl"]),
+		});
+		expect(ref.sessionId).toBe("new");
+	});
+
 	test("throws ClaudeTerminalTimeoutError when no file appears in time", async () => {
 		const fs: FsAdapter = {
 			readdir: async () => [],
@@ -143,6 +164,35 @@ describe("FileSystemTranscriptReader.findSession", () => {
 				root: "/transcripts",
 			}),
 		).rejects.toBeInstanceOf(ClaudeTerminalTimeoutError);
+	});
+});
+
+describe("FileSystemTranscriptReader.listSessionNames", () => {
+	test("returns the set of .jsonl basenames in the project directory", async () => {
+		const dir = "/transcripts/-repo";
+		const fs = makeFs({}, { [dir]: ["a.jsonl", "b.jsonl", "ignore.txt"] });
+		const reader = new FileSystemTranscriptReader({ fs });
+		const names = await reader.listSessionNames({
+			root: "/transcripts",
+			cwd: "/repo",
+		});
+		expect(names).toEqual(new Set(["a.jsonl", "b.jsonl"]));
+	});
+
+	test("returns an empty set when the project directory does not exist", async () => {
+		const fs: FsAdapter = {
+			readdir: async () => {
+				throw new Error("ENOENT");
+			},
+			stat: async () => ({ mtimeMs: 0 }),
+			readFile: async () => "",
+		};
+		const reader = new FileSystemTranscriptReader({ fs });
+		const names = await reader.listSessionNames({
+			root: "/transcripts",
+			cwd: "/repo",
+		});
+		expect(names.size).toBe(0);
 	});
 });
 
@@ -173,6 +223,64 @@ describe("FileSystemTranscriptReader.waitForAssistantResponse", () => {
 		expect(r.sessionId).toBe("s");
 		expect(r.assistantMessages).toHaveLength(1);
 		expect(r.lastResultMessage?.type).toBe("result");
+	});
+
+	test("returns assistantMessages as soon as system/turn_duration appears (interactive TUI completion)", async () => {
+		const body = [
+			asMsg({ type: "user", message: { content: "hi" } }),
+			asMsg({
+				type: "assistant",
+				message: { content: [{ type: "text", text: "hello" }] },
+			}),
+			asMsg({ type: "system", subtype: "turn_duration" }),
+		]
+			.map((m) => JSON.stringify(m))
+			.join("\n");
+		const fs = makeFs({ [transcriptPath]: { mtimeMs: 0, content: body } });
+		const reader = new FileSystemTranscriptReader({ fs, now: () => 0 });
+		const r = await reader.waitForAssistantResponse(
+			{ sessionId: "s", transcriptPath },
+			{ timeoutMs: 0, pollIntervalMs: 10 },
+		);
+		expect(r.sessionId).toBe("s");
+		expect(r.assistantMessages).toHaveLength(1);
+		// Interactive TUI completion does not populate lastResultMessage.
+		expect(r.lastResultMessage).toBeUndefined();
+	});
+
+	test("does not return on system/turn_duration alone without any assistant message", async () => {
+		let content = JSON.stringify(
+			asMsg({ type: "system", subtype: "turn_duration" }),
+		);
+		const fs: FsAdapter = {
+			readdir: async () => [],
+			stat: async () => ({ mtimeMs: 0 }),
+			readFile: async () => content,
+		};
+		let nowMs = 0;
+		const reader = new FileSystemTranscriptReader({
+			fs,
+			now: () => nowMs,
+			sleep: async (ms) => {
+				nowMs += ms;
+				if (nowMs >= 20) {
+					content = [
+						JSON.stringify(
+							asMsg({
+								type: "assistant",
+								message: { content: [{ type: "text", text: "ok" }] },
+							}),
+						),
+						JSON.stringify(asMsg({ type: "system", subtype: "turn_duration" })),
+					].join("\n");
+				}
+			},
+		});
+		const r = await reader.waitForAssistantResponse(
+			{ sessionId: "s", transcriptPath },
+			{ timeoutMs: 100, pollIntervalMs: 5 },
+		);
+		expect(r.assistantMessages).toHaveLength(1);
 	});
 
 	test("returns assistantMessages when timeout hits without result", async () => {

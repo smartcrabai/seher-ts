@@ -82,11 +82,11 @@ describe("TmuxBackend.start", () => {
 });
 
 describe("TmuxBackend.pasteText", () => {
-	test("sends literal text then a separate Enter keystroke", async () => {
-		const { spawn, calls } = recordingSpawn([ok, ok]);
+	test("sends literal text without a terminating Enter", async () => {
+		const { spawn, calls } = recordingSpawn([ok]);
 		const backend = new TmuxBackend({ spawnImpl: spawn });
 		await backend.pasteText({ id: "sid" }, "hello world");
-		expect(calls).toHaveLength(2);
+		expect(calls).toHaveLength(1);
 		expect(calls[0]?.args).toEqual([
 			"send-keys",
 			"-t",
@@ -94,7 +94,6 @@ describe("TmuxBackend.pasteText", () => {
 			"-l",
 			"hello world",
 		]);
-		expect(calls[1]?.args).toEqual(["send-keys", "-t", "sid", "Enter"]);
 	});
 
 	test("throws when send-keys fails", async () => {
@@ -103,6 +102,26 @@ describe("TmuxBackend.pasteText", () => {
 		]);
 		const backend = new TmuxBackend({ spawnImpl: spawn });
 		await expect(backend.pasteText({ id: "sid" }, "hi")).rejects.toBeInstanceOf(
+			ClaudeTerminalError,
+		);
+	});
+});
+
+describe("TmuxBackend.submit", () => {
+	test("sends a single Enter keystroke", async () => {
+		const { spawn, calls } = recordingSpawn([ok]);
+		const backend = new TmuxBackend({ spawnImpl: spawn });
+		await backend.submit({ id: "sid" });
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.args).toEqual(["send-keys", "-t", "sid", "Enter"]);
+	});
+
+	test("throws when send-keys fails", async () => {
+		const { spawn } = recordingSpawn([
+			{ exitCode: 2, stdout: "", stderr: "no such session" },
+		]);
+		const backend = new TmuxBackend({ spawnImpl: spawn });
+		await expect(backend.submit({ id: "sid" })).rejects.toBeInstanceOf(
 			ClaudeTerminalError,
 		);
 	});
