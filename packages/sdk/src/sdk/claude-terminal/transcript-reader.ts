@@ -62,6 +62,7 @@ export class FileSystemTranscriptReader implements ClaudeTranscriptReader {
 		const dir = join(options.root, encodeProjectDir(options.cwd));
 		const deadline = this.now() + options.timeoutMs;
 		const afterMs = options.after.getTime();
+		const exclude = options.excludeNames;
 		while (true) {
 			let entries: string[] = [];
 			try {
@@ -69,7 +70,9 @@ export class FileSystemTranscriptReader implements ClaudeTranscriptReader {
 			} catch {
 				entries = [];
 			}
-			const jsonl = entries.filter((e) => e.endsWith(".jsonl"));
+			const jsonl = entries.filter(
+				(e) => e.endsWith(".jsonl") && exclude?.has(e) !== true,
+			);
 			const stats = await Promise.all(
 				jsonl.map(async (name) => {
 					const path = join(dir, name);
@@ -102,6 +105,20 @@ export class FileSystemTranscriptReader implements ClaudeTranscriptReader {
 		}
 	}
 
+	async listSessionNames(opts: {
+		root: string;
+		cwd: string;
+	}): Promise<Set<string>> {
+		const dir = join(opts.root, encodeProjectDir(opts.cwd));
+		let entries: string[] = [];
+		try {
+			entries = await this.fs.readdir(dir);
+		} catch {
+			entries = [];
+		}
+		return new Set(entries.filter((e) => e.endsWith(".jsonl")));
+	}
+
 	async waitForAssistantResponse(
 		session: ClaudeSessionRef,
 		options: WaitForAssistantResponseOptions,
@@ -114,15 +131,22 @@ export class FileSystemTranscriptReader implements ClaudeTranscriptReader {
 			} catch {
 				raw = "";
 			}
-			const messages = parseJsonl(raw);
-			const lastResult = messages.findLast((m) => m.type === "result");
-			const assistantMessages = messages.filter((m) => m.type === "assistant");
+			const { assistantMessages, lastResult, turnComplete } = scanTranscript(
+				parseJsonl(raw),
+			);
 			if (lastResult !== undefined) {
 				return {
 					sessionId: session.sessionId,
 					assistantMessages,
 					lastResultMessage: lastResult,
 				};
+			}
+			// Interactive TUI never emits a "result" message; instead it logs
+			// `system/turn_duration` once the assistant turn is fully complete.
+			// We treat that (paired with at least one assistant message) as the
+			// terminal signal.
+			if (turnComplete && assistantMessages.length > 0) {
+				return { sessionId: session.sessionId, assistantMessages };
 			}
 			if (this.now() >= deadline) {
 				if (assistantMessages.length > 0) {
@@ -135,6 +159,28 @@ export class FileSystemTranscriptReader implements ClaudeTranscriptReader {
 			await this.sleep(options.pollIntervalMs);
 		}
 	}
+}
+
+interface TranscriptScan {
+	assistantMessages: TranscriptMessage[];
+	lastResult: TranscriptMessage | undefined;
+	turnComplete: boolean;
+}
+
+function scanTranscript(messages: TranscriptMessage[]): TranscriptScan {
+	const assistantMessages: TranscriptMessage[] = [];
+	let lastResult: TranscriptMessage | undefined;
+	let turnComplete = false;
+	for (const m of messages) {
+		if (m.type === "assistant") {
+			assistantMessages.push(m);
+		} else if (m.type === "result") {
+			lastResult = m;
+		} else if (m.type === "system" && m.subtype === "turn_duration") {
+			turnComplete = true;
+		}
+	}
+	return { assistantMessages, lastResult, turnComplete };
 }
 
 export function parseJsonl(raw: string): TranscriptMessage[] {

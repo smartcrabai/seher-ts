@@ -57,6 +57,9 @@ export class TmuxBackend implements TerminalBackend {
 			"-l",
 			text,
 		]);
+	}
+
+	async submit(session: TerminalSession): Promise<void> {
 		await this.runTmux("send-keys Enter", [
 			"send-keys",
 			"-t",

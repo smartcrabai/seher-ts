@@ -10,7 +10,14 @@ export interface TerminalSession {
 
 export interface TerminalBackend {
 	start(options: TerminalStartOptions): Promise<TerminalSession>;
+	/**
+	 * Send `text` to the terminal as if pasted. Must not send a terminating
+	 * Enter / submit keystroke — callers verify the text rendered before
+	 * submitting separately via `submit()`.
+	 */
 	pasteText(session: TerminalSession, text: string): Promise<void>;
+	/** Send a single Enter keystroke to submit the current input. */
+	submit(session: TerminalSession): Promise<void>;
 	captureScreen(session: TerminalSession): Promise<string>;
 	stop(session: TerminalSession): Promise<void>;
 }
@@ -26,6 +33,26 @@ export interface FindClaudeSessionOptions {
 	timeoutMs: number;
 	pollIntervalMs: number;
 	root: string;
+	/**
+	 * Basenames (e.g. "abc.jsonl") of transcripts that existed before the new
+	 * Claude session was launched. Used to skip transcripts belonging to other
+	 * Claude sessions running concurrently in the same project directory.
+	 */
+	excludeNames?: ReadonlySet<string>;
+}
+
+export interface ClaudeTranscriptReader {
+	findSession(options: FindClaudeSessionOptions): Promise<ClaudeSessionRef>;
+	waitForAssistantResponse(
+		session: ClaudeSessionRef,
+		options: WaitForAssistantResponseOptions,
+	): Promise<ClaudeTerminalResponse>;
+	/**
+	 * Snapshot the set of transcript jsonl basenames currently present in
+	 * `<root>/<encodedProjectDir(cwd)>`. Returns an empty set if the directory
+	 * does not exist yet.
+	 */
+	listSessionNames(opts: { root: string; cwd: string }): Promise<Set<string>>;
 }
 
 export interface WaitForAssistantResponseOptions {
@@ -48,14 +75,6 @@ export interface ClaudeTerminalResponse {
 	sessionId: string;
 	assistantMessages: TranscriptMessage[];
 	lastResultMessage?: TranscriptMessage;
-}
-
-export interface ClaudeTranscriptReader {
-	findSession(options: FindClaudeSessionOptions): Promise<ClaudeSessionRef>;
-	waitForAssistantResponse(
-		session: ClaudeSessionRef,
-		options: WaitForAssistantResponseOptions,
-	): Promise<ClaudeTerminalResponse>;
 }
 
 export class ClaudeTerminalError extends Error {
