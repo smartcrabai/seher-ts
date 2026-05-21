@@ -6,7 +6,24 @@ import {
 import { loadConfig as loadConfigImpl } from "../config/load.ts";
 import { scanCandidates } from "../scan.ts";
 import { sleepUntil as sleepUntilImpl } from "../sleep/sleepUntil.ts";
-import type { AgentLimit, Config, ResolvedAgent, SdkKind } from "../types.ts";
+import type {
+	AgentLimit,
+	Config,
+	ResolvedAgent,
+	ResolvedSkillsConfig,
+	SdkKind,
+	SkillsConfig,
+} from "../types.ts";
+
+function resolveSkills(
+	providerSkills: SkillsConfig | undefined,
+	rootSkills: SkillsConfig | undefined,
+): ResolvedSkillsConfig {
+	return {
+		includeClaude:
+			providerSkills?.includeClaude ?? rootSkills?.includeClaude ?? true,
+	};
+}
 
 /** SDKs that support in-process JS tool registration. */
 export const TOOL_SUPPORTING_KINDS: ReadonlySet<SdkKind> = new Set<SdkKind>([
@@ -127,6 +144,7 @@ function buildCandidates(
 			modelId: model.model,
 			modeKey,
 			env: {},
+			skills: resolveSkills(entry.skills, config.skills),
 		};
 		if (entry.api !== undefined) resolved.api = entry.api;
 		list.push({

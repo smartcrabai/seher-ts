@@ -286,6 +286,13 @@ mock.module("@earendil-works/pi-coding-agent", () => ({
 			registerProvider: () => {},
 		}),
 	},
+	DefaultResourceLoader: class {
+		async reload() {}
+	},
+	getAgentDir: () => "/tmp/mock-agent-dir",
+	SettingsManager: {
+		create: () => ({}),
+	},
 }));
 
 const { SeherSDK } = await import("./seherSdk.ts");

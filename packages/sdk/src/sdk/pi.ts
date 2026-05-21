@@ -1,8 +1,13 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import {
 	AuthStorage,
 	type CreateAgentSessionResult,
 	createAgentSession,
+	DefaultResourceLoader,
+	getAgentDir,
 	ModelRegistry,
+	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { rethrowAsLimit } from "./errors.ts";
 import { extractTextBlocks, joinSystemPrompt } from "./text.ts";
@@ -32,6 +37,13 @@ export interface PiSDKConfig {
 	thinkingLevel?: "low" | "medium" | "high";
 	/** Default `run()` / `stream()` timeout in ms. Per-call: `SeherRunOptions.timeoutMs`. */
 	timeoutMs?: number;
+	/**
+	 * When true (default), inject `~/.claude/skills` and `<cwd>/.claude/skills`
+	 * into the underlying Pi agent's resource loader. Pi does not auto-discover
+	 * Claude-format skills natively, so this opts into the agentskills.io
+	 * standard layout shared with Claude Code.
+	 */
+	includeClaudeSkills?: boolean;
 }
 
 const DEFAULT_PROVIDER_ID = "anthropic";
@@ -142,16 +154,34 @@ export class PiSDK implements SeherSDKInstance {
 				);
 			}
 
+			const cwd = this.config.cwd ?? process.cwd();
+			const agentDir = this.config.agentDir ?? getAgentDir();
 			const sessionOpts: Record<string, unknown> = {
 				model,
 				authStorage,
 				modelRegistry: registry,
+				cwd,
+				agentDir,
 			};
-			if (this.config.cwd !== undefined) sessionOpts.cwd = this.config.cwd;
-			if (this.config.agentDir !== undefined)
-				sessionOpts.agentDir = this.config.agentDir;
 			if (this.config.thinkingLevel !== undefined)
 				sessionOpts.thinkingLevel = this.config.thinkingLevel;
+
+			const includeClaudeSkills = this.config.includeClaudeSkills ?? true;
+			if (includeClaudeSkills) {
+				const settingsManager = SettingsManager.create(cwd, agentDir);
+				const resourceLoader = new DefaultResourceLoader({
+					cwd,
+					agentDir,
+					settingsManager,
+					additionalSkillPaths: [
+						join(homedir(), ".claude", "skills"),
+						join(cwd, ".claude", "skills"),
+					],
+				});
+				await resourceLoader.reload();
+				sessionOpts.resourceLoader = resourceLoader;
+				sessionOpts.settingsManager = settingsManager;
+			}
 
 			return createAgentSession(
 				sessionOpts as Parameters<typeof createAgentSession>[0],

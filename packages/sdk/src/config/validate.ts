@@ -4,6 +4,7 @@ import type {
 	ProviderApi,
 	ProviderEntry,
 	SdkKind,
+	SkillsConfig,
 } from "../types.ts";
 
 export class ConfigValidationError extends Error {
@@ -71,6 +72,20 @@ function parseApi(raw: unknown, label: string): ProviderApi {
 		api.endpoint = raw.endpoint;
 	}
 	return api;
+}
+
+function parseSkills(raw: unknown, label: string): SkillsConfig {
+	if (!isPlainObject(raw)) {
+		fail(`${label} must be an object`);
+	}
+	const out: SkillsConfig = {};
+	if ("includeClaude" in raw && raw.includeClaude !== undefined) {
+		if (typeof raw.includeClaude !== "boolean") {
+			fail(`${label}.includeClaude must be a boolean`);
+		}
+		out.includeClaude = raw.includeClaude;
+	}
+	return out;
 }
 
 function parseModelEntry(raw: unknown, label: string): ModelEntry {
@@ -152,6 +167,11 @@ function parseProvider(
 		priority = raw.priority;
 	}
 
+	let skills: SkillsConfig | undefined;
+	if ("skills" in raw && raw.skills !== undefined) {
+		skills = parseSkills(raw.skills, `${label}.skills`);
+	}
+
 	if (!("models" in raw) || raw.models === undefined) {
 		fail(`${label}.models is required`);
 	}
@@ -160,6 +180,7 @@ function parseProvider(
 	const entry: ProviderEntry = { key, order, provider, sdk, models };
 	if (priority !== undefined) entry.priority = priority;
 	if (api !== undefined) entry.api = api;
+	if (skills !== undefined) entry.skills = skills;
 	return entry;
 }
 
@@ -167,8 +188,14 @@ export function validateConfig(input: unknown): Config {
 	if (!isPlainObject(input)) {
 		fail("config root must be an object");
 	}
+	let skills: SkillsConfig | undefined;
+	if ("skills" in input && input.skills !== undefined) {
+		skills = parseSkills(input.skills, "skills");
+	}
 	if (!("providers" in input) || input.providers === undefined) {
-		return { providers: [] };
+		const out: Config = { providers: [] };
+		if (skills !== undefined) out.skills = skills;
+		return out;
 	}
 	if (!isPlainObject(input.providers)) {
 		fail("config.providers must be an object mapping provider keys to entries");
@@ -179,5 +206,7 @@ export function validateConfig(input: unknown): Config {
 		providers.push(parseProvider(key, value, order));
 		order += 1;
 	}
-	return { providers };
+	const out: Config = { providers };
+	if (skills !== undefined) out.skills = skills;
+	return out;
 }

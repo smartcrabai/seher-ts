@@ -9,6 +9,8 @@ const registerProviderCalls: Array<{
 	opts: Record<string, unknown>;
 }> = [];
 const setApiKeyCalls: Array<{ provider: string; apiKey: string }> = [];
+const resourceLoaderCtorCalls: Array<Record<string, unknown>> = [];
+const resourceLoaderReloadCalls: number[] = [];
 
 let sessionMessages: Array<{
 	role: string;
@@ -68,6 +70,18 @@ mock.module("@earendil-works/pi-coding-agent", () => ({
 				registerProviderCalls.push({ provider: name, opts });
 			},
 		}),
+	},
+	DefaultResourceLoader: class {
+		constructor(opts: Record<string, unknown>) {
+			resourceLoaderCtorCalls.push(opts);
+		}
+		async reload() {
+			resourceLoaderReloadCalls.push(Date.now());
+		}
+	},
+	getAgentDir: () => "/tmp/mock-agent-dir",
+	SettingsManager: {
+		create: (_cwd: string, _agentDir: string) => ({}),
 	},
 }));
 
@@ -375,5 +389,59 @@ describe("PiSDK", () => {
 		await sdk.run({ prompt: "p1" });
 		await sdk.run({ prompt: "p2" });
 		expect(createSessionCalls.length).toBe(1);
+	});
+
+	test("includeClaudeSkills defaults to true; passes ~/.claude/skills + cwd/.claude/skills as additionalSkillPaths", async () => {
+		resourceLoaderCtorCalls.length = 0;
+		resourceLoaderReloadCalls.length = 0;
+		emittedEvents = [
+			{
+				type: "agent_end",
+				messages: [
+					{ role: "assistant", content: [{ type: "text", text: "ok" }] },
+				],
+			},
+		];
+		const sdk = new PiSDK({
+			defaultModel: "anthropic/claude-sonnet-4-5",
+			cwd: "/proj",
+		});
+		await sdk.run({ prompt: "p" });
+		expect(resourceLoaderCtorCalls.length).toBe(1);
+		expect(resourceLoaderReloadCalls.length).toBe(1);
+		const opts = resourceLoaderCtorCalls[0];
+		expect(opts?.cwd).toBe("/proj");
+		expect(opts?.agentDir).toBe("/tmp/mock-agent-dir");
+		const paths = opts?.additionalSkillPaths as string[];
+		expect(paths).toHaveLength(2);
+		expect(paths[0]).toMatch(/\.claude\/skills$/);
+		expect(paths[1]).toBe("/proj/.claude/skills");
+		const sessionOpts = createSessionCalls.at(-1);
+		expect(sessionOpts?.resourceLoader).toBeDefined();
+		expect(sessionOpts?.settingsManager).toBeDefined();
+	});
+
+	test("includeClaudeSkills=false skips the resource loader injection entirely", async () => {
+		resourceLoaderCtorCalls.length = 0;
+		resourceLoaderReloadCalls.length = 0;
+		emittedEvents = [
+			{
+				type: "agent_end",
+				messages: [
+					{ role: "assistant", content: [{ type: "text", text: "ok" }] },
+				],
+			},
+		];
+		const sdk = new PiSDK({
+			defaultModel: "anthropic/claude-sonnet-4-5",
+			cwd: "/proj",
+			includeClaudeSkills: false,
+		});
+		await sdk.run({ prompt: "p" });
+		expect(resourceLoaderCtorCalls.length).toBe(0);
+		expect(resourceLoaderReloadCalls.length).toBe(0);
+		const sessionOpts = createSessionCalls.at(-1);
+		expect(sessionOpts?.resourceLoader).toBeUndefined();
+		expect(sessionOpts?.settingsManager).toBeUndefined();
 	});
 });
