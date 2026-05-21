@@ -1,5 +1,6 @@
 {
   "name": "seher-ts-monorepo",
+  "version": "0.1.17",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -9,8 +10,7 @@
     "build": "bun run --cwd packages/sdk build && bun run --cwd packages/cli build",
     "lint": "biome check ./packages",
     "lint:fix": "biome check --write --unsafe ./packages",
-    "test": "bun test",
-    "release": "bun run build && bun test && npm publish -w @seher-ts/sdk && npm publish -w @seher-ts/cli"
+    "test": "bun test"
   },
   "engines": {
     "node": ">=20"
