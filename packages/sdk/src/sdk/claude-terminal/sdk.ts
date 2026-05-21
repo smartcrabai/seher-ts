@@ -1,3 +1,4 @@
+import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import type { SdkKind } from "../../types.ts";
 import type {
 	SeherRunOptions,
@@ -28,6 +29,7 @@ const DEFAULT_TRANSCRIPT_POLL_INTERVAL_MS = 500;
 const DEFAULT_READY_TIMEOUT_MS = 30 * 1000;
 const DEFAULT_READY_POLL_INTERVAL_MS = 100;
 const DEFAULT_READY_INDICATOR = "❯";
+const DEFAULT_PERMISSION_MODE: PermissionMode = "bypassPermissions";
 
 export interface ClaudeTerminalSDKConfig {
 	cwd?: string;
@@ -38,7 +40,13 @@ export interface ClaudeTerminalSDKConfig {
 	claudeBin?: string;
 	tmuxBin?: string;
 	transcriptRoot?: string;
-	dangerouslySkipPermissions?: boolean;
+	/**
+	 * Permission mode forwarded to Claude as `--permission-mode <mode>`.
+	 * Defaults to `"bypassPermissions"` because `claude-terminal` is an
+	 * automation transport — the TUI has no way for the caller to answer
+	 * tool-use permission prompts, so a non-bypass mode would hang.
+	 */
+	permissionMode?: PermissionMode;
 	backendImpl?: TerminalBackend;
 	transcriptReader?: ClaudeTranscriptReader;
 	now?: () => Date;
@@ -127,14 +135,11 @@ export class ClaudeTerminalSDK implements SeherSDKInstance {
 
 		const cmdOpts: BuildClaudeCommandOptions = {
 			claudeBin: this.config.claudeBin ?? "claude",
+			permissionMode: this.config.permissionMode ?? DEFAULT_PERMISSION_MODE,
 		};
 		if (opts.model !== undefined) cmdOpts.model = opts.model;
 		if (opts.systemPrompt !== undefined)
 			cmdOpts.systemPrompt = opts.systemPrompt;
-		if (this.config.dangerouslySkipPermissions !== undefined) {
-			cmdOpts.dangerouslySkipPermissions =
-				this.config.dangerouslySkipPermissions;
-		}
 		const command = buildClaudeCommand(cmdOpts);
 
 		const excludeNames = await this.transcripts.listSessionNames({

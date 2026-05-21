@@ -148,6 +148,8 @@ describe("ClaudeTerminalSDK.run", () => {
 			"/bin/claude",
 			"--model",
 			"claude-opus",
+			"--permission-mode",
+			"bypassPermissions",
 		]);
 		expect(rr.findCalls).toHaveLength(1);
 		expect(rr.findCalls[0]?.root).toBe("/trans");
@@ -435,7 +437,7 @@ describe("ClaudeTerminalSDK.run", () => {
 		).toThrow(ClaudeTerminalError);
 	});
 
-	test("forwards systemPrompt and dangerouslySkipPermissions into the claude command", async () => {
+	test("defaults to --permission-mode bypassPermissions when permissionMode is unset", async () => {
 		const rb = recordingBackend();
 		const rr = recordingReader({
 			sessionId: "x",
@@ -449,14 +451,38 @@ describe("ClaudeTerminalSDK.run", () => {
 		const sdk = new ClaudeTerminalSDK({
 			backendImpl: rb.backend,
 			transcriptReader: rr.reader,
-			dangerouslySkipPermissions: true,
 		});
 		await sdk.run({ prompt: "hi", systemPrompt: "be terse" });
 		expect(rb.startCalls[0]?.options.command).toEqual([
 			"claude",
 			"--append-system-prompt",
 			"be terse",
-			"--dangerously-skip-permissions",
+			"--permission-mode",
+			"bypassPermissions",
+		]);
+	});
+
+	test("forwards explicit permissionMode into the claude command", async () => {
+		const rb = recordingBackend();
+		const rr = recordingReader({
+			sessionId: "x",
+			assistantMessages: [],
+			lastResultMessage: asMsg({
+				type: "result",
+				subtype: "success",
+				result: "ok",
+			}),
+		});
+		const sdk = new ClaudeTerminalSDK({
+			backendImpl: rb.backend,
+			transcriptReader: rr.reader,
+			permissionMode: "default",
+		});
+		await sdk.run({ prompt: "hi" });
+		expect(rb.startCalls[0]?.options.command).toEqual([
+			"claude",
+			"--permission-mode",
+			"default",
 		]);
 	});
 });

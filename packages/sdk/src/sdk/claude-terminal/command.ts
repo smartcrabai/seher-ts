@@ -1,8 +1,10 @@
+import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
+
 export interface BuildClaudeCommandOptions {
 	claudeBin: string;
+	permissionMode: PermissionMode;
 	model?: string;
 	systemPrompt?: string;
-	dangerouslySkipPermissions?: boolean;
 }
 
 export function buildClaudeCommand(opts: BuildClaudeCommandOptions): string[] {
@@ -13,8 +15,6 @@ export function buildClaudeCommand(opts: BuildClaudeCommandOptions): string[] {
 	if (opts.systemPrompt !== undefined) {
 		args.push("--append-system-prompt", opts.systemPrompt);
 	}
-	if (opts.dangerouslySkipPermissions) {
-		args.push("--dangerously-skip-permissions");
-	}
+	args.push("--permission-mode", opts.permissionMode);
 	return args;
 }
