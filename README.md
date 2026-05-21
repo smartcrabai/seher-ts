@@ -61,6 +61,7 @@ seher [plan|build] [options] [prompt...]
 | `-p, --provider <name>` | Force a specific provider (matches the resolved `provider` name; defaults to the YAML map key when `provider` is omitted). |
 | `-m, --model <key>` | Use this model key (e.g. `low`) instead of the default plan/build key. Only providers that define the key are eligible. |
 | `-c, --config <path>` | Path to YAML config (defaults to `$SEHER_CONFIG` or `~/.config/seher/config.yaml`). |
+| `-t, --timeout <ms>` | Per-run timeout in milliseconds. Default is the SDK default — usually none, except Copilot (60_000). On timeout the CLI exits 1 with a `TimeoutError` message; in-flight provider work is **not** aborted. |
 | `-q, --quiet` | Suppress informational output. |
 | `-h, --help` / `-v, --version` | Print help / version and exit. |
 
@@ -158,6 +159,7 @@ for await (const chunk of sdk.stream({ prompt: "Hello!" })) {
 | `noWait` | Throw `AllAgentsLimitedError` instead of sleeping. |
 | `kind` | Skip resolution and use this SDK kind directly. |
 | `tools` | In-process tools forwarded to providers that support them (Claude, Copilot, Kimi). Codex / Cursor / OpenCode candidates are filtered out and a warning is emitted if a non-supporting kind is selected. |
+| `timeoutMs` | Default per-run timeout (ms). Per-call override: `SeherRunOptions.timeoutMs` on `run()` / `stream()`. On expiry, the SDK rejects with `TimeoutError` (importable from `@seher-ts/sdk`); in-flight provider work is **not** aborted. |
 | `apiKey`, `baseURL`, `gitHubToken`, … | Per-provider config knobs (forwarded when relevant to the resolved kind). |
 
 `resolved()` forces resolution and returns the chosen `{ kind, agent }`.
