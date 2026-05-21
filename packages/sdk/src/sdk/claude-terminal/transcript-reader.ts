@@ -12,11 +12,16 @@ import type {
 import { ClaudeTerminalTimeoutError } from "./types.ts";
 
 /**
- * Claude Code rewrites `/Users/foo/repo` to `-Users-foo-repo` for the
- * project directory under `~/.claude/projects/`.
+ * Claude Code rewrites the absolute cwd into the directory name under
+ * `~/.claude/projects/`. Empirically, every character that is not an ASCII
+ * letter, digit, or hyphen is replaced with `-` — so `/Users/foo/.cruise`
+ * becomes `-Users-foo--cruise` (note the double `-` for the dot). The
+ * previous implementation only replaced path separators, which broke
+ * `findSession` for any cwd containing a dotfile (e.g. `.cruise`,
+ * `.local`).
  */
 export function encodeProjectDir(cwd: string): string {
-	return resolve(cwd).replace(/[\\/]/g, "-");
+	return resolve(cwd).replace(/[^A-Za-z0-9-]/g, "-");
 }
 
 export function defaultTranscriptRoot(): string {
