@@ -13,10 +13,16 @@ export interface TmuxBackendOptions {
 	spawnImpl?: SpawnImpl;
 }
 
+export interface SpawnOptions {
+	env?: Record<string, string>;
+	/** When provided, the spawn implementation writes this to the child's stdin. */
+	stdin?: string;
+}
+
 export type SpawnImpl = (
 	bin: string,
 	args: string[],
-	options: { env?: Record<string, string> },
+	options: SpawnOptions,
 ) => Promise<SpawnResult>;
 
 export interface SpawnResult {
@@ -41,22 +47,49 @@ export class TmuxBackend implements TerminalBackend {
 
 	async start(options: TerminalStartOptions): Promise<TerminalSession> {
 		const id = `${this.sessionPrefix}-${randomUUID().slice(0, 8)}`;
+		const spawnOpts: SpawnOptions = {};
+		if (options.env !== undefined) spawnOpts.env = options.env;
 		await this.runTmux(
 			"new-session",
 			["new-session", "-d", "-s", id, "-c", options.cwd, ...options.command],
-			options.env,
+			spawnOpts,
 		);
 		return { id };
 	}
 
+	/**
+	 * Paste `text` into the Claude TUI atomically via a tmux paste buffer.
+	 *
+	 * `send-keys -l` sends each character as an individual keystroke, which
+	 * Claude's TUI input loop can mis-buffer when followed immediately by an
+	 * Enter — the trailing Enter ends up dropped and the prompt never gets
+	 * submitted. Using `load-buffer` + `paste-buffer` performs a single
+	 * bracketed-paste event from Claude's point of view, which it processes
+	 * as a unit before the subsequent Enter (sent by `submit`) arrives.
+	 */
 	async pasteText(session: TerminalSession, text: string): Promise<void> {
-		await this.runTmux("send-keys", [
-			"send-keys",
-			"-t",
-			session.id,
-			"-l",
-			text,
-		]);
+		const bufferName = `${session.id}-prompt`;
+		await this.runTmux("load-buffer", ["load-buffer", "-b", bufferName, "-"], {
+			stdin: text,
+		});
+		let pasteError: unknown;
+		try {
+			await this.runTmux("paste-buffer", [
+				"paste-buffer",
+				"-b",
+				bufferName,
+				"-t",
+				session.id,
+			]);
+		} catch (err) {
+			pasteError = err;
+		}
+		try {
+			await this.runTmux("delete-buffer", ["delete-buffer", "-b", bufferName]);
+		} catch (deleteError) {
+			if (pasteError === undefined) throw deleteError;
+		}
+		if (pasteError !== undefined) throw pasteError;
 	}
 
 	async submit(session: TerminalSession): Promise<void> {
@@ -79,16 +112,26 @@ export class TmuxBackend implements TerminalBackend {
 	}
 
 	async stop(session: TerminalSession): Promise<void> {
+		// Best-effort cleanup of the paste buffer in case pasteText threw before
+		// its own delete-buffer ran. tmux paste buffers are server-global and
+		// outlive the killed session otherwise.
+		try {
+			await this.runTmux("delete-buffer", [
+				"delete-buffer",
+				"-b",
+				`${session.id}-prompt`,
+			]);
+		} catch {
+			// buffer may not exist; ignore
+		}
 		await this.runTmux("kill-session", ["kill-session", "-t", session.id]);
 	}
 
 	private async runTmux(
 		label: string,
 		args: string[],
-		env?: Record<string, string>,
+		opts: SpawnOptions = {},
 	): Promise<SpawnResult> {
-		const opts: { env?: Record<string, string> } = {};
-		if (env !== undefined) opts.env = env;
 		const result = await this.spawn(this.tmuxBin, args, opts);
 		if (result.exitCode !== 0) {
 			throw new ClaudeTerminalError(
@@ -105,9 +148,10 @@ const defaultSpawn: SpawnImpl = (bin, args, options) =>
 			options.env !== undefined
 				? { ...process.env, ...options.env }
 				: process.env;
+		const wantsStdin = options.stdin !== undefined;
 		const proc = spawn(bin, args, {
 			env: env as NodeJS.ProcessEnv,
-			stdio: ["ignore", "pipe", "pipe"],
+			stdio: [wantsStdin ? "pipe" : "ignore", "pipe", "pipe"],
 		});
 		const stdoutChunks: Buffer[] = [];
 		const stderrChunks: Buffer[] = [];
@@ -127,4 +171,7 @@ const defaultSpawn: SpawnImpl = (bin, args, options) =>
 				stderr: Buffer.concat(stderrChunks).toString("utf8"),
 			});
 		});
+		if (wantsStdin && proc.stdin !== null) {
+			proc.stdin.end(options.stdin);
+		}
 	});
