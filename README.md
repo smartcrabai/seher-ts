@@ -14,12 +14,19 @@ rate-limit checks. Providers that CodexBar does not know about
 | Provider key | SDK | Package |
 |---|---|---|
 | `claude` | `claude` | `@anthropic-ai/claude-agent-sdk` |
+| `claude-terminal` | `claude-terminal` | Claude Code CLI driven via tmux |
 | `codex` | `codex` | `@openai/codex-sdk` |
 | `cursor` | `cursor` | `@cursor/sdk` |
 | `opencodego` | `opencode` | `@opencode-ai/sdk` |
 | `copilot` | `copilot` | `@github/copilot-sdk` |
 | `kimi` | `kimi` | `@moonshot-ai/kimi-agent-sdk` |
 | — | `pi` | `@earendil-works/pi-coding-agent` |
+
+The `claude-terminal` SDK drives the Claude Code CLI as an interactive
+tmux session and captures responses by polling its JSONL transcript
+under `~/.claude/projects/`. It shares the same CodexBar account quota
+as `claude` (i.e. `claude-terminal` candidates are checked against the
+`claude` usage entry).
 
 Provider keys outside this table must declare `sdk: <kind>` and an `api`
 block. Use `sdk: pi` with any provider key to drive the pi.dev agent.
@@ -102,7 +109,7 @@ and the JSON Schema at
 | Field | Type | Notes |
 |---|---|---|
 | `provider` | string | Resolved provider name. Defaults to the YAML map key. Drives the built-in SDK default lookup, the CodexBar usage query, and the `-p` filter. Use this to share a CodexBar pool between multiple entries (e.g. two `provider: claude` entries with different priorities/models). |
-| `sdk` | `"claude" \| "codex" \| "copilot" \| "kimi" \| "opencode" \| "cursor" \| "pi"` | Required when the resolved provider name is outside the built-in set; optional otherwise (defaults from the table above). |
+| `sdk` | `"claude" \| "claude-terminal" \| "codex" \| "copilot" \| "kimi" \| "opencode" \| "cursor" \| "pi"` | Required when the resolved provider name is outside the built-in set; optional otherwise (defaults from the table above). |
 | `priority` | number | Provider-level shorthand. Used when a model entry omits its own priority. |
 | `api.key` | string | Mapped to the SDK's native key field (e.g. `ANTHROPIC_API_KEY`, `gitHubToken`, …). |
 | `api.endpoint` | string | Mapped to the SDK's native base URL field (e.g. `ANTHROPIC_BASE_URL`, OpenCode `baseURL`, …). |
@@ -161,6 +168,7 @@ checks (used by `plan` mode to re-resolve under `build`).
 
 ```ts
 import { ClaudeSDK } from "@seher-ts/sdk/claude";
+import { ClaudeTerminalSDK } from "@seher-ts/sdk/claude-terminal";
 import { CodexSDK } from "@seher-ts/sdk/codex";
 import { CopilotSDK } from "@seher-ts/sdk/copilot";
 import { CursorSDK } from "@seher-ts/sdk/cursor";
