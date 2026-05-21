@@ -314,6 +314,54 @@ describe("ClaudeTerminalSDK.run", () => {
 		expect(events.indexOf("submit")).toBeGreaterThan(events.indexOf("paste"));
 	});
 
+	test("treats a [Pasted text #N +M lines] citation as paste completion when the needle is collapsed", async () => {
+		const events: string[] = [];
+		const backend: TerminalBackend = {
+			start: async () => {
+				events.push("start");
+				return { id: "tmux-1" };
+			},
+			pasteText: async () => {
+				events.push("paste");
+			},
+			submit: async () => {
+				events.push("submit");
+			},
+			// The needle (last 24 chars of the prompt) is NOT in the screen —
+			// only the prompt prefix and Claude's collapsed-paste citation.
+			captureScreen: async () =>
+				"❯ Analyze the task content [Pasted text #1 +9 lines]",
+			stop: async () => {
+				events.push("stop");
+			},
+		};
+		const reader: ClaudeTranscriptReader = {
+			findSession: async () => ({
+				sessionId: "s",
+				transcriptPath: "/fake/s.jsonl",
+			}),
+			waitForAssistantResponse: async () => ({
+				sessionId: "s",
+				assistantMessages: [],
+				lastResultMessage: asMsg({
+					type: "result",
+					subtype: "success",
+					result: "ok",
+				}),
+			}),
+			listSessionNames: async () => new Set(),
+		};
+		const sdk = new ClaudeTerminalSDK({
+			backendImpl: backend,
+			transcriptReader: reader,
+			readyPollIntervalMs: 1,
+			sleep: () => Promise.resolve(),
+		});
+		const longPrompt = `Analyze the task content. ${"x".repeat(200)} (if applicable).`;
+		await sdk.run({ prompt: longPrompt });
+		expect(events).toEqual(["start", "paste", "submit", "stop"]);
+	});
+
 	test("throws ClaudeTerminalTimeoutError when the TUI never renders", async () => {
 		const backend: TerminalBackend = {
 			start: async () => ({ id: "tmux-1" }),
