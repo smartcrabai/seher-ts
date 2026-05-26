@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ClaudeTerminalSDK } from "./sdk.ts";
+import { ClaudeTerminalSDK, detectSessionLimit } from "./sdk.ts";
 import type {
 	ClaudeSessionRef,
 	ClaudeTerminalResponse,
@@ -11,7 +11,10 @@ import type {
 	TranscriptMessage,
 	WaitForAssistantResponseOptions,
 } from "./types.ts";
-import { ClaudeTerminalError } from "./types.ts";
+import {
+	ClaudeTerminalError,
+	ClaudeTerminalSessionLimitError,
+} from "./types.ts";
 
 interface StartCall {
 	options: TerminalStartOptions;
@@ -630,6 +633,78 @@ describe("ClaudeTerminalSDK.run", () => {
 			"--permission-mode",
 			"default",
 		]);
+	});
+});
+
+describe("detectSessionLimit", () => {
+	test("matches the canonical TUI banner and extracts the reset time", () => {
+		const screen =
+			"  You've hit your session limit · resets 6:40pm (Asia/Tokyo)\n";
+		const result = detectSessionLimit(screen);
+		expect(result).toEqual({ resetInfo: "6:40pm (Asia/Tokyo)" });
+	});
+
+	test("matches the typographic-apostrophe variant", () => {
+		// sakoku-ignore-next-line
+		const screen = "You’ve hit your session limit · resets 9am UTC";
+		const result = detectSessionLimit(screen);
+		expect(result?.resetInfo).toBe("9am UTC");
+	});
+
+	test("returns undefined when the banner is absent", () => {
+		expect(detectSessionLimit("❯ ready to accept input")).toBeUndefined();
+		expect(detectSessionLimit("")).toBeUndefined();
+	});
+
+	test("strips ANSI escapes before matching", () => {
+		// ANSI escape is placed BETWEEN tokens ("hit\x1b[0m your") so the
+		// inter-token horizontal-whitespace match cannot cross the escape
+		// without the strip step. A regression that drops the strip would
+		// fail to match here and return undefined → test fails. (An escape
+		// placed only at the edges would not actually exercise the strip,
+		// since the regex is non-anchored.)
+		const screen = "You've hit[0m your session limit · resets 9am UTC";
+		const result = detectSessionLimit(screen);
+		expect(result?.resetInfo).toBe("9am UTC");
+	});
+});
+
+describe("ClaudeTerminalSDK session limit detection", () => {
+	test("throws ClaudeTerminalSessionLimitError when the TUI banner is shown", async () => {
+		const backend: TerminalBackend = {
+			start: async () => ({ id: "tmux-1" }),
+			pasteText: async () => {},
+			submit: async () => {},
+			captureScreen: async () =>
+				"You've hit your session limit · resets 6:40pm (Asia/Tokyo)",
+			stop: async () => {},
+		};
+		const reader: ClaudeTranscriptReader = {
+			findSession: async () => ({
+				sessionId: "s",
+				transcriptPath: "/fake/s.jsonl",
+			}),
+			waitForAssistantResponse: async () => ({
+				sessionId: "s",
+				assistantMessages: [],
+			}),
+			listSessionNames: async () => new Set(),
+		};
+		const sdk = new ClaudeTerminalSDK({
+			backendImpl: backend,
+			transcriptReader: reader,
+			// readyTimeoutMs is huge — if detection regresses, the test would
+			// hang here instead of resolving. We rely on the limit-detection
+			// short-circuit to throw immediately on the first capture.
+			readyTimeoutMs: 60_000,
+			readyPollIntervalMs: 1,
+			sleep: () => Promise.resolve(),
+		});
+		const err = (await sdk.run({ prompt: "hi" }).catch((e) => e)) as Error;
+		expect(err).toBeInstanceOf(ClaudeTerminalSessionLimitError);
+		expect((err as ClaudeTerminalSessionLimitError).resetInfo).toBe(
+			"6:40pm (Asia/Tokyo)",
+		);
 	});
 });
 

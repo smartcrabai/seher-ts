@@ -3,6 +3,7 @@ export {
 	type ClaudeSessionRef,
 	ClaudeTerminalError,
 	type ClaudeTerminalResponse,
+	ClaudeTerminalSessionLimitError,
 	ClaudeTerminalTimeoutError,
 	type ClaudeTranscriptReader,
 	type TerminalBackend,

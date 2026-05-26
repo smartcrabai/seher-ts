@@ -90,3 +90,25 @@ export class ClaudeTerminalTimeoutError extends ClaudeTerminalError {
 		this.name = "ClaudeTerminalTimeoutError";
 	}
 }
+
+/**
+ * Raised when the Claude TUI displays a "session limit reached" banner instead
+ * of the input prompt. Distinct from a generic timeout so callers can recognize
+ * the condition as retriable-after-reset rather than a transport failure.
+ *
+ * `resetInfo` carries the human-readable reset time as displayed by the TUI
+ * (e.g. `"6:40pm (Asia/Tokyo)"`) when extractable. It is intentionally a free
+ * string — the TUI formats / timezone are not part of seher-ts's contract.
+ */
+export class ClaudeTerminalSessionLimitError extends ClaudeTerminalError {
+	readonly resetInfo: string | undefined;
+	constructor(resetInfo: string | undefined) {
+		super(
+			resetInfo !== undefined
+				? `Claude session limit reached (resets ${resetInfo})`
+				: "Claude session limit reached",
+		);
+		this.name = "ClaudeTerminalSessionLimitError";
+		this.resetInfo = resetInfo;
+	}
+}
