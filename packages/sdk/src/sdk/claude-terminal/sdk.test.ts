@@ -663,8 +663,7 @@ describe("detectSessionLimit", () => {
 		// fail to match here and return undefined → test fails. (An escape
 		// placed only at the edges would not actually exercise the strip,
 		// since the regex is non-anchored.)
-		const screen =
-			"You've hit[0m your session limit · resets 9am UTC";
+		const screen = "You've hit[0m your session limit · resets 9am UTC";
 		const result = detectSessionLimit(screen);
 		expect(result?.resetInfo).toBe("9am UTC");
 	});
