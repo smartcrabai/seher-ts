@@ -327,7 +327,7 @@ describe("ClaudeTerminalSDK.run", () => {
 			submit: async () => {
 				events.push("submit");
 			},
-			// The needle (last 24 chars of the prompt) is NOT in the screen —
+			// The needle (last 24 chars of the prompt) is NOT in the screen -
 			// only the prompt prefix and Claude's collapsed-paste citation.
 			captureScreen: async () =>
 				"❯ Analyze the task content [Pasted text #1 +9 lines]",
@@ -455,6 +455,104 @@ describe("ClaudeTerminalSDK.run", () => {
 		await expect(sdk.run({ prompt: "hi" })).rejects.toThrow(
 			/captureScreen failed 3 times/,
 		);
+	});
+
+	test("fails fast with cause when captureScreen errors repeatedly during paste-visible wait", async () => {
+		// Same fail-fast contract as waitForReady — after 3 consecutive
+		// captureScreen rejections, throw with the underlying error attached as
+		// `cause` instead of silently waiting out the full pasteVisibleTimeoutMs.
+		let pasteHappened = false;
+		const backend: TerminalBackend = {
+			start: async () => ({ id: "tmux-1" }),
+			pasteText: async () => {
+				pasteHappened = true;
+			},
+			submit: async () => {},
+			captureScreen: async () => {
+				if (!pasteHappened) return "❯ ";
+				throw new Error("tmux died during paste");
+			},
+			stop: async () => {},
+		};
+		const reader: ClaudeTranscriptReader = {
+			findSession: async () => ({
+				sessionId: "s",
+				transcriptPath: "/fake/s.jsonl",
+			}),
+			waitForAssistantResponse: async () => ({
+				sessionId: "s",
+				assistantMessages: [],
+			}),
+			listSessionNames: async () => new Set(),
+		};
+		const sdk = new ClaudeTerminalSDK({
+			backendImpl: backend,
+			transcriptReader: reader,
+			pasteVisibleTimeoutMs: 60_000,
+			readyPollIntervalMs: 1,
+			sleep: () => Promise.resolve(),
+		});
+		const err = (await sdk.run({ prompt: "hi" }).catch((e) => e)) as Error & {
+			cause?: unknown;
+		};
+		expect(err.message).toMatch(/captureScreen failed 3 times/);
+		expect((err.cause as Error | undefined)?.message).toBe(
+			"tmux died during paste",
+		);
+	});
+
+	test("empty prompt skips waitForPasteVisible polling entirely (short-circuit, not includes(''))", async () => {
+		// Tests the empty-needle short-circuit in pasteIsConsumed: we must NOT
+		// even call captureScreen during waitForPasteVisible for an empty
+		// prompt. Counting captureScreen calls is the only way to distinguish
+		// the short-circuit from a naive `screen.includes("")` fallback —
+		// JS `"".includes("") === true`, so a regression that removes the
+		// short-circuit and relies on includes("") would still return true
+		// from pasteIsConsumed and pass the smoke-only version of this test.
+		let captureCount = 0;
+		let pasteHappened = false;
+		const backend: TerminalBackend = {
+			start: async () => ({ id: "tmux-1" }),
+			pasteText: async () => {
+				pasteHappened = true;
+			},
+			submit: async () => {},
+			captureScreen: async () => {
+				captureCount += 1;
+				// First few calls (waitForReady) return the prompt arrow. Any
+				// call after pasteText means waitForPasteVisible did NOT
+				// short-circuit and started polling — fail the test loudly.
+				if (pasteHappened) {
+					throw new Error(
+						"captureScreen called after pasteText — short-circuit broken",
+					);
+				}
+				return "❯ ";
+			},
+			stop: async () => {},
+		};
+		const rr = recordingReader({
+			sessionId: "x",
+			assistantMessages: [],
+			lastResultMessage: asMsg({
+				type: "result",
+				subtype: "success",
+				result: "ok",
+			}),
+		});
+		const sdk = new ClaudeTerminalSDK({
+			backendImpl: backend,
+			transcriptReader: rr.reader,
+			pasteVisibleTimeoutMs: 50,
+			readyPollIntervalMs: 1,
+			sleep: () => Promise.resolve(),
+		});
+		const result = await sdk.run({ prompt: "" });
+		expect(result.text).toBe("ok");
+		// Exactly the one captureScreen call from waitForReady. If
+		// pasteIsConsumed regressed to `screen.includes("")` semantics, the
+		// loop would issue at least one more captureScreen and throw above.
+		expect(captureCount).toBe(1);
 	});
 
 	test("swallows errors from backend.stop during cleanup", async () => {
