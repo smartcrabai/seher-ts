@@ -28,6 +28,17 @@ under `~/.claude/projects/`. It shares the same CodexBar account quota
 as `claude` (i.e. `claude-terminal` candidates are checked against the
 `claude` usage entry).
 
+Paste-detection (the step that waits for the pasted prompt to appear
+in the TUI before submitting Enter) is robust against long Japanese /
+CJK prompts: it normalizes ANSI escapes, NFC-normalizes code points,
+selects prefix and suffix needles by terminal cell width (not raw
+character count), strips trailing Markdown decoration / punctuation
+from the suffix needle, and accepts a collapsed-paste citation as an
+alternative signal. The wait has its own short timeout
+(`pasteVisibleTimeoutMs`, default 90s) so a stuck detection returns
+control to the caller for retry instead of blocking the whole
+response timeout.
+
 Provider keys outside this table must declare `sdk: <kind>` and an `api`
 block. Use `sdk: pi` with any provider key to drive the pi.dev agent.
 There is no default provider mapping for pi; setting `sdk: pi` is the only
