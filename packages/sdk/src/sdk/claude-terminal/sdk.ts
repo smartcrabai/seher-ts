@@ -22,7 +22,11 @@ import type {
 	TerminalBackend,
 	TerminalSession,
 } from "./types.ts";
-import { ClaudeTerminalError, ClaudeTerminalTimeoutError } from "./types.ts";
+import {
+	ClaudeTerminalError,
+	ClaudeTerminalSessionLimitError,
+	ClaudeTerminalTimeoutError,
+} from "./types.ts";
 
 const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 const DEFAULT_TRANSCRIPT_POLL_INTERVAL_MS = 500;
@@ -296,6 +300,15 @@ export class ClaudeTerminalSDK implements SeherSDKInstance {
 					);
 				}
 			}
+			// Checked BEFORE the indicator/deadline tests: the session-limit
+			// banner replaces the input prompt entirely, so the indicator will
+			// never appear and we would otherwise time out with a generic
+			// "TUI didn't render" error — losing the retriable-after-reset
+			// signal that callers need to back off intelligently.
+			const limit = detectSessionLimit(screen);
+			if (limit !== undefined) {
+				throw new ClaudeTerminalSessionLimitError(limit.resetInfo);
+			}
 			if (screen.includes(opts.indicator)) {
 				return;
 			}
@@ -475,6 +488,59 @@ export function pasteIsConsumed(
 	return COLLAPSED_PASTE_PATTERNS.some(
 		(re) => re.test(screen) || re.test(normScreen),
 	);
+}
+
+// Detects the Claude TUI session-limit banner. The core phrase
+// "You've hit your session limit" is stable across the variants observed in
+// the wild (straight quote `'`, typographic `’`, weekly/usage wording).
+// Matched against an ANSI-stripped screen capture (whitespace preserved,
+// unlike normalizeForMatch) so the reset-time extraction below can rely on
+// positional context. Inter-token separator is restricted to horizontal
+// whitespace (`[ \t]+`) — `\s+` would also consume newlines, which lets the
+// phrase tokens drift across distant rows of a `keepSession`-reused pane
+// (false-positive surface). The banner itself never wraps mid-phrase on
+// realistic pane widths, so this is safe.
+// sakoku-ignore-next-line
+const SESSION_LIMIT_PATTERN =
+	/you[’']ve[ \t]+hit[ \t]+your[ \t]+(?:weekly[ \t]+|usage[ \t]+)?(?:session|usage)[ \t]+limit/i;
+
+// Captures the reset-time string after `resets ` up to end-of-line. The TUI
+// formats this freely (e.g. `6:40pm (Asia/Tokyo)`, `Mon 9am UTC`) so we keep
+// the capture broad and rely on a trim/length cap to keep the surfaced value
+// tidy. `·` is the typographic middle dot the TUI uses as a separator;
+// some renders place a comment after it, so we stop at it too.
+const RESET_INFO_PATTERN = /resets\s+([^\n\r·]+)/i;
+
+// Maximum length (chars) of resetInfo we will surface on the error. Anything
+// longer than this is almost certainly bleeding into surrounding TUI chrome
+// rather than being a real reset time — better to drop it than to surface
+// noisy half-strings to callers building user-facing retry messages.
+const MAX_RESET_INFO_LENGTH = 80;
+
+/**
+ * Returns `{ resetInfo }` when the screen capture contains the Claude TUI
+ * session-limit banner. `resetInfo` is the human-readable reset-time string
+ * from the banner if extractable (e.g. `"6:40pm (Asia/Tokyo)"`), otherwise
+ * `undefined`. Returns `undefined` when no banner is present.
+ *
+ * Only safe to invoke BEFORE the user's prompt is pasted onto the screen —
+ * once user input is on-screen, the banner phrase may appear inside the user's
+ * own content and yield a false positive.
+ */
+export function detectSessionLimit(
+	screen: string,
+): { resetInfo: string | undefined } | undefined {
+	const clean = screen.replace(ANSI_ESCAPE_PATTERN, "");
+	if (!SESSION_LIMIT_PATTERN.test(clean)) return undefined;
+	const m = clean.match(RESET_INFO_PATTERN);
+	const raw = m?.[1]?.trim();
+	if (raw === undefined || raw.length === 0) {
+		return { resetInfo: undefined };
+	}
+	if (raw.length > MAX_RESET_INFO_LENGTH) {
+		return { resetInfo: undefined };
+	}
+	return { resetInfo: raw };
 }
 
 function buildPasteVisibleTimeoutMessage(
