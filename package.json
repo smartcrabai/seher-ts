@@ -16,9 +16,9 @@
     "node": ">=20"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.0",
+    "@biomejs/biome": "2.5.1",
     "@types/bun": "latest",
-    "@typescript/native-preview": "7.0.0-dev.20260622.1",
+    "@typescript/native-preview": "7.0.0-dev.20260623.1",
     "typescript": "6.0.3"
   }
 }
