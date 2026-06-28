@@ -42,5 +42,9 @@ export type {
 	ProviderApi,
 	ProviderEntry,
 	ResolvedAgent,
+	ResolvedRetryConfig,
+	ResolvedSkillsConfig,
+	RetryConfig,
 	SdkKind,
+	SkillsConfig,
 } from "./types.ts";

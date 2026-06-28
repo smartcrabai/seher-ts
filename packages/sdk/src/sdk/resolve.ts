@@ -10,7 +10,9 @@ import type {
 	AgentLimit,
 	Config,
 	ResolvedAgent,
+	ResolvedRetryConfig,
 	ResolvedSkillsConfig,
+	RetryConfig,
 	SdkKind,
 	SkillsConfig,
 } from "../types.ts";
@@ -22,6 +24,45 @@ function resolveSkills(
 	return {
 		includeClaude:
 			providerSkills?.includeClaude ?? rootSkills?.includeClaude ?? true,
+	};
+}
+
+/** RetryConfig の hard-coded defaults (Rust 側 `RetryConfig::default` と一致)。 */
+const RETRY_DEFAULTS: ResolvedRetryConfig = {
+	enabled: true,
+	maxAttempts: 5,
+	initialDelaySecs: 2,
+	maxDelaySecs: 60,
+	multiplier: 2.0,
+	retryClientErrors: false,
+};
+
+/**
+ * provider-level の `retry` が定義されていれば root を丸ごと置換し、
+ * provider 単体で defaults にフォールバックする (フィールド単位の
+ * マージはしない)。root のみ定義なら root を使用し、両方未定義なら
+ * defaults を返す。値が defaults より逸脱した場合 (`maxAttempts < 1`、
+ * `multiplier < 1.0`) は安全な値にクランプする。
+ */
+export function resolveRetry(
+	providerRetry: RetryConfig | undefined,
+	rootRetry: RetryConfig | undefined,
+): ResolvedRetryConfig {
+	const source = providerRetry ?? rootRetry;
+	if (source === undefined) {
+		return { ...RETRY_DEFAULTS };
+	}
+	const maxAttempts = source.maxAttempts ?? RETRY_DEFAULTS.maxAttempts;
+	const multiplier = source.multiplier ?? RETRY_DEFAULTS.multiplier;
+	return {
+		enabled: source.enabled ?? RETRY_DEFAULTS.enabled,
+		maxAttempts: maxAttempts < 1 ? 1 : maxAttempts,
+		initialDelaySecs:
+			source.initialDelaySecs ?? RETRY_DEFAULTS.initialDelaySecs,
+		maxDelaySecs: source.maxDelaySecs ?? RETRY_DEFAULTS.maxDelaySecs,
+		multiplier: multiplier < 1.0 ? 1.0 : multiplier,
+		retryClientErrors:
+			source.retryClientErrors ?? RETRY_DEFAULTS.retryClientErrors,
 	};
 }
 
@@ -162,6 +203,7 @@ export function buildCandidates(
 			modeKey,
 			env: {},
 			skills: resolveSkills(entry.skills, config.skills),
+			retry: resolveRetry(entry.retry, config.retry),
 		};
 		if (entry.api !== undefined) resolved.api = entry.api;
 		list.push({

@@ -7,6 +7,7 @@ import {
 	NoMatchingAgentError,
 	pollForAgent,
 	resolveAgent,
+	resolveRetry,
 } from "./resolve.ts";
 
 describe("resolveAgent", () => {
@@ -688,5 +689,168 @@ describe("codexbar provider name alias", () => {
 		);
 		const agent = await resolveAgent({ config, checkLimit });
 		expect(agent.skills.includeClaude).toBe(false);
+	});
+});
+
+describe("resolveRetry", () => {
+	test("defaults when both provider and root are undefined", () => {
+		expect(resolveRetry(undefined, undefined)).toEqual({
+			enabled: true,
+			maxAttempts: 5,
+			initialDelaySecs: 2,
+			maxDelaySecs: 60,
+			multiplier: 2.0,
+			retryClientErrors: false,
+		});
+	});
+
+	test("root values fall back per-field to defaults", () => {
+		expect(resolveRetry(undefined, { maxAttempts: 3 })).toEqual({
+			enabled: true,
+			maxAttempts: 3,
+			initialDelaySecs: 2,
+			maxDelaySecs: 60,
+			multiplier: 2.0,
+			retryClientErrors: false,
+		});
+	});
+
+	test("provider override replaces root entirely (no field merge)", () => {
+		// root specifies maxAttempts=3; provider only sets enabled=false.
+		// Resolved should use provider only + defaults — root's maxAttempts=3
+		// must NOT bleed into the result.
+		const resolved = resolveRetry(
+			{ enabled: false },
+			{ maxAttempts: 3, multiplier: 4.0 },
+		);
+		expect(resolved).toEqual({
+			enabled: false,
+			maxAttempts: 5,
+			initialDelaySecs: 2,
+			maxDelaySecs: 60,
+			multiplier: 2.0,
+			retryClientErrors: false,
+		});
+	});
+
+	test("provider override keeps its own explicit fields", () => {
+		const resolved = resolveRetry(
+			{
+				enabled: true,
+				maxAttempts: 7,
+				initialDelaySecs: 1,
+				maxDelaySecs: 30,
+				multiplier: 3.0,
+				retryClientErrors: true,
+			},
+			undefined,
+		);
+		expect(resolved).toEqual({
+			enabled: true,
+			maxAttempts: 7,
+			initialDelaySecs: 1,
+			maxDelaySecs: 30,
+			multiplier: 3.0,
+			retryClientErrors: true,
+		});
+	});
+
+	test("maxAttempts < 1 is clamped to 1", () => {
+		// validate.ts では 1 未満を拒否するが、direct API 利用や
+		// 不正な YAML を bypass された場合のセーフガード。
+		expect(resolveRetry({ maxAttempts: 0 }, undefined).maxAttempts).toBe(1);
+		expect(resolveRetry({ maxAttempts: -5 }, undefined).maxAttempts).toBe(1);
+	});
+
+	test("multiplier < 1.0 is clamped to 1.0", () => {
+		expect(resolveRetry({ multiplier: 0.5 }, undefined).multiplier).toBe(1.0);
+		expect(resolveRetry({ multiplier: 0 }, undefined).multiplier).toBe(1.0);
+	});
+
+	test("retryClientErrors=true is preserved through provider override", () => {
+		expect(
+			resolveRetry({ retryClientErrors: true }, undefined).retryClientErrors,
+		).toBe(true);
+	});
+});
+
+describe("resolveAgent retry integration", () => {
+	test("retry defaults when no retry config given", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "sonnet" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.retry).toEqual({
+			enabled: true,
+			maxAttempts: 5,
+			initialDelaySecs: 2,
+			maxDelaySecs: 60,
+			multiplier: 2.0,
+			retryClientErrors: false,
+		});
+	});
+
+	test("root retry flows through to resolved agent", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "sonnet" } },
+		});
+		config.retry = { enabled: false, maxAttempts: 2 };
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.retry.enabled).toBe(false);
+		expect(agent.retry.maxAttempts).toBe(2);
+		// 未指定フィールドは defaults。
+		expect(agent.retry.multiplier).toBe(2.0);
+	});
+
+	test("provider retry overrides root retry (replacement semantics)", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			retry: { enabled: true, retryClientErrors: true },
+			models: { build: { model: "sonnet" } },
+		});
+		config.retry = { enabled: false, maxAttempts: 9 };
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await resolveAgent({ config, checkLimit });
+		// provider が root を丸ごと置換するので maxAttempts は default に戻る。
+		expect(agent.retry).toEqual({
+			enabled: true,
+			maxAttempts: 5,
+			initialDelaySecs: 2,
+			maxDelaySecs: 60,
+			multiplier: 2.0,
+			retryClientErrors: true,
+		});
+	});
+
+	test("provider retry with clamped values reaches resolved agent", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			retry: { maxAttempts: 0, multiplier: 0.5 },
+			models: { build: { model: "sonnet" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.retry.maxAttempts).toBe(1);
+		expect(agent.retry.multiplier).toBe(1.0);
 	});
 });
