@@ -511,6 +511,21 @@ describe("buildAdditionalSkillPaths", () => {
 		expect(onFalse[0]).toBe("/h/.agents/skills");
 		expect(onUndefined[0]).toBe("/h/.agents/skills");
 	});
+});
+
+describe("PiSDK :thinking suffix", () => {
+	beforeEach(() => {
+		createSessionCalls.length = 0;
+		promptCalls.length = 0;
+		disposeCalls.length = 0;
+		modelFindCalls.length = 0;
+		registerProviderCalls.length = 0;
+		setApiKeyCalls.length = 0;
+		listeners.length = 0;
+		sessionMessages = [];
+		emittedEvents = [];
+		promptShouldThrow = null;
+	});
 
 	test("`:thinking` サフィックスは strip してから provider/model を分解し、thinkingLevel を session に渡す", async () => {
 		emittedEvents = [
