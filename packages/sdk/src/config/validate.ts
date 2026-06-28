@@ -3,6 +3,7 @@ import type {
 	ModelEntry,
 	ProviderApi,
 	ProviderEntry,
+	RetryConfig,
 	SdkKind,
 	SkillsConfig,
 } from "../types.ts";
@@ -84,6 +85,64 @@ function parseSkills(raw: unknown, label: string): SkillsConfig {
 			fail(`${label}.includeClaude must be a boolean`);
 		}
 		out.includeClaude = raw.includeClaude;
+	}
+	return out;
+}
+
+function parseFiniteNumber(raw: unknown, label: string): number {
+	if (typeof raw !== "number" || !Number.isFinite(raw)) {
+		fail(`${label} must be a finite number`);
+	}
+	return raw;
+}
+
+function parseRetry(raw: unknown, label: string): RetryConfig {
+	if (!isPlainObject(raw)) {
+		fail(`${label} must be an object`);
+	}
+	const out: RetryConfig = {};
+	if ("enabled" in raw && raw.enabled !== undefined) {
+		if (typeof raw.enabled !== "boolean") {
+			fail(`${label}.enabled must be a boolean`);
+		}
+		out.enabled = raw.enabled;
+	}
+	if ("maxAttempts" in raw && raw.maxAttempts !== undefined) {
+		const n = parseFiniteNumber(raw.maxAttempts, `${label}.maxAttempts`);
+		if (n < 1) {
+			fail(`${label}.maxAttempts must be >= 1`);
+		}
+		out.maxAttempts = n;
+	}
+	if ("initialDelaySecs" in raw && raw.initialDelaySecs !== undefined) {
+		const n = parseFiniteNumber(
+			raw.initialDelaySecs,
+			`${label}.initialDelaySecs`,
+		);
+		if (n < 0) {
+			fail(`${label}.initialDelaySecs must be >= 0`);
+		}
+		out.initialDelaySecs = n;
+	}
+	if ("maxDelaySecs" in raw && raw.maxDelaySecs !== undefined) {
+		const n = parseFiniteNumber(raw.maxDelaySecs, `${label}.maxDelaySecs`);
+		if (n < 0) {
+			fail(`${label}.maxDelaySecs must be >= 0`);
+		}
+		out.maxDelaySecs = n;
+	}
+	if ("multiplier" in raw && raw.multiplier !== undefined) {
+		const n = parseFiniteNumber(raw.multiplier, `${label}.multiplier`);
+		if (n < 1.0) {
+			fail(`${label}.multiplier must be >= 1.0`);
+		}
+		out.multiplier = n;
+	}
+	if ("retryClientErrors" in raw && raw.retryClientErrors !== undefined) {
+		if (typeof raw.retryClientErrors !== "boolean") {
+			fail(`${label}.retryClientErrors must be a boolean`);
+		}
+		out.retryClientErrors = raw.retryClientErrors;
 	}
 	return out;
 }
@@ -172,6 +231,11 @@ function parseProvider(
 		skills = parseSkills(raw.skills, `${label}.skills`);
 	}
 
+	let retry: RetryConfig | undefined;
+	if ("retry" in raw && raw.retry !== undefined) {
+		retry = parseRetry(raw.retry, `${label}.retry`);
+	}
+
 	if (!("models" in raw) || raw.models === undefined) {
 		fail(`${label}.models is required`);
 	}
@@ -181,6 +245,7 @@ function parseProvider(
 	if (priority !== undefined) entry.priority = priority;
 	if (api !== undefined) entry.api = api;
 	if (skills !== undefined) entry.skills = skills;
+	if (retry !== undefined) entry.retry = retry;
 	return entry;
 }
 
@@ -192,9 +257,14 @@ export function validateConfig(input: unknown): Config {
 	if ("skills" in input && input.skills !== undefined) {
 		skills = parseSkills(input.skills, "skills");
 	}
+	let retry: RetryConfig | undefined;
+	if ("retry" in input && input.retry !== undefined) {
+		retry = parseRetry(input.retry, "retry");
+	}
 	if (!("providers" in input) || input.providers === undefined) {
 		const out: Config = { providers: [] };
 		if (skills !== undefined) out.skills = skills;
+		if (retry !== undefined) out.retry = retry;
 		return out;
 	}
 	if (!isPlainObject(input.providers)) {
@@ -208,5 +278,6 @@ export function validateConfig(input: unknown): Config {
 	}
 	const out: Config = { providers };
 	if (skills !== undefined) out.skills = skills;
+	if (retry !== undefined) out.retry = retry;
 	return out;
 }

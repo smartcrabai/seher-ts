@@ -125,7 +125,61 @@ and the JSON Schema at
 | `priority` | number | Provider-level shorthand. Used when a model entry omits its own priority. |
 | `api.key` | string | Mapped to the SDK's native key field (e.g. `ANTHROPIC_API_KEY`, `gitHubToken`, …). |
 | `api.endpoint` | string | Mapped to the SDK's native base URL field (e.g. `ANTHROPIC_BASE_URL`, OpenCode `baseURL`, …). |
+| `skills.includeClaude` | boolean | Per-provider override of the top-level `skills.includeClaude`. |
+| `retry` | object | Per-provider retry policy override. Replaces the root `retry` block as a whole — fields are **not** merged individually. Missing fields fall back to the hard-coded defaults. |
 | `models` | map | Mode key (`plan` / `build` / custom) → `{ model: string, priority?: number }`. A bare string is shorthand for `{ model: <string> }`. |
+
+### Top-level options
+
+| Field | Type | Notes |
+|---|---|---|
+| `skills.includeClaude` | boolean | When true (default), auto-inject `~/.claude/skills` and `<cwd>/.claude/skills` into the underlying agent's skill paths for SDK kinds that do not natively read Claude-style skills (currently `pi`). |
+| `retry` | object | Default retry policy applied to every provider that does not specify its own `retry` block. See the [Retry policy](#retry-policy) section below. |
+
+### Retry policy
+
+`retry` configures an exponential-backoff retry policy for transient provider
+API errors. It may be specified at the top level and/or per-provider; when a
+provider defines its own `retry` block it **replaces** the root block as a
+whole rather than merging fields. Missing fields fall back to the defaults
+shown below.
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `enabled` | boolean | `true` | Whether retries are enabled. |
+| `maxAttempts` | integer (≥ 1) | `5` | Maximum number of attempts before giving up. |
+| `initialDelaySecs` | integer (≥ 0) | `2` | Delay before the first retry, in seconds. |
+| `maxDelaySecs` | integer (≥ 0) | `60` | Cap on the delay between retries, in seconds. |
+| `multiplier` | number (≥ 1.0) | `2.0` | Factor applied to the delay after each retry. |
+| `retryClientErrors` | boolean | `false` | Opt in to also retry HTTP 401/404 (some providers return these during transient outages). |
+
+```yaml
+# Root-level default applied to every provider that doesn't override it.
+retry:
+  maxAttempts: 5
+  initialDelaySecs: 2
+  multiplier: 2.0
+
+providers:
+  claude:
+    # claude uses the root retry block.
+    models:
+      build: sonnet-4.6
+
+  zai:
+    sdk: claude
+    api: { key: sk-za-xxxxx, endpoint: https://api.zai.example.com }
+    # Provider-level retry REPLACES the root block — fields not listed
+    # here fall back to defaults (NOT to the root values above).
+    retry:
+      enabled: false
+    models:
+      build: glm-5.1
+```
+
+The retry policy is currently surfaced on `ResolvedAgent.retry` but is not
+yet wired into the SDK dispatch path — it will start applying once the
+streaming/retry layer lands.
 
 ### Selection logic
 
@@ -208,9 +262,11 @@ const agent = await resolveAgent({ config, modeKey: "build" });
 ```
 
 `resolveAgent` returns `ResolvedAgent` with `{ provider, kind, modelId,
-modeKey, api?, env }`. `provider` is the resolved provider name (used
-by CodexBar / `-p`), defaulting to the YAML map key when no `provider`
-field is set on the entry.
+modeKey, api?, env, skills, retry }`. `provider` is the resolved provider
+name (used by CodexBar / `-p`), defaulting to the YAML map key when no
+`provider` field is set on the entry. `skills` and `retry` are the
+per-candidate resolved view of the [Retry policy](#retry-policy) and
+skill auto-discovery (per-provider > root > defaults).
 
 ## Known limitations
 
