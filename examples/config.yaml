@@ -1,5 +1,20 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/smartcrabai/seher-ts/main/packages/cli/schemas/config.schema.json
 
+# トップレベルの skills は全 provider のデフォルト。
+# 個別 provider で `skills:` を書くとブロック単位で上書きされる。
+skills:
+  includeClaude: true
+
+# トップレベルの retry も全 provider のデフォルト。
+# provider 側で `retry:` が定義されると root の値は丸ごと置き換えられる。
+retry:
+  enabled: true
+  maxAttempts: 5
+  initialDelaySecs: 2
+  maxDelaySecs: 60
+  multiplier: 2.0
+  retryClientErrors: false
+
 providers:
   codex:
     models:
@@ -18,6 +33,14 @@ providers:
     api:
       key: sk-za-xxxxxxxxxxxxx
       endpoint: https://api.zai.example.com
+    # 自前で Claude スキルを読みたくない provider はここで opt out。
+    skills:
+      includeClaude: false
+    # zai 専用のリトライ設定 (root の retry をブロック単位で上書き)。
+    retry:
+      enabled: true
+      maxAttempts: 3
+      initialDelaySecs: 1
     models:
       plan: glm-5.1
       build: glm-5.1

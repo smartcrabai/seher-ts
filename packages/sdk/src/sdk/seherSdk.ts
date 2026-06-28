@@ -119,8 +119,11 @@ export interface SeherSDKOptions extends SeherSDKConfig {
 /**
  * Apply provider-level api/env to the underlying SDK config in the right
  * field per SDK kind. Caller-supplied opts take precedence.
+ *
+ * @internal 低レベル `dispatch` API 用に export しているヘルパー。SeherSDK の利用者は
+ *           直接呼ばずに `runForResolved` / `streamForResolved` を使う。
  */
-function applyResolvedAgent(
+export function applyResolvedAgent(
 	kind: SdkKind,
 	base: SeherSDKConfig,
 	agent: ResolvedAgent,
@@ -190,7 +193,13 @@ function applyResolvedAgent(
 	return out;
 }
 
-function buildInstance(
+/**
+ * 解決済みの SDK kind と統合済みの config から SDK インスタンスを構築する。
+ *
+ * @internal 低レベル `dispatch` API 用に export しているヘルパー。
+ *           SeherSDK の利用者は直接呼ばずに `runForResolved` / `streamForResolved` を使う。
+ */
+export function buildInstance(
 	kind: SdkKind,
 	config: SeherSDKConfig,
 ): SeherSDKInstance {
