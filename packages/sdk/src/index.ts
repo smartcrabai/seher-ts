@@ -1,5 +1,5 @@
 export { CodexBarError, CodexBarNotFoundError } from "./codexbar/errors.ts";
-export { checkLimit } from "./codexbar/limit.ts";
+export { checkLimit, codexbarProviderName } from "./codexbar/limit.ts";
 export { defaultConfig } from "./config/defaults.ts";
 export {
 	ConfigLoadError,
@@ -18,6 +18,9 @@ export { LimitError, type LimitErrorOptions } from "./sdk/errors.ts";
 export { PiSDK, type PiSDKConfig } from "./sdk/pi.ts";
 export {
 	AllAgentsLimitedError,
+	type BuildCandidatesOptions,
+	buildCandidates,
+	type Candidate,
 	NoMatchingAgentError,
 	type PollForAgentOptions,
 	pollForAgent,
@@ -45,5 +48,9 @@ export type {
 	ProviderApi,
 	ProviderEntry,
 	ResolvedAgent,
+	ResolvedRetryConfig,
+	ResolvedSkillsConfig,
+	RetryConfig,
 	SdkKind,
+	SkillsConfig,
 } from "./types.ts";

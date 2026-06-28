@@ -2,6 +2,10 @@ import type { ResolvedAgent, SdkKind } from "../types.ts";
 import { ALL_SDK_KINDS } from "../types.ts";
 import { ClaudeSDK, type ClaudeSDKConfig } from "./claude.ts";
 import {
+	ClaudeHeadlessSDK,
+	type ClaudeHeadlessSDKConfig,
+} from "./claude-headless.ts";
+import {
 	ClaudeTerminalSDK,
 	type ClaudeTerminalSDKConfig,
 } from "./claude-terminal/index.ts";
@@ -62,6 +66,7 @@ function stripEnv(config: SeherSDKConfig): SeherSDKConfig {
 
 export type SeherSDKConfig = ClaudeSDKConfig &
 	ClaudeTerminalSDKConfig &
+	ClaudeHeadlessSDKConfig &
 	CodexSDKConfig &
 	CopilotSDKConfig &
 	CursorSDKConfig &
@@ -133,6 +138,7 @@ export function applyResolvedAgent(
 	const apiEndpoint = agent.api?.endpoint;
 	switch (kind) {
 		case "claude":
+		case "claude-headless":
 			if (apiKey !== undefined && out.apiKey === undefined) out.apiKey = apiKey;
 			if (apiEndpoint !== undefined && out.baseURL === undefined) {
 				out.baseURL = apiEndpoint;
@@ -224,6 +230,8 @@ export function buildInstance(
 			return new ClaudeSDK(effective);
 		case "claude-terminal":
 			return new ClaudeTerminalSDK(effective);
+		case "claude-headless":
+			return new ClaudeHeadlessSDK(effective);
 		case "codex":
 			return new CodexSDK(effective);
 		case "copilot":

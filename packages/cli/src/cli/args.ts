@@ -15,6 +15,11 @@ export interface ParsedArgs {
 	help: boolean;
 	version: boolean;
 	/**
+	 * `--show-resolution`: prompt 解決をスキップして、選ばれる
+	 * provider/model/SDK を表示するだけのドライランモード。
+	 */
+	showResolution: boolean;
+	/**
 	 * Text emitted by commander for `--help` / `--version`. Present only when
 	 * `help` or `version` is true. Already includes any trailing newline.
 	 */
@@ -31,6 +36,7 @@ interface CommonOpts {
 	config?: string;
 	timeout?: string;
 	quiet?: boolean;
+	showResolution?: boolean;
 }
 
 function configureCommonOptions(cmd: Command): Command {
@@ -45,7 +51,11 @@ function configureCommonOptions(cmd: Command): Command {
 			"-t, --timeout <ms>",
 			"Per-run timeout in milliseconds (default: SDK default — usually none, Copilot 60_000)",
 		)
-		.option("-q, --quiet", "Suppress informational output", false);
+		.option("-q, --quiet", "Suppress informational output", false)
+		.option(
+			"--show-resolution",
+			"Show the selected provider/model/SDK without running the prompt",
+		);
 }
 
 function parseTimeoutMs(raw: string): number {
@@ -121,6 +131,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
 		quiet: opts.quiet ?? false,
 		help,
 		version,
+		showResolution: opts.showResolution === true,
 		trailing,
 	};
 	if (captured.length > 0) result.output = captured;

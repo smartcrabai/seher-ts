@@ -350,4 +350,178 @@ describe("validateConfig", () => {
 		expect(cfg.skills).toBeUndefined();
 		expect(cfg.providers[0]?.skills).toBeUndefined();
 	});
+
+	// ---------------------------------------------------------------------
+	// RetryConfig
+	// ---------------------------------------------------------------------
+
+	test("root retry parses with all fields", () => {
+		const cfg = validateConfig({
+			retry: {
+				enabled: false,
+				maxAttempts: 3,
+				initialDelaySecs: 1,
+				maxDelaySecs: 10,
+				multiplier: 1.5,
+				retryClientErrors: true,
+			},
+			providers: { claude: { models: { build: "sonnet" } } },
+		});
+		expect(cfg.retry).toEqual({
+			enabled: false,
+			maxAttempts: 3,
+			initialDelaySecs: 1,
+			maxDelaySecs: 10,
+			multiplier: 1.5,
+			retryClientErrors: true,
+		});
+	});
+
+	test("root retry partial parse leaves unspecified fields undefined", () => {
+		const cfg = validateConfig({
+			retry: { maxAttempts: 2 },
+			providers: {},
+		});
+		expect(cfg.retry).toEqual({ maxAttempts: 2 });
+	});
+
+	test("provider retry is parsed and preserved separately from root retry", () => {
+		const cfg = validateConfig({
+			retry: { maxAttempts: 5 },
+			providers: {
+				claude: {
+					retry: { enabled: false, retryClientErrors: true },
+					models: { build: "sonnet" },
+				},
+			},
+		});
+		expect(cfg.retry).toEqual({ maxAttempts: 5 });
+		expect(cfg.providers[0]?.retry).toEqual({
+			enabled: false,
+			retryClientErrors: true,
+		});
+	});
+
+	test("retry section omitted yields undefined retry", () => {
+		const cfg = validateConfig({
+			providers: { claude: { models: { build: "sonnet" } } },
+		});
+		expect(cfg.retry).toBeUndefined();
+		expect(cfg.providers[0]?.retry).toBeUndefined();
+	});
+
+	test("retry.enabled must be a boolean", () => {
+		expect(() =>
+			validateConfig({ retry: { enabled: "yes" }, providers: {} }),
+		).toThrow(/enabled must be a boolean/);
+		expect(() =>
+			validateConfig({
+				providers: {
+					claude: {
+						retry: { enabled: 1 },
+						models: { build: "sonnet" },
+					},
+				},
+			}),
+		).toThrow(/enabled must be a boolean/);
+	});
+
+	test("retry.maxAttempts must be a finite number >= 1", () => {
+		expect(() =>
+			validateConfig({ retry: { maxAttempts: 0 }, providers: {} }),
+		).toThrow(/maxAttempts must be >= 1/);
+		expect(() =>
+			validateConfig({ retry: { maxAttempts: "many" }, providers: {} }),
+		).toThrow(/maxAttempts must be a finite number/);
+		expect(() =>
+			validateConfig({
+				retry: { maxAttempts: Number.POSITIVE_INFINITY },
+				providers: {},
+			}),
+		).toThrow(/maxAttempts must be a finite number/);
+	});
+
+	test("retry.initialDelaySecs must be >= 0", () => {
+		expect(() =>
+			validateConfig({ retry: { initialDelaySecs: -1 }, providers: {} }),
+		).toThrow(/initialDelaySecs must be >= 0/);
+		expect(() =>
+			validateConfig({
+				retry: { initialDelaySecs: Number.NaN },
+				providers: {},
+			}),
+		).toThrow(/initialDelaySecs must be a finite number/);
+	});
+
+	test("retry.maxDelaySecs must be >= 0", () => {
+		expect(() =>
+			validateConfig({ retry: { maxDelaySecs: -5 }, providers: {} }),
+		).toThrow(/maxDelaySecs must be >= 0/);
+	});
+
+	test("retry.multiplier must be >= 1.0", () => {
+		expect(() =>
+			validateConfig({ retry: { multiplier: 0.9 }, providers: {} }),
+		).toThrow(/multiplier must be >= 1\.0/);
+		expect(() =>
+			validateConfig({ retry: { multiplier: "fast" }, providers: {} }),
+		).toThrow(/multiplier must be a finite number/);
+	});
+
+	test("retry.retryClientErrors must be a boolean", () => {
+		expect(() =>
+			validateConfig({ retry: { retryClientErrors: 1 }, providers: {} }),
+		).toThrow(/retryClientErrors must be a boolean/);
+	});
+
+	test("retry must be a plain object", () => {
+		expect(() => validateConfig({ retry: [], providers: {} })).toThrow(
+			/retry must be an object/,
+		);
+		expect(() =>
+			validateConfig({
+				providers: {
+					claude: { retry: "no", models: { build: "sonnet" } },
+				},
+			}),
+		).toThrow(/retry must be an object/);
+	});
+
+	test("zero values are allowed for initialDelaySecs / maxDelaySecs", () => {
+		const cfg = validateConfig({
+			retry: { initialDelaySecs: 0, maxDelaySecs: 0 },
+			providers: {},
+		});
+		expect(cfg.retry).toEqual({ initialDelaySecs: 0, maxDelaySecs: 0 });
+	});
+
+	test("multiplier exactly 1.0 is allowed", () => {
+		const cfg = validateConfig({
+			retry: { multiplier: 1.0 },
+			providers: {},
+		});
+		expect(cfg.retry).toEqual({ multiplier: 1.0 });
+	});
+
+	test("provider retry does NOT merge with root retry (replacement semantics)", () => {
+		const cfg = validateConfig({
+			retry: { maxAttempts: 3, multiplier: 4.0 },
+			providers: {
+				claude: {
+					retry: { enabled: false },
+					models: { build: "sonnet" },
+				},
+			},
+		});
+		// validate.ts は読み取りのみ。置換セマンティクスは resolveRetry の責務。
+		// ここでは root と provider が独立に保持されていることを確認する。
+		expect(cfg.retry).toEqual({ maxAttempts: 3, multiplier: 4.0 });
+		expect(cfg.providers[0]?.retry).toEqual({ enabled: false });
+	});
+
+	test("retry throws ConfigValidationError instance", () => {
+		expect(() =>
+			validateConfig({ retry: { maxAttempts: -1 }, providers: {} }),
+		).toThrow(ConfigValidationError);
+	});
 });
