@@ -127,6 +127,33 @@ and the JSON Schema at
 | `api.endpoint` | string | Mapped to the SDK's native base URL field (e.g. `ANTHROPIC_BASE_URL`, OpenCode `baseURL`, …). |
 | `models` | map | Mode key (`plan` / `build` / custom) → `{ model: string, priority?: number }`. A bare string is shorthand for `{ model: <string> }`. |
 
+### Model entries
+
+A `models` value is either a bare model-id string or an object `{ model, priority }`:
+
+```yaml
+models:
+  build: anthropic/claude-sonnet-4-5          # bare string
+  plan: { model: anthropic/claude-opus-4-5, priority: 10 }   # full form
+  high: anthropic/claude-opus-4-5:high        # with a thinking level
+```
+
+The **model id** uses a `provider/model` shape. The segment before the
+first `/` is passed to the SDK as the provider (e.g. `anthropic`,
+`openai`); the rest is the model name. A model id without a `/` is
+passed through with no explicit provider.
+
+A trailing `:` suffix on the model name selects pi's **thinking level**:
+`model:thinking` (e.g. `anthropic/claude-opus-4-5:high`,
+`opus-4.7:medium`). Recognized levels are `off`, `minimal`, `low`,
+`medium`, `high`, and `xhigh` (plus the aliases pi accepts: `none` /
+`0`, `min`, `1`, `med` / `2`, `3`, `4`). A suffix that is not a
+recognized level stays part of the model name, so OpenRouter-style
+variants like `openrouter/meta-llama/llama-3.1-8b-instruct:free` keep
+working. The level only applies to pi execution -- with the `claude`
+and `claude-terminal` SDKs a recognized suffix is stripped and ignored.
+Without a suffix, the SDK's own default (no extended thinking) is used.
+
 ### Selection logic
 
 1. The CLI mode (`plan` or `build`, or the `-m <key>` override) determines

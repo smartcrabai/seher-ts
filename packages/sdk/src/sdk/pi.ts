@@ -10,6 +10,7 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { rethrowAsLimit } from "./errors.ts";
+import { splitThinkingSuffix, type ThinkingLevel } from "./model.ts";
 import { extractTextBlocks, joinSystemPrompt } from "./text.ts";
 import { withStreamTimeout, withTimeout } from "./timeout.ts";
 import type {
@@ -34,7 +35,12 @@ export interface PiSDKConfig {
 	defaultProviderID?: string;
 	cwd?: string;
 	agentDir?: string;
-	thinkingLevel?: "low" | "medium" | "high";
+	/**
+	 * pi に渡す thinking レベル。`model:thinking` サフィックス (例:
+	 * `anthropic/claude-opus-4-5:high`) で渡された場合は SDK 内部で
+	 * モデル ID から strip され、こちらのフィールドより優先される。
+	 */
+	thinkingLevel?: ThinkingLevel;
 	/** Default `run()` / `stream()` timeout in ms. Per-call: `SeherRunOptions.timeoutMs`. */
 	timeoutMs?: number;
 	/**
@@ -111,17 +117,22 @@ export class PiSDK implements SeherSDKInstance {
 	private buildModel(opts: SeherRunOptions): {
 		providerID: string;
 		modelID: string;
+		thinking?: ThinkingLevel;
 	} {
 		const fallbackProvider =
 			this.config.defaultProviderID ?? DEFAULT_PROVIDER_ID;
-		if (opts.model !== undefined)
-			return parseModel(opts.model, fallbackProvider);
-		if (this.config.defaultModel !== undefined) {
-			return parseModel(this.config.defaultModel, fallbackProvider);
+		const rawModel = opts.model ?? this.config.defaultModel;
+		if (rawModel === undefined) {
+			throw new Error(
+				"no model configured: provide runOpts.model or config.defaultModel",
+			);
 		}
-		throw new Error(
-			"no model configured: provide runOpts.model or config.defaultModel",
-		);
+		// 先に `:thinking` サフィックスを切り出してから provider/model を分解
+		// する。`anthropic/claude-opus-4-5:high` -> base=`anthropic/claude-opus-4-5`,
+		// thinking=`high`。`openrouter/.../llama:free` のような変種は base に残る。
+		const { base, thinking } = splitThinkingSuffix(rawModel);
+		const parsed = parseModel(base, fallbackProvider);
+		return thinking !== undefined ? { ...parsed, thinking } : parsed;
 	}
 
 	private async ensureSession(
@@ -131,7 +142,7 @@ export class PiSDK implements SeherSDKInstance {
 		if (this._sessionPending !== null) return this._sessionPending;
 
 		this._sessionPending = (async () => {
-			const { providerID, modelID } = this.buildModel(opts);
+			const { providerID, modelID, thinking } = this.buildModel(opts);
 			const authStorage = AuthStorage.inMemory();
 
 			if (this.config.apiKey !== undefined) {
@@ -163,8 +174,12 @@ export class PiSDK implements SeherSDKInstance {
 				cwd,
 				agentDir,
 			};
-			if (this.config.thinkingLevel !== undefined)
-				sessionOpts.thinkingLevel = this.config.thinkingLevel;
+			// モデル ID のサフィックス (`model:high` 等) は config の
+			// thinkingLevel より優先する。どちらも未指定なら pi のデフォルト
+			// (extended thinking なし) を使う。
+			const effectiveThinking = thinking ?? this.config.thinkingLevel;
+			if (effectiveThinking !== undefined)
+				sessionOpts.thinkingLevel = effectiveThinking;
 
 			const includeClaudeSkills = this.config.includeClaudeSkills ?? true;
 			if (includeClaudeSkills) {

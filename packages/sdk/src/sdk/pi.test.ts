@@ -444,4 +444,108 @@ describe("PiSDK", () => {
 		expect(sessionOpts?.resourceLoader).toBeUndefined();
 		expect(sessionOpts?.settingsManager).toBeUndefined();
 	});
+
+	test("`:thinking` サフィックスは strip してから provider/model を分解し、thinkingLevel を session に渡す", async () => {
+		emittedEvents = [
+			{
+				type: "agent_end",
+				messages: [
+					{ role: "assistant", content: [{ type: "text", text: "ok" }] },
+				],
+			},
+		];
+		const sdk = new PiSDK();
+		await sdk.run({ prompt: "p", model: "anthropic/claude-opus-4-5:high" });
+
+		expect(modelFindCalls.length).toBe(1);
+		expect(modelFindCalls[0]).toEqual({
+			provider: "anthropic",
+			modelId: "claude-opus-4-5",
+		});
+		const sessionOpts = createSessionCalls.at(-1);
+		expect(sessionOpts?.thinkingLevel).toBe("high");
+	});
+
+	test("alias サフィックス(`med`)も medium に正規化されて渡る", async () => {
+		emittedEvents = [
+			{
+				type: "agent_end",
+				messages: [
+					{ role: "assistant", content: [{ type: "text", text: "ok" }] },
+				],
+			},
+		];
+		const sdk = new PiSDK({
+			defaultModel: "anthropic/claude-opus-4-5:med",
+		});
+		await sdk.run({ prompt: "p" });
+
+		expect(modelFindCalls[0]).toEqual({
+			provider: "anthropic",
+			modelId: "claude-opus-4-5",
+		});
+		const sessionOpts = createSessionCalls.at(-1);
+		expect(sessionOpts?.thinkingLevel).toBe("medium");
+	});
+
+	test("認識できないサフィックス(`:free`)はモデル名の一部として透過", async () => {
+		emittedEvents = [
+			{
+				type: "agent_end",
+				messages: [
+					{ role: "assistant", content: [{ type: "text", text: "ok" }] },
+				],
+			},
+		];
+		const sdk = new PiSDK();
+		await sdk.run({
+			prompt: "p",
+			model: "openrouter/meta-llama/llama-3.1-8b-instruct:free",
+		});
+
+		expect(modelFindCalls[0]).toEqual({
+			provider: "openrouter",
+			modelId: "meta-llama/llama-3.1-8b-instruct:free",
+		});
+		const sessionOpts = createSessionCalls.at(-1);
+		expect(sessionOpts?.thinkingLevel).toBeUndefined();
+	});
+
+	test("サフィックスの thinkingLevel は config.thinkingLevel より優先される", async () => {
+		emittedEvents = [
+			{
+				type: "agent_end",
+				messages: [
+					{ role: "assistant", content: [{ type: "text", text: "ok" }] },
+				],
+			},
+		];
+		const sdk = new PiSDK({
+			defaultModel: "anthropic/claude-opus-4-5:xhigh",
+			thinkingLevel: "low",
+		});
+		await sdk.run({ prompt: "p" });
+
+		const sessionOpts = createSessionCalls.at(-1);
+		expect(sessionOpts?.thinkingLevel).toBe("xhigh");
+	});
+
+	test("サフィックス無しなら config.thinkingLevel が使われる", async () => {
+		emittedEvents = [
+			{
+				type: "agent_end",
+				messages: [
+					{ role: "assistant", content: [{ type: "text", text: "ok" }] },
+				],
+			},
+		];
+		const sdk = new PiSDK({
+			defaultModel: "anthropic/claude-opus-4-5",
+			thinkingLevel: "minimal",
+		});
+		await sdk.run({ prompt: "p" });
+
+		const sessionOpts = createSessionCalls.at(-1);
+		expect(sessionOpts?.thinkingLevel).toBe("minimal");
+	});
 });
