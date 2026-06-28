@@ -1,6 +1,6 @@
 import { SeherSDK } from "@seher-ts/sdk";
-import { editPromptInEditor } from "../cli/prompt.ts";
-import { streamToStdout, type WriteFn } from "../cli/stream.ts";
+import { editPromptInEditor, ensureEditorAvailable } from "../cli/prompt.ts";
+import type { WriteFn } from "../cli/stream.ts";
 import type { Logger } from "../util/logger.ts";
 import { applyRetryHooks } from "../util/retry.ts";
 import { runBuildMode } from "./build.ts";
@@ -22,6 +22,12 @@ Execute the plan above.`;
 export interface PlanModeDeps {
 	editPlan?: (initial: string) => Promise<string>;
 	createSdk?: (opts: ConstructorParameters<typeof SeherSDK>[0]) => SeherSDK;
+	/**
+	 * エディタを起動できる環境かを確認するための差し替え可能なフック。
+	 * 既定では `ensureEditorAvailable` をそのまま使う。テストで TTY の
+	 * 有無を制御するために差し替えられる。
+	 */
+	ensureEditorAvailable?: () => void;
 }
 
 export interface PlanModeOptions {
@@ -50,8 +56,23 @@ export async function runPlanMode(
 			new SeherSDK(sdkOpts));
 	const editPlan =
 		opts.deps?.editPlan ?? ((seed: string) => editPromptInEditor(seed));
+	const ensureEditor =
+		opts.deps?.ensureEditorAvailable ?? ensureEditorAvailable;
 
-	// 1) Generate the plan with the resolved plan-mode provider.
+	// プラン生成のコストを払う前に、エディタを安全に開けるかをまず確認し
+	// 失敗時は即座にエラーにする (Rust 版の `seher plan` と同じ挙動)。
+	// CLI UX 上はスタックトレースを出さず、メッセージのみ stderr に出して
+	// exit 1 で終了する。
+	try {
+		ensureEditor();
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		opts.logger.error(msg);
+		return { exitCode: 1 };
+	}
+
+	// 1) プランを生成する。Rust 側の StreamOutput::CaptureOnly に合わせて
+	//    stdout には流さず、生成結果をそのままエディタに seed として渡す。
 	const planSdkOpts: ConstructorParameters<typeof SeherSDK>[0] = {
 		mode: "plan",
 		permissionMode: "bypassPermissions",
@@ -69,22 +90,26 @@ export async function runPlanMode(
 		opts.logger.info(`Planning with: ${label}`);
 	}
 
-	const planOpts: Parameters<typeof streamToStdout>[1] = {
+	const runOpts: {
+		prompt: string;
+		systemPrompt: string;
+		timeoutMs?: number;
+	} = {
 		prompt: opts.prompt,
 		systemPrompt: PLAN_SYSTEM_PROMPT,
 	};
-	if (opts.timeoutMs !== undefined) planOpts.timeoutMs = opts.timeoutMs;
-	if (opts.write !== undefined) planOpts.write = opts.write;
-	const planText = await streamToStdout(planSdk, planOpts);
+	if (opts.timeoutMs !== undefined) runOpts.timeoutMs = opts.timeoutMs;
+	const planResult = await planSdk.run(runOpts);
+	const planText = planResult.text;
 
-	// 2) Open the plan in the editor for the user to review/edit.
+	// 2) 生成したプランをエディタで開いてレビュー/編集してもらう。
 	const edited = (await editPlan(planText)).trim();
 	if (edited.length === 0) {
 		if (!opts.quiet) opts.logger.info("Plan canceled");
 		return { exitCode: 0, canceled: true };
 	}
 
-	// 3) Re-resolve under build mode (priority may differ) and stream the build.
+	// 3) build モードで再解決して、承認されたプランを実行する。
 	const buildPrompt = APPROVED_BUILD_TEMPLATE(edited);
 	const buildSdkOpts: ConstructorParameters<typeof SeherSDK>[0] = {
 		mode: "build",

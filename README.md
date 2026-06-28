@@ -59,9 +59,15 @@ seher [plan|build] [options] [prompt...]
 - `build` (the default subcommand) streams the prompt through the resolved
   agent. Permissions are auto-allowed (yolo).
 - `plan` first generates an implementation plan with the resolved
-  plan-mode provider, opens it in `$EDITOR` (vim) for you to review/edit,
-  then re-resolves under build mode and runs the approved plan as the
-  next prompt. Saving an empty file cancels the run.
+  plan-mode provider (captured internally, **not** streamed to stdout),
+  opens it in `$EDITOR` (vim) for you to review/edit, then re-resolves
+  under build mode and runs the approved plan as the next prompt, whose
+  output streams to stdout as usual. Saving an empty file cancels the
+  run. Because `plan` must launch an editor, it requires a foreground
+  terminal; running without one (e.g. inside an agent harness with
+  redirected stdio) exits with an explicit
+  `seher is not running in the foreground terminal` error instead of
+  being suspended by `SIGTTOU`/`SIGTTIN`.
 - With no positional prompt and a TTY, the CLI opens `$EDITOR` so you can
   type a prompt. Piping into stdin is also supported.
 
@@ -74,7 +80,19 @@ seher [plan|build] [options] [prompt...]
 | `-c, --config <path>` | Path to YAML config (defaults to `$SEHER_CONFIG` or `~/.config/seher/config.yaml`). |
 | `-t, --timeout <ms>` | Per-run timeout in milliseconds. Default is the SDK default — usually none, except Copilot (60_000). On timeout the CLI exits 1 with a `TimeoutError` message; in-flight provider work is **not** aborted. |
 | `-q, --quiet` | Suppress informational output. |
+| `--show-resolution` | Show which provider/model/SDK would be selected and exit (no prompt required). Candidates are listed on stderr (with `[LIMITED until ...]` / `[probe error]` tags from codexbar); the winner is printed as a single-line JSON object on stdout. Combine with `-p` to filter candidates or `-m` to override the mode key. |
 | `-h, --help` / `-v, --version` | Print help / version and exit. |
+
+#### `--show-resolution` examples
+
+```bash
+# Show which provider/model/SDK would be selected (dry run)
+seher --show-resolution
+seher --show-resolution -m plan
+seher --show-resolution -p codex
+```
+
+The winner JSON has the shape `{"provider": "...", "model": "...", "sdk": "...", "mode": "..."}`. When all candidates are rate-limited (`AllAgentsLimitedError`) or no providers match (`NoMatchingAgentError`) the CLI exits 1 with the error message on stderr.
 
 ## Configuration
 
@@ -181,6 +199,33 @@ The retry policy is currently surfaced on `ResolvedAgent.retry` but is not
 yet wired into the SDK dispatch path — it will start applying once the
 streaming/retry layer lands.
 
+### Model entries
+
+A `models` value is either a bare model-id string or an object `{ model, priority }`:
+
+```yaml
+models:
+  build: anthropic/claude-sonnet-4-5          # bare string
+  plan: { model: anthropic/claude-opus-4-5, priority: 10 }   # full form
+  high: anthropic/claude-opus-4-5:high        # with a thinking level
+```
+
+The **model id** uses a `provider/model` shape. The segment before the
+first `/` is passed to the SDK as the provider (e.g. `anthropic`,
+`openai`); the rest is the model name. A model id without a `/` is
+passed through with no explicit provider.
+
+A trailing `:` suffix on the model name selects pi's **thinking level**:
+`model:thinking` (e.g. `anthropic/claude-opus-4-5:high`,
+`opus-4.7:medium`). Recognized levels are `off`, `minimal`, `low`,
+`medium`, `high`, and `xhigh` (plus the aliases pi accepts: `none` /
+`0`, `min`, `1`, `med` / `2`, `3`, `4`). A suffix that is not a
+recognized level stays part of the model name, so OpenRouter-style
+variants like `openrouter/meta-llama/llama-3.1-8b-instruct:free` keep
+working. The level only applies to pi execution -- with the `claude`
+and `claude-terminal` SDKs a recognized suffix is stripped and ignored.
+Without a suffix, the SDK's own default (no extended thinking) is used.
+
 ### Selection logic
 
 1. The CLI mode (`plan` or `build`, or the `-m <key>` override) determines
@@ -267,6 +312,26 @@ name (used by CodexBar / `-p`), defaulting to the YAML map key when no
 `provider` field is set on the entry. `skills` and `retry` are the
 per-candidate resolved view of the [Retry policy](#retry-policy) and
 skill auto-discovery (per-provider > root > defaults).
+
+## Auto-loaded skills
+
+When a provider runs through the in-process `pi` SDK, seher-ts automatically
+injects the following skill directories into the underlying agent's resource
+loader:
+
+1. `~/.agents/skills` — **always** loaded, regardless of any configuration.
+   This matches the hard-coded behaviour of the Rust [`seher`](https://github.com/smartcrabai/seher)
+   reference implementation and gives a single user-wide skills directory
+   that works out of the box across agent runners.
+2. `~/.claude/skills` and `<cwd>/.claude/skills` — loaded when
+   `skills.includeClaude` (per-provider, or the top-level default) is not
+   set to `false`. This opts into the agentskills.io standard layout shared
+   with Claude Code.
+
+Skill paths that do not exist on disk are silently ignored (the underlying
+`DefaultResourceLoader` records them as diagnostics but does not throw).
+To populate a skill, drop a directory containing a `SKILL.md` file under
+one of the paths above; it will be picked up on the next session start.
 
 ## Known limitations
 
