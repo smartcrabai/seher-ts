@@ -1,8 +1,15 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/smartcrabai/seher-ts/main/packages/cli/schemas/config.schema.json
 
-# 一時的な HTTP エラー (`HTTP 429 / 500 / 502 / 503 / 504`) は同じ
-# プロバイダに対して指数バックオフで再試行され、それでも回復しない
-# 場合に LimitError 経路を通って次のプロバイダへ切り替わる。
+# トップレベルの skills は全 provider のデフォルト。
+# 個別 provider で `skills:` を書くとブロック単位で上書きされる。
+skills:
+  includeClaude: true
+
+# トップレベルの retry も全 provider のデフォルト。一時的な HTTP エラー
+# (`HTTP 429 / 500 / 502 / 503 / 504`) は同じプロバイダに対して指数バックオフで
+# 再試行され、それでも回復しない場合に LimitError 経路を通って次のプロバイダへ
+# 切り替わる。provider 側で `retry:` が定義されると root の値はブロックごと
+# 完全に置き換えられる (フィールド単位のマージはしない)。
 retry:
   enabled: true
   maxAttempts: 5
@@ -10,6 +17,7 @@ retry:
   maxDelaySecs: 60
   multiplier: 2.0
   retryClientErrors: false  # true にすると HTTP 401/404 もリトライ対象
+
 
 providers:
   codex:
@@ -29,7 +37,10 @@ providers:
     api:
       key: sk-za-xxxxxxxxxxxxx
       endpoint: https://api.zai.example.com
-    # ルートの retry をブロックごと完全に上書き (部分マージではない)。
+    # 自前で Claude スキルを読みたくない provider はここで opt out。
+    skills:
+      includeClaude: false
+    # zai 専用のリトライ設定 (root の retry をブロック単位で上書き)。
     retry:
       enabled: true
       maxAttempts: 3

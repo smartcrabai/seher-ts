@@ -83,9 +83,19 @@ mock.module("@earendil-works/pi-coding-agent", () => ({
 	SettingsManager: {
 		create: (_cwd: string, _agentDir: string) => ({}),
 	},
+	SessionManager: {
+		create: (_cwd: string, _sessionDir?: string) => ({
+			getSessionId: () => "mock-session-id",
+			getCwd: () => _cwd,
+		}),
+		open: (_path: string) => ({
+			getSessionId: () => "mock-resumed-id",
+			getCwd: () => "/tmp/mock-cwd",
+		}),
+	},
 }));
 
-const { PiSDK } = await import("./pi.ts");
+const { PiSDK, buildAdditionalSkillPaths } = await import("./pi.ts");
 const { LimitError } = await import("./errors.ts");
 
 describe("PiSDK", () => {
@@ -391,7 +401,7 @@ describe("PiSDK", () => {
 		expect(createSessionCalls.length).toBe(1);
 	});
 
-	test("includeClaudeSkills defaults to true; passes ~/.claude/skills + cwd/.claude/skills as additionalSkillPaths", async () => {
+	test("includeClaudeSkills defaults to true; passes ~/.agents/skills + ~/.claude/skills + cwd/.claude/skills as additionalSkillPaths", async () => {
 		resourceLoaderCtorCalls.length = 0;
 		resourceLoaderReloadCalls.length = 0;
 		emittedEvents = [
@@ -413,15 +423,18 @@ describe("PiSDK", () => {
 		expect(opts?.cwd).toBe("/proj");
 		expect(opts?.agentDir).toBe("/tmp/mock-agent-dir");
 		const paths = opts?.additionalSkillPaths as string[];
-		expect(paths).toHaveLength(2);
-		expect(paths[0]).toMatch(/\.claude\/skills$/);
-		expect(paths[1]).toBe("/proj/.claude/skills");
+		expect(paths).toHaveLength(3);
+		// ~/.agents/skills が常に先頭に来る (Rust seher と同じ並び)。
+		expect(paths[0]).toMatch(/\.agents\/skills$/);
+		expect(paths[1]).toMatch(/\.claude\/skills$/);
+		expect(paths[1]).not.toBe("/proj/.claude/skills");
+		expect(paths[2]).toBe("/proj/.claude/skills");
 		const sessionOpts = createSessionCalls.at(-1);
 		expect(sessionOpts?.resourceLoader).toBeDefined();
 		expect(sessionOpts?.settingsManager).toBeDefined();
 	});
 
-	test("includeClaudeSkills=false skips the resource loader injection entirely", async () => {
+	test("includeClaudeSkills=false still injects ~/.agents/skills but skips Claude skill paths", async () => {
 		resourceLoaderCtorCalls.length = 0;
 		resourceLoaderReloadCalls.length = 0;
 		emittedEvents = [
@@ -438,10 +451,193 @@ describe("PiSDK", () => {
 			includeClaudeSkills: false,
 		});
 		await sdk.run({ prompt: "p" });
-		expect(resourceLoaderCtorCalls.length).toBe(0);
-		expect(resourceLoaderReloadCalls.length).toBe(0);
+		expect(resourceLoaderCtorCalls.length).toBe(1);
+		expect(resourceLoaderReloadCalls.length).toBe(1);
+		const opts = resourceLoaderCtorCalls[0];
+		const paths = opts?.additionalSkillPaths as string[];
+		expect(paths).toHaveLength(1);
+		expect(paths[0]).toMatch(/\.agents\/skills$/);
+		// `.claude/skills` は含まれない。
+		for (const p of paths) {
+			expect(p).not.toMatch(/\.claude\/skills$/);
+		}
 		const sessionOpts = createSessionCalls.at(-1);
-		expect(sessionOpts?.resourceLoader).toBeUndefined();
-		expect(sessionOpts?.settingsManager).toBeUndefined();
+		expect(sessionOpts?.resourceLoader).toBeDefined();
+		expect(sessionOpts?.settingsManager).toBeDefined();
+	});
+});
+
+describe("buildAdditionalSkillPaths", () => {
+	test("includes ~/.agents/skills, ~/.claude/skills, and cwd/.claude/skills by default (in order)", () => {
+		const paths = buildAdditionalSkillPaths({
+			homeDir: "/home/u",
+			cwd: "/proj",
+		});
+		expect(paths).toEqual([
+			"/home/u/.agents/skills",
+			"/home/u/.claude/skills",
+			"/proj/.claude/skills",
+		]);
+	});
+
+	test("includeClaudeSkills=true is equivalent to the default", () => {
+		const paths = buildAdditionalSkillPaths({
+			homeDir: "/home/u",
+			cwd: "/proj",
+			includeClaudeSkills: true,
+		});
+		expect(paths).toEqual([
+			"/home/u/.agents/skills",
+			"/home/u/.claude/skills",
+			"/proj/.claude/skills",
+		]);
+	});
+
+	test("includeClaudeSkills=false drops both Claude skill paths but keeps ~/.agents/skills", () => {
+		const paths = buildAdditionalSkillPaths({
+			homeDir: "/home/u",
+			cwd: "/proj",
+			includeClaudeSkills: false,
+		});
+		expect(paths).toEqual(["/home/u/.agents/skills"]);
+	});
+
+	test("~/.agents/skills is always included regardless of includeClaudeSkills value", () => {
+		const onTrue = buildAdditionalSkillPaths({
+			homeDir: "/h",
+			cwd: "/c",
+			includeClaudeSkills: true,
+		});
+		const onFalse = buildAdditionalSkillPaths({
+			homeDir: "/h",
+			cwd: "/c",
+			includeClaudeSkills: false,
+		});
+		const onUndefined = buildAdditionalSkillPaths({
+			homeDir: "/h",
+			cwd: "/c",
+		});
+		expect(onTrue[0]).toBe("/h/.agents/skills");
+		expect(onFalse[0]).toBe("/h/.agents/skills");
+		expect(onUndefined[0]).toBe("/h/.agents/skills");
+	});
+});
+
+describe("PiSDK :thinking suffix", () => {
+	beforeEach(() => {
+		createSessionCalls.length = 0;
+		promptCalls.length = 0;
+		disposeCalls.length = 0;
+		modelFindCalls.length = 0;
+		registerProviderCalls.length = 0;
+		setApiKeyCalls.length = 0;
+		listeners.length = 0;
+		sessionMessages = [];
+		emittedEvents = [];
+		promptShouldThrow = null;
+	});
+
+	test("`:thinking` サフィックスは strip してから provider/model を分解し、thinkingLevel を session に渡す", async () => {
+		emittedEvents = [
+			{
+				type: "agent_end",
+				messages: [
+					{ role: "assistant", content: [{ type: "text", text: "ok" }] },
+				],
+			},
+		];
+		const sdk = new PiSDK();
+		await sdk.run({ prompt: "p", model: "anthropic/claude-opus-4-5:high" });
+
+		expect(modelFindCalls.length).toBe(1);
+		expect(modelFindCalls[0]).toEqual({
+			provider: "anthropic",
+			modelId: "claude-opus-4-5",
+		});
+		const sessionOpts = createSessionCalls.at(-1);
+		expect(sessionOpts?.thinkingLevel).toBe("high");
+	});
+
+	test("alias サフィックス(`med`)も medium に正規化されて渡る", async () => {
+		emittedEvents = [
+			{
+				type: "agent_end",
+				messages: [
+					{ role: "assistant", content: [{ type: "text", text: "ok" }] },
+				],
+			},
+		];
+		const sdk = new PiSDK({
+			defaultModel: "anthropic/claude-opus-4-5:med",
+		});
+		await sdk.run({ prompt: "p" });
+
+		expect(modelFindCalls[0]).toEqual({
+			provider: "anthropic",
+			modelId: "claude-opus-4-5",
+		});
+		const sessionOpts = createSessionCalls.at(-1);
+		expect(sessionOpts?.thinkingLevel).toBe("medium");
+	});
+
+	test("認識できないサフィックス(`:free`)はモデル名の一部として透過", async () => {
+		emittedEvents = [
+			{
+				type: "agent_end",
+				messages: [
+					{ role: "assistant", content: [{ type: "text", text: "ok" }] },
+				],
+			},
+		];
+		const sdk = new PiSDK();
+		await sdk.run({
+			prompt: "p",
+			model: "openrouter/meta-llama/llama-3.1-8b-instruct:free",
+		});
+
+		expect(modelFindCalls[0]).toEqual({
+			provider: "openrouter",
+			modelId: "meta-llama/llama-3.1-8b-instruct:free",
+		});
+		const sessionOpts = createSessionCalls.at(-1);
+		expect(sessionOpts?.thinkingLevel).toBeUndefined();
+	});
+
+	test("サフィックスの thinkingLevel は config.thinkingLevel より優先される", async () => {
+		emittedEvents = [
+			{
+				type: "agent_end",
+				messages: [
+					{ role: "assistant", content: [{ type: "text", text: "ok" }] },
+				],
+			},
+		];
+		const sdk = new PiSDK({
+			defaultModel: "anthropic/claude-opus-4-5:xhigh",
+			thinkingLevel: "low",
+		});
+		await sdk.run({ prompt: "p" });
+
+		const sessionOpts = createSessionCalls.at(-1);
+		expect(sessionOpts?.thinkingLevel).toBe("xhigh");
+	});
+
+	test("サフィックス無しなら config.thinkingLevel が使われる", async () => {
+		emittedEvents = [
+			{
+				type: "agent_end",
+				messages: [
+					{ role: "assistant", content: [{ type: "text", text: "ok" }] },
+				],
+			},
+		];
+		const sdk = new PiSDK({
+			defaultModel: "anthropic/claude-opus-4-5",
+			thinkingLevel: "minimal",
+		});
+		await sdk.run({ prompt: "p" });
+
+		const sessionOpts = createSessionCalls.at(-1);
+		expect(sessionOpts?.thinkingLevel).toBe("minimal");
 	});
 });

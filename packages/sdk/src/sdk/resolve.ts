@@ -6,6 +6,7 @@ import {
 import { loadConfig as loadConfigImpl } from "../config/load.ts";
 import { scanCandidates } from "../scan.ts";
 import { sleepUntil as sleepUntilImpl } from "../sleep/sleepUntil.ts";
+
 import {
 	type AgentLimit,
 	type Config,
@@ -29,23 +30,29 @@ function resolveSkills(
 }
 
 /**
- * provider 単位の retry がある場合はブロックごと上書き、なければルート、
- * それも無ければ `DEFAULT_RETRY_CONFIG` にフォールバック。Rust 実装
- * `Config::resolve_retry` と同じ semantics。
+ * provider-level の `retry` が定義されていれば root を丸ごと置換し、
+ * provider 単体で defaults にフォールバックする (フィールド単位の
+ * マージはしない)。root のみ定義なら root を使用し、両方未定義なら
+ * defaults を返す。値が defaults より逸脱した場合 (`maxAttempts < 1`、
+ * `multiplier < 1.0`) は安全な値にクランプする。
  */
-function resolveRetry(
+export function resolveRetry(
 	providerRetry: RetryConfig | undefined,
 	rootRetry: RetryConfig | undefined,
 ): ResolvedRetryConfig {
 	const source = providerRetry ?? rootRetry;
-	if (source === undefined) return { ...DEFAULT_RETRY_CONFIG };
+	if (source === undefined) {
+		return { ...DEFAULT_RETRY_CONFIG };
+	}
+	const maxAttempts = source.maxAttempts ?? DEFAULT_RETRY_CONFIG.maxAttempts;
+	const multiplier = source.multiplier ?? DEFAULT_RETRY_CONFIG.multiplier;
 	return {
 		enabled: source.enabled ?? DEFAULT_RETRY_CONFIG.enabled,
-		maxAttempts: source.maxAttempts ?? DEFAULT_RETRY_CONFIG.maxAttempts,
+		maxAttempts: maxAttempts < 1 ? 1 : maxAttempts,
 		initialDelaySecs:
 			source.initialDelaySecs ?? DEFAULT_RETRY_CONFIG.initialDelaySecs,
 		maxDelaySecs: source.maxDelaySecs ?? DEFAULT_RETRY_CONFIG.maxDelaySecs,
-		multiplier: source.multiplier ?? DEFAULT_RETRY_CONFIG.multiplier,
+		multiplier: multiplier < 1.0 ? 1.0 : multiplier,
 		retryClientErrors:
 			source.retryClientErrors ?? DEFAULT_RETRY_CONFIG.retryClientErrors,
 	};
@@ -127,11 +134,25 @@ export interface PollForAgentOptions {
 	checkLimit?: typeof checkLimitImpl;
 }
 
-interface Candidate {
+export interface Candidate {
 	provider: string;
 	priority: number;
 	order: number;
 	resolved: ResolvedAgent;
+}
+
+/**
+ * `buildCandidates` のオプション。`modeKey` のみ必須で、他は任意。
+ */
+export interface BuildCandidatesOptions {
+	/** Mode key (e.g., `plan`, `build`). */
+	modeKey: string;
+	/** `-p` で指定された provider key (一致するもののみ残す)。 */
+	providerFilter?: string;
+	/** 候補から除外する provider key 一覧。 */
+	excludeProviders?: readonly string[];
+	/** true のとき tools をサポートしない SDK を除外する。 */
+	requireToolsSupport?: boolean;
 }
 
 function effectivePriority(
@@ -141,13 +162,16 @@ function effectivePriority(
 	return modelPriority ?? providerPriority ?? 0;
 }
 
-function buildCandidates(
+/**
+ * config から優先度順に候補を組み立てる。`--show-resolution` のように、
+ * resolve 全体を走らせずに候補リストだけ欲しい呼び出し側のために export している。
+ */
+export function buildCandidates(
 	config: Config,
-	modeKey: string,
-	providerFilter: string | undefined,
-	excludeProviders: readonly string[] | undefined,
-	requireToolsSupport?: boolean,
+	opts: BuildCandidatesOptions,
 ): Candidate[] {
+	const { modeKey, providerFilter, excludeProviders, requireToolsSupport } =
+		opts;
 	const excluded =
 		excludeProviders !== undefined && excludeProviders.length > 0
 			? new Set(excludeProviders)
@@ -216,13 +240,13 @@ export async function resolveAgent(
 	const modeKey = opts.modeKey ?? "build";
 
 	const config = opts.config ?? (await loadConfig(opts.configPath));
-	const candidates = buildCandidates(
-		config,
-		modeKey,
-		opts.provider,
-		opts.excludeProviders,
-		opts.requireToolsSupport,
-	);
+	const buildOpts: BuildCandidatesOptions = { modeKey };
+	if (opts.provider !== undefined) buildOpts.providerFilter = opts.provider;
+	if (opts.excludeProviders !== undefined)
+		buildOpts.excludeProviders = opts.excludeProviders;
+	if (opts.requireToolsSupport !== undefined)
+		buildOpts.requireToolsSupport = opts.requireToolsSupport;
+	const candidates = buildCandidates(config, buildOpts);
 
 	if (candidates.length === 0) {
 		if (opts.requireToolsSupport) {
@@ -283,13 +307,13 @@ export async function pollForAgent(
 	const intervalMs = opts.intervalMs ?? DEFAULT_POLL_INTERVAL_MS;
 
 	const config = opts.config ?? (await loadConfig(opts.configPath));
-	const candidates = buildCandidates(
-		config,
-		modeKey,
-		opts.provider,
-		opts.excludeProviders,
-		opts.requireToolsSupport,
-	);
+	const buildOpts: BuildCandidatesOptions = { modeKey };
+	if (opts.provider !== undefined) buildOpts.providerFilter = opts.provider;
+	if (opts.excludeProviders !== undefined)
+		buildOpts.excludeProviders = opts.excludeProviders;
+	if (opts.requireToolsSupport !== undefined)
+		buildOpts.requireToolsSupport = opts.requireToolsSupport;
+	const candidates = buildCandidates(config, buildOpts);
 
 	if (candidates.length === 0) {
 		if (opts.requireToolsSupport) {

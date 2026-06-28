@@ -6,6 +6,7 @@
 export const ALL_SDK_KINDS = [
 	"claude",
 	"claude-terminal",
+	"claude-headless",
 	"codex",
 	"copilot",
 	"kimi",
@@ -57,13 +58,13 @@ export interface ResolvedSkillsConfig {
 export interface RetryConfig {
 	/** リトライを有効化するか。デフォルト `true`。 */
 	enabled?: boolean;
-	/** 諦めるまでの最大試行回数。デフォルト `5`。 */
+	/** 諦めるまでの最大試行回数。デフォルト `5`、最低 `1`。 */
 	maxAttempts?: number;
 	/** 最初のリトライまでの遅延 (秒)。デフォルト `2`。 */
 	initialDelaySecs?: number;
 	/** リトライ間の最大遅延 (秒)。デフォルト `60`。 */
 	maxDelaySecs?: number;
-	/** 遅延に毎回乗算する倍率。デフォルト `2.0`。 */
+	/** 遅延に毎回乗算する倍率。デフォルト `2.0`、最低 `1.0`。 */
 	multiplier?: number;
 	/** HTTP 401/404 もリトライ対象にする (true でオプトイン)。デフォルト `false`。 */
 	retryClientErrors?: boolean;
@@ -109,7 +110,10 @@ export interface ProviderEntry {
 	api?: ProviderApi;
 	/** Per-provider skill discovery overrides (takes precedence over root). */
 	skills?: SkillsConfig;
-	/** Per-provider retry policy (ルートの retry をブロックごと上書き)。 */
+	/**
+	 * Per-provider retry policy override。定義されている場合は root を置換
+	 * (フィールド単位のマージはしない)。
+	 */
 	retry?: RetryConfig;
 	/** Mode -> model entry. Keys include `plan`, `build`, plus user-defined keys. */
 	models: Record<string, ModelEntry>;
@@ -120,7 +124,10 @@ export interface Config {
 	providers: ProviderEntry[];
 	/** Root-level skill discovery defaults (overridden by per-provider). */
 	skills?: SkillsConfig;
-	/** ルートのリトライポリシー (provider-level retry に上書きされる)。 */
+	/**
+	 * ルートのリトライポリシー。provider の `retry` が定義されている場合は
+	 * 丸ごと無視される (フィールド単位のマージはしない)。
+	 */
 	retry?: RetryConfig;
 }
 

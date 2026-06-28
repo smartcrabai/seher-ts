@@ -1,5 +1,5 @@
 export { CodexBarError, CodexBarNotFoundError } from "./codexbar/errors.ts";
-export { checkLimit } from "./codexbar/limit.ts";
+export { checkLimit, codexbarProviderName } from "./codexbar/limit.ts";
 export { defaultConfig } from "./config/defaults.ts";
 export {
 	ConfigLoadError,
@@ -8,10 +8,19 @@ export {
 	parseConfigText,
 } from "./config/load.ts";
 export { ConfigValidationError, validateConfig } from "./config/validate.ts";
+export {
+	DispatchToolsNotSupportedError,
+	type RunForResolvedOptions,
+	runForResolved,
+	streamForResolved,
+} from "./sdk/dispatch.ts";
 export { LimitError, type LimitErrorOptions } from "./sdk/errors.ts";
 export { PiSDK, type PiSDKConfig } from "./sdk/pi.ts";
 export {
 	AllAgentsLimitedError,
+	type BuildCandidatesOptions,
+	buildCandidates,
+	type Candidate,
 	NoMatchingAgentError,
 	type PollForAgentOptions,
 	pollForAgent,
@@ -42,15 +51,17 @@ export type {
 	SeherStreamChunk,
 } from "./sdk/types.ts";
 export { sleepUntil } from "./sleep/sleepUntil.ts";
-export {
-	type AgentLimit,
-	type Config,
-	DEFAULT_RETRY_CONFIG,
-	type ModelEntry,
-	type ProviderApi,
-	type ProviderEntry,
-	type ResolvedAgent,
-	type ResolvedRetryConfig,
-	type RetryConfig,
-	type SdkKind,
+export type {
+	AgentLimit,
+	Config,
+	ModelEntry,
+	ProviderApi,
+	ProviderEntry,
+	ResolvedAgent,
+	ResolvedRetryConfig,
+	ResolvedSkillsConfig,
+	RetryConfig,
+	SdkKind,
+	SkillsConfig,
 } from "./types.ts";
+export { DEFAULT_RETRY_CONFIG } from "./types.ts";

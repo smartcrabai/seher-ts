@@ -26,6 +26,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 const SDK_KINDS: ReadonlySet<SdkKind> = new Set<SdkKind>([
 	"claude",
 	"claude-terminal",
+	"claude-headless",
 	"codex",
 	"copilot",
 	"kimi",
@@ -39,6 +40,7 @@ const DEFAULT_SDK_BY_PROVIDER: Readonly<Record<string, SdkKind>> = {
 	codex: "codex",
 	claude: "claude",
 	"claude-terminal": "claude-terminal",
+	"claude-headless": "claude-headless",
 	cursor: "cursor",
 	opencodego: "opencode",
 	copilot: "copilot",
@@ -51,7 +53,7 @@ function parseSdk(raw: unknown, label: string): SdkKind {
 	}
 	if (!SDK_KINDS.has(raw as SdkKind)) {
 		fail(
-			`${label}.sdk must be one of "claude", "claude-terminal", "codex", "copilot", "kimi", "opencode", "cursor", "pi"`,
+			`${label}.sdk must be one of "claude", "claude-terminal", "claude-headless", "codex", "copilot", "kimi", "opencode", "cursor", "pi"`,
 		);
 	}
 	return raw as SdkKind;
@@ -75,7 +77,7 @@ function parseApi(raw: unknown, label: string): ProviderApi {
 	return api;
 }
 
-function parseRetry(raw: unknown, label: string): RetryConfig {
+function _parseRetry(raw: unknown, label: string): RetryConfig {
 	if (!isPlainObject(raw)) {
 		fail(`${label} must be an object`);
 	}
@@ -148,6 +150,64 @@ function parseSkills(raw: unknown, label: string): SkillsConfig {
 			fail(`${label}.includeClaude must be a boolean`);
 		}
 		out.includeClaude = raw.includeClaude;
+	}
+	return out;
+}
+
+function parseFiniteNumber(raw: unknown, label: string): number {
+	if (typeof raw !== "number" || !Number.isFinite(raw)) {
+		fail(`${label} must be a finite number`);
+	}
+	return raw;
+}
+
+function parseRetry(raw: unknown, label: string): RetryConfig {
+	if (!isPlainObject(raw)) {
+		fail(`${label} must be an object`);
+	}
+	const out: RetryConfig = {};
+	if ("enabled" in raw && raw.enabled !== undefined) {
+		if (typeof raw.enabled !== "boolean") {
+			fail(`${label}.enabled must be a boolean`);
+		}
+		out.enabled = raw.enabled;
+	}
+	if ("maxAttempts" in raw && raw.maxAttempts !== undefined) {
+		const n = parseFiniteNumber(raw.maxAttempts, `${label}.maxAttempts`);
+		if (n < 1) {
+			fail(`${label}.maxAttempts must be >= 1`);
+		}
+		out.maxAttempts = n;
+	}
+	if ("initialDelaySecs" in raw && raw.initialDelaySecs !== undefined) {
+		const n = parseFiniteNumber(
+			raw.initialDelaySecs,
+			`${label}.initialDelaySecs`,
+		);
+		if (n < 0) {
+			fail(`${label}.initialDelaySecs must be >= 0`);
+		}
+		out.initialDelaySecs = n;
+	}
+	if ("maxDelaySecs" in raw && raw.maxDelaySecs !== undefined) {
+		const n = parseFiniteNumber(raw.maxDelaySecs, `${label}.maxDelaySecs`);
+		if (n < 0) {
+			fail(`${label}.maxDelaySecs must be >= 0`);
+		}
+		out.maxDelaySecs = n;
+	}
+	if ("multiplier" in raw && raw.multiplier !== undefined) {
+		const n = parseFiniteNumber(raw.multiplier, `${label}.multiplier`);
+		if (n < 1.0) {
+			fail(`${label}.multiplier must be >= 1.0`);
+		}
+		out.multiplier = n;
+	}
+	if ("retryClientErrors" in raw && raw.retryClientErrors !== undefined) {
+		if (typeof raw.retryClientErrors !== "boolean") {
+			fail(`${label}.retryClientErrors must be a boolean`);
+		}
+		out.retryClientErrors = raw.retryClientErrors;
 	}
 	return out;
 }
