@@ -341,6 +341,37 @@ Skill paths that do not exist on disk are silently ignored (the underlying
 To populate a skill, drop a directory containing a `SKILL.md` file under
 one of the paths above; it will be picked up on the next session start.
 
+### Dispatch API (resolved agent direct execution)
+
+When you already hold a `ResolvedAgent` (e.g., you ran `resolveAgent`
+manually) and want to skip the YAML re-resolution that `SeherSDK`
+performs, the lower-level `dispatch` API forwards directly to the right
+provider SDK:
+
+```ts
+import {
+  resolveAgent,
+  runForResolved,
+  streamForResolved,
+  DispatchToolsNotSupportedError,
+} from "@seher-ts/sdk";
+
+const agent = await resolveAgent({ modeKey: "build" });
+
+// One-shot
+const result = await runForResolved(agent, { prompt: "hello" });
+
+// Streaming
+for await (const chunk of streamForResolved(agent, { prompt: "hello" })) {
+  process.stdout.write(chunk.delta);
+}
+```
+
+Passing non-empty `tools` to a kind that cannot honor them (anything
+other than `claude` / `copilot` / `kimi` / `pi`) throws a
+`DispatchToolsNotSupportedError` synchronously from `runForResolved` and
+at iteration time from `streamForResolved`.
+
 ## Known limitations
 
 - **macOS only.** Linux/Windows are not supported.
