@@ -110,6 +110,17 @@ export class FileSystemTranscriptReader implements ClaudeTranscriptReader {
 		}
 	}
 
+	async countAssistantMessages(transcriptPath: string): Promise<number> {
+		let raw = "";
+		try {
+			raw = await this.fs.readFile(transcriptPath);
+		} catch {
+			return 0;
+		}
+		const { assistantMessages } = scanTranscript(parseJsonl(raw));
+		return assistantMessages.length;
+	}
+
 	async listSessionNames(opts: {
 		root: string;
 		cwd: string;
@@ -129,6 +140,10 @@ export class FileSystemTranscriptReader implements ClaudeTranscriptReader {
 		options: WaitForAssistantResponseOptions,
 	): Promise<ClaudeTerminalResponse> {
 		const deadline = this.now() + options.timeoutMs;
+		// resume 時、既存ファイルには直前ターンの `assistantMessages` と `result` が
+		// 残っている。新規ターンの応答だけを待つために、ベースラインを超えるまで
+		// 終端判定を保留する。fresh ターンでは 0 のままなので従来通り 1 つでも来れば返る。
+		const minAssistantCount = options.minAssistantCount ?? 0;
 		while (true) {
 			let raw = "";
 			try {
@@ -139,7 +154,8 @@ export class FileSystemTranscriptReader implements ClaudeTranscriptReader {
 			const { assistantMessages, lastResult, turnComplete } = scanTranscript(
 				parseJsonl(raw),
 			);
-			if (lastResult !== undefined) {
+			const passedBaseline = assistantMessages.length > minAssistantCount;
+			if (lastResult !== undefined && passedBaseline) {
 				return {
 					sessionId: session.sessionId,
 					assistantMessages,
@@ -150,11 +166,11 @@ export class FileSystemTranscriptReader implements ClaudeTranscriptReader {
 			// `system/turn_duration` once the assistant turn is fully complete.
 			// We treat that (paired with at least one assistant message) as the
 			// terminal signal.
-			if (turnComplete && assistantMessages.length > 0) {
+			if (turnComplete && passedBaseline) {
 				return { sessionId: session.sessionId, assistantMessages };
 			}
 			if (this.now() >= deadline) {
-				if (assistantMessages.length > 0) {
+				if (passedBaseline) {
 					return { sessionId: session.sessionId, assistantMessages };
 				}
 				throw new ClaudeTerminalTimeoutError(

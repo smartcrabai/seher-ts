@@ -170,6 +170,11 @@ function applyResolvedAgent(
 				}
 				out.env = kimiEnv;
 			}
+			// kimi 固有: 共通 `cwd` を SDK 固有の `workDir` にも写しておく
+			// (両方未設定なら何もしない)。明示の `workDir` が優先される。
+			if (out.cwd !== undefined && out.workDir === undefined) {
+				out.workDir = out.cwd;
+			}
 			break;
 		case "opencode":
 			if (apiEndpoint !== undefined && out.baseURL === undefined) {
@@ -314,6 +319,17 @@ export class SeherSDK {
 	async resolved(): Promise<{ kind: SdkKind; agent: ResolvedAgent | null }> {
 		const sdk = await this.ensure();
 		return { kind: sdk.kind, agent: this.resolvedAgent };
+	}
+
+	/**
+	 * Session id of the most recent `run()` / `stream()` call, or `undefined`
+	 * if the underlying provider does not own multi-turn sessions or the
+	 * SDK has not run yet. Caller is expected to consult this *after* a run
+	 * to print `session: <id>` to stderr.
+	 */
+	lastSessionId(): string | undefined {
+		if (this.instance === null) return undefined;
+		return this.instance.lastSessionId?.();
 	}
 
 	/** Drop any cached resolution so the next call re-runs CodexBar checks. */

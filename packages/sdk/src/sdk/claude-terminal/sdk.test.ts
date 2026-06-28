@@ -706,6 +706,87 @@ describe("ClaudeTerminalSDK session limit detection", () => {
 			"6:40pm (Asia/Tokyo)",
 		);
 	});
+
+	test("resume: adds --resume <id>, skips findSession, derives transcriptPath from cwd+id, passes baseline count", async () => {
+		const rb = recordingBackend();
+		const findCalls: FindClaudeSessionOptions[] = [];
+		const waitCalls: Array<{
+			session: ClaudeSessionRef;
+			options: WaitForAssistantResponseOptions;
+		}> = [];
+		let countedPath = "";
+		const reader: ClaudeTranscriptReader = {
+			findSession: async (options) => {
+				findCalls.push(options);
+				throw new Error("findSession must NOT be called on resume");
+			},
+			waitForAssistantResponse: async (session, options) => {
+				waitCalls.push({ session, options });
+				return {
+					sessionId: session.sessionId,
+					assistantMessages: [],
+					lastResultMessage: asMsg({
+						type: "result",
+						subtype: "success",
+						result: "next-turn",
+					}),
+				};
+			},
+			listSessionNames: async () => new Set<string>(),
+			countAssistantMessages: async (path: string) => {
+				countedPath = path;
+				return 3;
+			},
+		};
+		const sdk = new ClaudeTerminalSDK({
+			cwd: "/repo",
+			claudeBin: "/bin/claude",
+			transcriptRoot: "/trans",
+			backendImpl: rb.backend,
+			transcriptReader: reader,
+		});
+		const result = await sdk.run({
+			prompt: "follow up",
+			resume: "abc-123",
+		});
+		expect(result.text).toBe("next-turn");
+		expect(result.sessionId).toBe("abc-123");
+		// `--resume <id>` がコマンドに追加されている
+		const cmd = rb.startCalls[0]?.options.command ?? [];
+		expect(cmd).toContain("--resume");
+		expect(cmd[cmd.indexOf("--resume") + 1]).toBe("abc-123");
+		// findSession は呼ばれず、resume の id から transcript path を組む
+		expect(findCalls).toHaveLength(0);
+		expect(waitCalls).toHaveLength(1);
+		expect(waitCalls[0]?.session.transcriptPath).toContain("abc-123.jsonl");
+		expect(waitCalls[0]?.session.transcriptPath).toContain("-repo"); // encodeProjectDir("/repo") は "-repo"
+		// baseline count が渡されている (= prior turn の result が誤って返るのを防ぐ)
+		expect(waitCalls[0]?.options.minAssistantCount).toBe(3);
+		expect(countedPath).toContain("abc-123.jsonl");
+	});
+
+	test("resume: rejects unsafe id (path traversal)", async () => {
+		const rb = recordingBackend();
+		const rr = recordingReader({
+			sessionId: "x",
+			assistantMessages: [],
+			lastResultMessage: asMsg({
+				type: "result",
+				subtype: "success",
+				result: "ok",
+			}),
+		});
+		const sdk = new ClaudeTerminalSDK({
+			cwd: "/repo",
+			claudeBin: "/bin/claude",
+			transcriptRoot: "/trans",
+			backendImpl: rb.backend,
+			transcriptReader: rr.reader,
+		});
+		await expect(
+			sdk.run({ prompt: "hi", resume: "../../etc/passwd" }),
+		).rejects.toThrow(/Invalid resume id/);
+	});
 });
 
 describe("ClaudeTerminalSDK.stream", () => {

@@ -1,5 +1,7 @@
+import { join } from "node:path";
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import type { SdkKind } from "../../types.ts";
+import { assertValidResumeId } from "../errors.ts";
 import type {
 	SeherRunOptions,
 	SeherRunResult,
@@ -14,6 +16,7 @@ import { normalizeText } from "./response-normalizer.ts";
 import { TmuxBackend } from "./tmux-backend.ts";
 import {
 	defaultTranscriptRoot,
+	encodeProjectDir,
 	FileSystemTranscriptReader,
 } from "./transcript-reader.ts";
 import type {
@@ -122,6 +125,11 @@ export class ClaudeTerminalSDK implements SeherSDKInstance {
 	private readonly transcripts: ClaudeTranscriptReader;
 	private readonly now: () => Date;
 	private readonly sleep: (ms: number) => Promise<void>;
+	private _lastSessionId: string | undefined;
+
+	lastSessionId(): string | undefined {
+		return this._lastSessionId;
+	}
 
 	constructor(config: ClaudeTerminalSDKConfig = {}) {
 		this.config = config;
@@ -145,16 +153,28 @@ export class ClaudeTerminalSDK implements SeherSDKInstance {
 	}
 
 	async run(opts: SeherRunOptions): Promise<SeherRunResult> {
+		// 直前の run/stream で残った id を `lastSessionId()` が誤って晒さないよう、
+		// 開始時にリセット。成功時は execute() の戻りで上書きする。
+		this._lastSessionId = undefined;
 		const response = await this.execute(opts);
 		const text = normalizeText(response);
-		return { text, kind: this.kind, raw: response };
+		const result: SeherRunResult = { text, kind: this.kind, raw: response };
+		if (response.sessionId.length > 0) {
+			result.sessionId = response.sessionId;
+			this._lastSessionId = response.sessionId;
+		}
+		return result;
 	}
 
 	stream(opts: SeherRunOptions): AsyncIterable<SeherStreamChunk> {
 		const self = this;
 		return {
 			async *[Symbol.asyncIterator]() {
+				self._lastSessionId = undefined;
 				const response = await self.execute(opts);
+				if (response.sessionId.length > 0) {
+					self._lastSessionId = response.sessionId;
+				}
 				const delta = normalizeText(response);
 				if (delta.length > 0) {
 					yield { kind: self.kind, delta, raw: response };
@@ -190,12 +210,26 @@ export class ClaudeTerminalSDK implements SeherSDKInstance {
 		if (opts.model !== undefined) cmdOpts.model = opts.model;
 		if (opts.systemPrompt !== undefined)
 			cmdOpts.systemPrompt = opts.systemPrompt;
+		// resume を指定したら `claude --resume <id>` で起動する。
+		// `--resume` 経由では既存の transcript ファイルが追記される (新規 jsonl は
+		// 作られない) ため、findSession の "fresh-only" 検索ではヒットしない。
+		// よって resume 時は transcript パスを id から決め打ちで構築する。
+		// id を子プロセスの引数 / ファイルパスに使うので、SDK 層で validate する。
+		if (opts.resume !== undefined) {
+			assertValidResumeId(opts.resume);
+			cmdOpts.resume = opts.resume;
+		}
 		const command = buildClaudeCommand(cmdOpts);
 
-		const excludeNames = await this.transcripts.listSessionNames({
-			root: transcriptRoot,
-			cwd,
-		});
+		// resume 時は excludeNames のスキャンを省略 (一致するファイルは確実に
+		// 既存なので除外しても無意味)。fresh 時のみ既存 jsonl を除外する。
+		const excludeNames =
+			opts.resume === undefined
+				? await this.transcripts.listSessionNames({
+						root: transcriptRoot,
+						cwd,
+					})
+				: new Set<string>();
 		const startedAt = this.now();
 		const session = await this.backend.start({ cwd, command });
 		try {
@@ -209,18 +243,40 @@ export class ClaudeTerminalSDK implements SeherSDKInstance {
 				timeoutMs: pasteVisibleTimeoutMs,
 				pollIntervalMs: readyPollIntervalMs,
 			});
+			// resume 時は submit 前にベースラインの assistant メッセージ数を取得し、
+			// `waitForAssistantResponse` がそれを超える応答 (= 新ターンの出力) まで
+			// 待つようにする。これを忘れると prior turn の `result` が即返ってしまう。
+			let resumeRef: { sessionId: string; transcriptPath: string } | undefined;
+			let baselineAssistantCount = 0;
+			if (opts.resume !== undefined) {
+				resumeRef = {
+					sessionId: opts.resume,
+					transcriptPath: join(
+						transcriptRoot,
+						encodeProjectDir(cwd),
+						`${opts.resume}.jsonl`,
+					),
+				};
+				baselineAssistantCount =
+					(await this.transcripts.countAssistantMessages?.(
+						resumeRef.transcriptPath,
+					)) ?? 0;
+			}
 			await this.backend.submit(session);
-			const sessionRef = await this.transcripts.findSession({
-				cwd,
-				after: startedAt,
-				timeoutMs,
-				pollIntervalMs,
-				root: transcriptRoot,
-				excludeNames,
-			});
+			const sessionRef =
+				resumeRef ??
+				(await this.transcripts.findSession({
+					cwd,
+					after: startedAt,
+					timeoutMs,
+					pollIntervalMs,
+					root: transcriptRoot,
+					excludeNames,
+				}));
 			return await this.transcripts.waitForAssistantResponse(sessionRef, {
 				timeoutMs,
 				pollIntervalMs,
+				minAssistantCount: baselineAssistantCount,
 			});
 		} finally {
 			if (!this.config.keepSession) {

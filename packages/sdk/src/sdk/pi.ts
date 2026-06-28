@@ -1,3 +1,4 @@
+import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -7,9 +8,10 @@ import {
 	DefaultResourceLoader,
 	getAgentDir,
 	ModelRegistry,
+	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import { rethrowAsLimit } from "./errors.ts";
+import { assertValidResumeId, rethrowAsLimit } from "./errors.ts";
 import { extractTextBlocks, joinSystemPrompt } from "./text.ts";
 import { withStreamTimeout, withTimeout } from "./timeout.ts";
 import type {
@@ -97,12 +99,72 @@ type SubscribeFn = {
 	};
 } & SessionDisposable;
 
+/**
+ * Compute pi's per-cwd session directory.
+ * Mirrors `getDefaultSessionDirPath` in `@earendil-works/pi-coding-agent`:
+ *   `<agentDir>/sessions/--<cwd_with_separators_to_dashes>--/`
+ *
+ * Keep this in sync with the upstream encoder. We could discover the path via
+ * `SessionManager.create(...)` and read `getSessionDir()`, but that creates
+ * the directory eagerly, which we want to avoid in the `--resume` path before
+ * we know whether the id is valid.
+ */
+function piSessionDir(cwd: string, agentDir: string): string {
+	const safeCwd = cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-");
+	return join(agentDir, "sessions", `--${safeCwd}--`);
+}
+
+/**
+ * Locate pi's on-disk session file for `id` under `cwd` and open it.
+ * Throws when no matching session is found -- mirrors the Rust `resume_and_stream`
+ * "session not found under cwd" behavior so the caller surfaces a clean error.
+ */
+function openPiSessionById(
+	cwd: string,
+	agentDir: string,
+	id: string,
+): SessionManager {
+	// pi のセッションファイルは `<sessionDir>/<timestamp>_<id>.jsonl` で配置される。
+	// id だけ知っている場合は readdir でサフィックス一致のファイルを探す。
+	// pi の内部実装が変わって `<id>.jsonl` だけになっていても拾えるよう、両形式を見る。
+	const sessionDir = piSessionDir(cwd, agentDir);
+	let entries: string[] = [];
+	try {
+		entries = readdirSync(sessionDir);
+	} catch (e) {
+		throw new Error(
+			`pi: session directory not found for cwd '${cwd}' (looked under '${sessionDir}'): ${
+				e instanceof Error ? e.message : String(e)
+			}`,
+		);
+	}
+	const suffix = `_${id}.jsonl`;
+	const exact = `${id}.jsonl`;
+	const match = entries.find((e) => e === exact || e.endsWith(suffix));
+	if (match === undefined) {
+		throw new Error(
+			`pi: session '${id}' not found under cwd '${cwd}' (resume requires the same --cwd used to create it)`,
+		);
+	}
+	return SessionManager.open(join(sessionDir, match));
+}
+
 export class PiSDK implements SeherSDKInstance {
 	readonly kind: SdkKind = "pi";
 	private readonly config: PiSDKConfig;
 	private _session: SessionDisposable | null = null;
 	private _sessionResult: CreateAgentSessionResult | null = null;
 	private _sessionPending: Promise<CreateAgentSessionResult> | null = null;
+	/**
+	 * id of the currently-bound session. Populated by `ensureSession` so that
+	 * `run()` / `lastSessionId()` can surface it as the printable session id.
+	 * Reset to `null` when the session is disposed.
+	 */
+	private _sessionId: string | null = null;
+
+	lastSessionId(): string | undefined {
+		return this._sessionId ?? undefined;
+	}
 
 	constructor(config: PiSDKConfig = {}) {
 		this.config = config;
@@ -127,7 +189,26 @@ export class PiSDK implements SeherSDKInstance {
 	private async ensureSession(
 		opts: SeherRunOptions,
 	): Promise<CreateAgentSessionResult> {
-		if (this._sessionResult !== null) return this._sessionResult;
+		// resume 指定時は SDK 層でも id を validate する (CLI を介さず SeherSDK を
+		// 直接呼ぶケースの防御)。
+		if (opts.resume !== undefined) assertValidResumeId(opts.resume);
+
+		// セッションキャッシュは同じ resume id に対してのみ再利用する。
+		// `run({resume: "A"})` の後で `run({resume: "B"})` を呼んだ際に前のセッションを
+		// silent に使い回さないよう、id が一致しない場合は dispose して作り直す。
+		if (this._sessionResult !== null) {
+			const cached = this._sessionId;
+			const requested = opts.resume;
+			if (requested === undefined || requested === cached) {
+				return this._sessionResult;
+			}
+			// 別の resume id が渡された -> キャッシュを破棄して新しい session を作る。
+			const prev = this._session;
+			this._session = null;
+			this._sessionResult = null;
+			this._sessionId = null;
+			if (prev !== null) await prev.dispose().catch(() => {});
+		}
 		if (this._sessionPending !== null) return this._sessionPending;
 
 		this._sessionPending = (async () => {
@@ -183,6 +264,20 @@ export class PiSDK implements SeherSDKInstance {
 				sessionOpts.settingsManager = settingsManager;
 			}
 
+			// fresh / resume いずれも事前に SessionManager を構築して渡す。
+			// fresh の場合は新規 id が採番され、resume の場合は既存ファイルをロードして
+			// `buildSessionContext()` の messages 非空 → pi が自動継続する。
+			// 事前構築する利点は、`sessionManager.getSessionId()` で id をこちらが
+			// 把握できる点 (これを CLI が `session: <id>` として出力する)。
+			// `agentDir` を渡しているので、`SessionManager.create` の暗黙の
+			// `~/.pi/agent/...` ではなく config の agentDir 配下に session を作る。
+			const sessionManager =
+				opts.resume !== undefined
+					? openPiSessionById(cwd, agentDir, opts.resume)
+					: SessionManager.create(cwd, piSessionDir(cwd, agentDir));
+			sessionOpts.sessionManager = sessionManager;
+			this._sessionId = sessionManager.getSessionId();
+
 			return createAgentSession(
 				sessionOpts as Parameters<typeof createAgentSession>[0],
 			);
@@ -221,6 +316,7 @@ export class PiSDK implements SeherSDKInstance {
 					await session.dispose().catch(() => {});
 					this._sessionResult = null;
 					this._session = null;
+					this._sessionId = null;
 				}
 			}
 
@@ -239,7 +335,13 @@ export class PiSDK implements SeherSDKInstance {
 				text = extractAssistantText(eventMessages);
 			}
 
-			return { text, kind: this.kind, raw: session.state.messages };
+			const out: SeherRunResult = {
+				text,
+				kind: this.kind,
+				raw: session.state.messages,
+			};
+			if (this._sessionId !== null) out.sessionId = this._sessionId;
+			return out;
 		})();
 		return withTimeout(work, timeoutMs, this.kind);
 	}
@@ -276,6 +378,7 @@ export class PiSDK implements SeherSDKInstance {
 						await session.dispose().catch(() => {});
 						self._sessionResult = null;
 						self._session = null;
+						self._sessionId = null;
 					}
 				}
 
@@ -294,6 +397,7 @@ export class PiSDK implements SeherSDKInstance {
 		this._session = null;
 		this._sessionResult = null;
 		this._sessionPending = null;
+		this._sessionId = null;
 		if (session !== null) {
 			await session.dispose().catch(() => {});
 		}

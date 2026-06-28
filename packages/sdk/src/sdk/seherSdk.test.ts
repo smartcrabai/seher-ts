@@ -293,6 +293,16 @@ mock.module("@earendil-works/pi-coding-agent", () => ({
 	SettingsManager: {
 		create: () => ({}),
 	},
+	SessionManager: {
+		create: (cwd: string, _sessionDir?: string) => ({
+			getSessionId: () => "mock-session-id",
+			getCwd: () => cwd,
+		}),
+		open: (_path: string) => ({
+			getSessionId: () => "mock-resumed-id",
+			getCwd: () => "/tmp/mock-cwd",
+		}),
+	},
 }));
 
 const { SeherSDK } = await import("./seherSdk.ts");
@@ -912,5 +922,78 @@ describe("SeherSDK class", () => {
 		});
 		const result = await sdk.run({ prompt: "hi" });
 		expect(result.kind).toBe("pi");
+	});
+
+	// --- cwd / resume propagation ---
+
+	test("kind=claude: cwd flows to Claude SDK options.cwd", async () => {
+		const sdk = new SeherSDK({ kind: "claude", cwd: "/tmp/proj" });
+		await sdk.run({ prompt: "hi" });
+		const opts = claudeQueryCalls[0]?.options as { cwd?: string };
+		expect(opts.cwd).toBe("/tmp/proj");
+	});
+
+	test("kind=claude: runOpts.resume flows to Claude SDK options.resume", async () => {
+		const sdk = new SeherSDK({ kind: "claude" });
+		await sdk.run({ prompt: "hi", resume: "sess-1234" });
+		const opts = claudeQueryCalls[0]?.options as { resume?: string };
+		expect(opts.resume).toBe("sess-1234");
+	});
+
+	test("kind=claude: lastSessionId() reflects session_id from messages", async () => {
+		const sdk = new SeherSDK({ kind: "claude" });
+		const result = await sdk.run({ prompt: "hi" });
+		expect(result.sessionId).toBe("s");
+		expect(sdk.lastSessionId()).toBe("s");
+	});
+
+	test("kind=pi: cwd is forwarded to createAgentSession", async () => {
+		const sdk = new SeherSDK({
+			kind: "pi",
+			apiKey: "k",
+			defaultModel: "anthropic/claude-sonnet",
+			cwd: "/tmp/pi-proj",
+		});
+		await sdk.run({ prompt: "hi" });
+		const createOpts = piCreateSessionCalls[0] as { cwd?: string };
+		expect(createOpts.cwd).toBe("/tmp/pi-proj");
+	});
+
+	test("kind=pi: lastSessionId() returns the SessionManager id (fresh)", async () => {
+		const sdk = new SeherSDK({
+			kind: "pi",
+			apiKey: "k",
+			defaultModel: "anthropic/claude-sonnet",
+		});
+		const result = await sdk.run({ prompt: "hi" });
+		// SessionManager mock returns "mock-session-id" for create() and
+		// "mock-resumed-id" for open(). A fresh run uses create().
+		expect(result.sessionId).toBe("mock-session-id");
+		expect(sdk.lastSessionId()).toBe("mock-session-id");
+	});
+
+	test("kind=claude: rejects unsafe resume id (path traversal)", async () => {
+		const sdk = new SeherSDK({ kind: "claude" });
+		await expect(
+			sdk.run({ prompt: "hi", resume: "../../etc/passwd" }),
+		).rejects.toThrow(/Invalid resume id/);
+	});
+
+	test("kind=claude: rejects resume id starting with '-'", async () => {
+		const sdk = new SeherSDK({ kind: "claude" });
+		await expect(
+			sdk.run({ prompt: "hi", resume: "-dangerous-flag" }),
+		).rejects.toThrow(/must not start with '-'/);
+	});
+
+	test("kind=pi: rejects unsafe resume id (path traversal)", async () => {
+		const sdk = new SeherSDK({
+			kind: "pi",
+			apiKey: "k",
+			defaultModel: "anthropic/claude-sonnet",
+		});
+		await expect(
+			sdk.run({ prompt: "hi", resume: "../../etc/passwd" }),
+		).rejects.toThrow(/Invalid resume id/);
 	});
 });
