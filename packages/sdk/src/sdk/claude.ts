@@ -7,6 +7,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import type { z } from "zod";
 import { LimitError } from "./errors.ts";
+import { splitThinkingSuffix } from "./model.ts";
 import { extractTextBlocks } from "./text.ts";
 import { withStreamTimeout, withTimeout } from "./timeout.ts";
 import type { SeherTool } from "./tools.ts";
@@ -115,8 +116,13 @@ export class ClaudeSDK implements SeherSDKInstance {
 		if (permissionMode === "bypassPermissions") {
 			options.allowDangerouslySkipPermissions = true;
 		}
-		const model = opts.model ?? this.config.defaultModel;
-		if (model !== undefined) options.model = model;
+		const rawModel = opts.model ?? this.config.defaultModel;
+		if (rawModel !== undefined) {
+			// `:thinking` サフィックスは claude SDK では非対応。認識した
+			// サフィックスは strip して base のみを渡し、:free のような未
+			// 認識サフィックスは原文を維持する。
+			options.model = splitThinkingSuffix(rawModel).base;
+		}
 		if (opts.systemPrompt !== undefined) {
 			options.systemPrompt = opts.systemPrompt;
 		}
