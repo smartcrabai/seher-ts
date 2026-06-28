@@ -212,6 +212,26 @@ modeKey, api?, env }`. `provider` is the resolved provider name (used
 by CodexBar / `-p`), defaulting to the YAML map key when no `provider`
 field is set on the entry.
 
+## Auto-loaded skills
+
+When a provider runs through the in-process `pi` SDK, seher-ts automatically
+injects the following skill directories into the underlying agent's resource
+loader:
+
+1. `~/.agents/skills` — **always** loaded, regardless of any configuration.
+   This matches the hard-coded behaviour of the Rust [`seher`](https://github.com/smartcrabai/seher)
+   reference implementation and gives a single user-wide skills directory
+   that works out of the box across agent runners.
+2. `~/.claude/skills` and `<cwd>/.claude/skills` — loaded when
+   `skills.includeClaude` (per-provider, or the top-level default) is not
+   set to `false`. This opts into the agentskills.io standard layout shared
+   with Claude Code.
+
+Skill paths that do not exist on disk are silently ignored (the underlying
+`DefaultResourceLoader` records them as diagnostics but does not throw).
+To populate a skill, drop a directory containing a `SKILL.md` file under
+one of the paths above; it will be picked up on the next session start.
+
 ## Known limitations
 
 - **macOS only.** Linux/Windows are not supported.

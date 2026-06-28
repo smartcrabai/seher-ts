@@ -38,12 +38,37 @@ export interface PiSDKConfig {
 	/** Default `run()` / `stream()` timeout in ms. Per-call: `SeherRunOptions.timeoutMs`. */
 	timeoutMs?: number;
 	/**
-	 * When true (default), inject `~/.claude/skills` and `<cwd>/.claude/skills`
-	 * into the underlying Pi agent's resource loader. Pi does not auto-discover
-	 * Claude-format skills natively, so this opts into the agentskills.io
-	 * standard layout shared with Claude Code.
+	 * When true (default), additionally inject `~/.claude/skills` and
+	 * `<cwd>/.claude/skills` into the underlying Pi agent's resource loader.
+	 * Pi does not auto-discover Claude-format skills natively, so this opts
+	 * into the agentskills.io standard layout shared with Claude Code.
+	 *
+	 * `~/.agents/skills` is always injected regardless of this flag (matching
+	 * the Rust seher reference implementation), so a user-wide skills directory
+	 * shared with other agent runners works without any configuration.
 	 */
 	includeClaudeSkills?: boolean;
+}
+
+/**
+ * `additionalSkillPaths` の組み立てロジックを切り出した純粋関数。テストしやすさと
+ * 順序保証 (Rust リファレンスと同じ並び) のために独立させている。
+ *
+ * - `~/.agents/skills` は常に最初に入る (Rust seher のハードコードと同等)。
+ * - `~/.claude/skills` と `<cwd>/.claude/skills` は `includeClaudeSkills` が
+ *   `false` 以外 (= デフォルト true 扱い) のときだけ追加される。
+ */
+export function buildAdditionalSkillPaths(args: {
+	homeDir: string;
+	cwd: string;
+	includeClaudeSkills?: boolean;
+}): string[] {
+	const paths: string[] = [join(args.homeDir, ".agents", "skills")];
+	if (args.includeClaudeSkills !== false) {
+		paths.push(join(args.homeDir, ".claude", "skills"));
+		paths.push(join(args.cwd, ".claude", "skills"));
+	}
+	return paths;
 }
 
 const DEFAULT_PROVIDER_ID = "anthropic";
@@ -166,22 +191,33 @@ export class PiSDK implements SeherSDKInstance {
 			if (this.config.thinkingLevel !== undefined)
 				sessionOpts.thinkingLevel = this.config.thinkingLevel;
 
-			const includeClaudeSkills = this.config.includeClaudeSkills ?? true;
-			if (includeClaudeSkills) {
-				const settingsManager = SettingsManager.create(cwd, agentDir);
-				const resourceLoader = new DefaultResourceLoader({
-					cwd,
-					agentDir,
-					settingsManager,
-					additionalSkillPaths: [
-						join(homedir(), ".claude", "skills"),
-						join(cwd, ".claude", "skills"),
-					],
-				});
+			// `~/.agents/skills` を常に含めるため、`includeClaudeSkills` の値に関係なく
+			// 必ず resource loader を組み立てる (Rust seher の hardcode と同等の挙動)。
+			const additionalSkillPaths = buildAdditionalSkillPaths({
+				homeDir: homedir(),
+				cwd,
+				includeClaudeSkills: this.config.includeClaudeSkills,
+			});
+			const settingsManager = SettingsManager.create(cwd, agentDir);
+			const resourceLoader = new DefaultResourceLoader({
+				cwd,
+				agentDir,
+				settingsManager,
+				additionalSkillPaths,
+			});
+			// `DefaultResourceLoader.reload()` は存在しない skill path を黙ってスキップ
+			// (内部で diagnostics に積むだけ) するが、念のため例外を握り潰して
+			// セッション作成自体が落ちないようにする。
+			try {
 				await resourceLoader.reload();
-				sessionOpts.resourceLoader = resourceLoader;
-				sessionOpts.settingsManager = settingsManager;
+			} catch (err) {
+				console.info(
+					"[seher-ts/pi] resourceLoader.reload() の呼び出しで例外が発生したため無視します:",
+					err,
+				);
 			}
+			sessionOpts.resourceLoader = resourceLoader;
+			sessionOpts.settingsManager = settingsManager;
 
 			return createAgentSession(
 				sessionOpts as Parameters<typeof createAgentSession>[0],
