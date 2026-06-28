@@ -36,6 +36,15 @@ export interface PlanModeOptions {
 	configPath?: string;
 	timeoutMs?: number;
 	quiet?: boolean;
+	/** Canonicalized working directory; forwarded to both plan and build SDKs. */
+	cwd?: string;
+	/**
+	 * Session id to resume. Plan generation always starts a fresh transcript
+	 * (planning is a single-shot dry run by design), but the build phase
+	 * forwards `resume` to the underlying SDK so subsequent plan-mode runs can
+	 * continue an existing build transcript.
+	 */
+	resume?: string;
 	logger: Logger;
 	deps?: PlanModeDeps;
 	write?: WriteFn;
@@ -45,6 +54,8 @@ export interface PlanModeResult {
 	exitCode: number;
 	canceled?: boolean;
 	planText?: string;
+	/** Session id reported by the build phase, when supported. */
+	sessionId?: string;
 }
 
 export async function runPlanMode(
@@ -80,6 +91,7 @@ export async function runPlanMode(
 	if (opts.provider !== undefined) planSdkOpts.provider = opts.provider;
 	if (opts.configPath !== undefined) planSdkOpts.configPath = opts.configPath;
 	if (opts.timeoutMs !== undefined) planSdkOpts.timeoutMs = opts.timeoutMs;
+	if (opts.cwd !== undefined) planSdkOpts.cwd = opts.cwd;
 	applyRetryHooks(planSdkOpts, opts.logger);
 	const planSdk = createSdk(planSdkOpts);
 
@@ -118,6 +130,7 @@ export async function runPlanMode(
 	if (opts.provider !== undefined) buildSdkOpts.provider = opts.provider;
 	if (opts.configPath !== undefined) buildSdkOpts.configPath = opts.configPath;
 	if (opts.timeoutMs !== undefined) buildSdkOpts.timeoutMs = opts.timeoutMs;
+	if (opts.cwd !== undefined) buildSdkOpts.cwd = opts.cwd;
 	applyRetryHooks(buildSdkOpts, opts.logger);
 	const buildSdk = createSdk(buildSdkOpts);
 
@@ -130,8 +143,12 @@ export async function runPlanMode(
 	if (opts.provider !== undefined) buildOpts.provider = opts.provider;
 	if (opts.configPath !== undefined) buildOpts.configPath = opts.configPath;
 	if (opts.timeoutMs !== undefined) buildOpts.timeoutMs = opts.timeoutMs;
+	if (opts.cwd !== undefined) buildOpts.cwd = opts.cwd;
+	if (opts.resume !== undefined) buildOpts.resume = opts.resume;
 	if (opts.quiet !== undefined) buildOpts.quiet = opts.quiet;
 	if (opts.write !== undefined) buildOpts.write = opts.write;
 	const result = await runBuildMode(buildOpts);
-	return { exitCode: result.exitCode, planText: edited };
+	const out: PlanModeResult = { exitCode: result.exitCode, planText: edited };
+	if (result.sessionId !== undefined) out.sessionId = result.sessionId;
+	return out;
 }

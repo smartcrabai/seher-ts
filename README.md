@@ -86,9 +86,36 @@ seher [plan|build] [options] [prompt...]
 | `-m, --model <key>` | Use this model key (e.g. `low`) instead of the default plan/build key. Only providers that define the key are eligible. |
 | `-c, --config <path>` | Path to YAML config (defaults to `$SEHER_CONFIG` or `~/.config/seher/config.yaml`). |
 | `-t, --timeout <ms>` | Per-run timeout in milliseconds. Default is the SDK default — usually none, except Copilot (60_000). On timeout the CLI exits 1 with a `TimeoutError` message; in-flight provider work is **not** aborted. |
+| `--cwd <dir>` | Working directory for the agent. Canonicalized on receipt (must exist); multi-turn sessions are bound to it so the same `--cwd` must be passed when resuming. |
+| `-r, --resume <id>` | Resume a prior session by id (printed as `session: <id>` on a previous run). Pass the same `--cwd` used to create it. |
 | `-q, --quiet` | Suppress informational output. |
 | `--show-resolution` | Show which provider/model/SDK would be selected and exit (no prompt required). Candidates are listed on stderr (with `[LIMITED until ...]` / `[probe error]` tags from codexbar); the winner is printed as a single-line JSON object on stdout. Combine with `-p` to filter candidates or `-m` to override the mode key. |
 | `-h, --help` / `-v, --version` | Print help / version and exit. |
+
+### Multi-turn sessions
+
+Every run through a session-owning backend (`claude`, `claude-terminal`, `pi`)
+is a persistent session that a follow-up run can continue:
+
+- A fresh run prints `session: <id>` to **stderr** (stdout carries only the
+  assistant text, so piping stays safe). `--quiet` suppresses the print.
+- Sessions are bound to the working directory. Pass `-r/--resume <id>` together
+  with the **same `--cwd`** used to create the session (`--cwd` is canonicalized
+  up front so symlinked/relative forms of the same directory resolve identically).
+- `--resume` is validated against `^[A-Za-z0-9_-]+$` and rejects path separators
+  or other junk so a malicious id cannot escape the per-cwd session directory.
+- On resume, the underlying SDK loads the prior conversation (Claude uses
+  `claude --resume <id>`; pi opens the on-disk session JSONL). If the resolver
+  would pick a different backend than the one that owns the session, pass
+  `--provider` to force the matching one.
+
+```sh
+# Turn 1 -- fresh session; the id is printed on stderr.
+seher --cwd /path/to/project "implement the feature"   # stderr: session: <uuid>
+
+# Turn 2 -- continue the conversation with the same cwd and the printed id.
+seher --cwd /path/to/project -r <uuid> "now add tests"
+```
 
 #### `--show-resolution` examples
 
@@ -277,7 +304,23 @@ for await (const chunk of sdk.stream({ prompt: "Hello!" })) {
 | `kind` | Skip resolution and use this SDK kind directly. |
 | `tools` | In-process tools forwarded to providers that support them (Claude, Copilot, Kimi). Codex / Cursor / OpenCode candidates are filtered out and a warning is emitted if a non-supporting kind is selected. |
 | `timeoutMs` | Default per-run timeout (ms). Per-call override: `SeherRunOptions.timeoutMs` on `run()` / `stream()`. On expiry, the SDK rejects with `TimeoutError` (importable from `@seher-ts/sdk`); in-flight provider work is **not** aborted. |
+| `cwd` | Working directory forwarded to the resolved SDK. For `claude` / `claude-terminal` / `cursor` / `pi` this becomes the agent's `cwd`; for `kimi` it is also mapped to `workDir`. Multi-turn sessions are bound to this directory. |
 | `apiKey`, `baseURL`, `gitHubToken`, … | Per-provider config knobs (forwarded when relevant to the resolved kind). |
+
+`SeherRunOptions` additionally accepts:
+
+| Field | Notes |
+|---|---|
+| `prompt` | The user prompt. |
+| `model` | Per-call model override. |
+| `systemPrompt` | Per-call system prompt. |
+| `timeoutMs` | Per-call timeout override. |
+| `resume` | Session id to resume. Forwarded as `--resume <id>` for Claude-based backends, and as a pre-loaded `SessionManager` for `pi`. SDKs that don't own sessions silently ignore it. |
+
+`SeherRunResult` includes `text`, `kind`, `raw`, and an optional `sessionId`
+set by SDKs that own multi-turn sessions (`claude`, `claude-terminal`, `pi`).
+Use it to persist the id between turns; the same value is also available via
+`sdk.lastSessionId()` after `run()` / `stream()`.
 
 `resolved()` forces resolution and returns the chosen `{ kind, agent }`.
 `reset()` drops the cached resolution so the next call re-runs CodexBar

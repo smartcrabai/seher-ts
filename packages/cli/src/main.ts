@@ -37,6 +37,23 @@ function emitHelpOrVersion(args: ParsedArgs, deps: RunSeherDeps): void {
 	}
 }
 
+/**
+ * 新規セッション (resume なし) の `session: <id>` を stderr に出す。
+ * Rust 版 stream.rs と同様、stdout は assistant text 専用に保ち、id は stderr に
+ * 流して `2>/dev/null` でパイプ運用しても影響しないようにする。`--quiet` 時は
+ * 抑止する (informational 扱い)。
+ */
+function emitSessionIdIfFresh(
+	args: ParsedArgs,
+	sessionId: string | undefined,
+	deps: RunSeherDeps,
+): void {
+	if (args.quiet) return;
+	if (args.resume !== undefined) return;
+	if (sessionId === undefined || sessionId.length === 0) return;
+	deps.stderr(`session: ${sessionId}\n`);
+}
+
 export async function runSeher(
 	argv: string[],
 	overrides: Partial<RunSeherDeps> = {},
@@ -87,7 +104,10 @@ export async function runSeher(
 			if (args.provider !== undefined) planOpts.provider = args.provider;
 			if (args.config !== undefined) planOpts.configPath = args.config;
 			if (args.timeoutMs !== undefined) planOpts.timeoutMs = args.timeoutMs;
+			if (args.cwd !== undefined) planOpts.cwd = args.cwd;
+			if (args.resume !== undefined) planOpts.resume = args.resume;
 			const result = await deps.runPlanMode(planOpts);
+			emitSessionIdIfFresh(args, result.sessionId, deps);
 			return result.exitCode;
 		}
 		const buildOpts: Parameters<typeof runBuildModeImpl>[0] = {
@@ -99,7 +119,10 @@ export async function runSeher(
 		if (args.model !== undefined) buildOpts.mode = args.model;
 		if (args.config !== undefined) buildOpts.configPath = args.config;
 		if (args.timeoutMs !== undefined) buildOpts.timeoutMs = args.timeoutMs;
+		if (args.cwd !== undefined) buildOpts.cwd = args.cwd;
+		if (args.resume !== undefined) buildOpts.resume = args.resume;
 		const result = await deps.runBuildMode(buildOpts);
+		emitSessionIdIfFresh(args, result.sessionId, deps);
 		return result.exitCode;
 	} catch (err) {
 		if (

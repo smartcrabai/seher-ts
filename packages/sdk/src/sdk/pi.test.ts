@@ -83,6 +83,16 @@ mock.module("@earendil-works/pi-coding-agent", () => ({
 	SettingsManager: {
 		create: (_cwd: string, _agentDir: string) => ({}),
 	},
+	SessionManager: {
+		create: (_cwd: string, _sessionDir?: string) => ({
+			getSessionId: () => "mock-session-id",
+			getCwd: () => _cwd,
+		}),
+		open: (_path: string) => ({
+			getSessionId: () => "mock-resumed-id",
+			getCwd: () => "/tmp/mock-cwd",
+		}),
+	},
 }));
 
 const { PiSDK, buildAdditionalSkillPaths } = await import("./pi.ts");
