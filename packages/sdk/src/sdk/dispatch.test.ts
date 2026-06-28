@@ -237,6 +237,16 @@ mock.module("@earendil-works/pi-coding-agent", () => ({
 	},
 	getAgentDir: () => "/tmp/mock-agent-dir",
 	SettingsManager: { create: () => ({}) },
+	SessionManager: {
+		create: (_cwd: string, _sessionDir?: string) => ({
+			getSessionId: () => "mock-session-id",
+			getCwd: () => _cwd,
+		}),
+		open: (_path: string) => ({
+			getSessionId: () => "mock-resumed-id",
+			getCwd: () => "/tmp/mock-cwd",
+		}),
+	},
 }));
 
 const { runForResolved, streamForResolved, DispatchToolsNotSupportedError } =
