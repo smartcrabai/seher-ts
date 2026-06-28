@@ -30,5 +30,13 @@ export function applyRetryHooks(
 		if (attempt === 1 || attempt % 10 !== 0) return;
 		logger.info(`Still limited (attempt ${attempt})...`);
 	};
+	// transient HTTP エラー (`HTTP 429/5xx` 等) を同一プロバイダで再試行する
+	// 直前に Rust 版 CLI と同じ書式で warn を出す。
+	opts.onTransientRetry = (info) => {
+		const delaySecs = Math.max(0, Math.round(info.delayMs / 1000));
+		logger.warn(
+			`Provider '${info.provider}' returned a transient API error (attempt ${info.attempt}/${info.maxAttempts}): ${info.message}; retrying in ${delaySecs}s...`,
+		);
+	};
 	return opts;
 }

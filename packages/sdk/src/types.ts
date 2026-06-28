@@ -49,28 +49,28 @@ export interface ResolvedSkillsConfig {
 }
 
 /**
- * Exponential-backoff retry policy for transient provider API errors.
+ * 一時的なプロバイダ API エラーに対する指数バックオフ再試行ポリシー。
  *
- * 設定は root と provider の二段構成。provider-level が定義されている場合は
- * root の値を一切引き継がず provider 単体で defaults にフォールバックする
- * (個別フィールドのマージはしない)。
+ * プロバイダ単位の設定はルート単位の設定をブロックごと完全に上書きする
+ * (Rust 実装 `seher::sdk::config::Config::resolve_retry` と同じ挙動)。
+ * 未指定のフィールドは {@link DEFAULT_RETRY_CONFIG} の値にフォールバック。
  */
 export interface RetryConfig {
-	/** 再試行を有効にするか (default: true)。 */
+	/** リトライを有効化するか。デフォルト `true`。 */
 	enabled?: boolean;
-	/** 諦めるまでの最大試行回数 (default: 5、最低 1)。 */
+	/** 諦めるまでの最大試行回数。デフォルト `5`、最低 `1`。 */
 	maxAttempts?: number;
-	/** 初回リトライ前の待機秒数 (default: 2)。 */
+	/** 最初のリトライまでの遅延 (秒)。デフォルト `2`。 */
 	initialDelaySecs?: number;
-	/** リトライ間の上限待機秒数 (default: 60)。 */
+	/** リトライ間の最大遅延 (秒)。デフォルト `60`。 */
 	maxDelaySecs?: number;
-	/** 毎回 delay に掛ける倍率 (default: 2.0、最低 1.0)。 */
+	/** 遅延に毎回乗算する倍率。デフォルト `2.0`、最低 `1.0`。 */
 	multiplier?: number;
-	/** HTTP 401/404 などのクライアントエラーもリトライ対象にするか (default: false)。 */
+	/** HTTP 401/404 もリトライ対象にする (true でオプトイン)。デフォルト `false`。 */
 	retryClientErrors?: boolean;
 }
 
-/** Retry config with all fields resolved to concrete values. */
+/** 全フィールドが具体値に解決済みのリトライ設定。 */
 export interface ResolvedRetryConfig {
 	enabled: boolean;
 	maxAttempts: number;
@@ -79,6 +79,16 @@ export interface ResolvedRetryConfig {
 	multiplier: number;
 	retryClientErrors: boolean;
 }
+
+/** `RetryConfig` のデフォルト値 (Rust 側の `RetryConfig::default` と一致)。 */
+export const DEFAULT_RETRY_CONFIG: ResolvedRetryConfig = {
+	enabled: true,
+	maxAttempts: 5,
+	initialDelaySecs: 2,
+	maxDelaySecs: 60,
+	multiplier: 2.0,
+	retryClientErrors: false,
+};
 
 /** A single provider in the YAML `providers` map (after normalization). */
 export interface ProviderEntry {
@@ -101,7 +111,7 @@ export interface ProviderEntry {
 	/** Per-provider skill discovery overrides (takes precedence over root). */
 	skills?: SkillsConfig;
 	/**
-	 * Per-provider retry policy override. 定義されている場合は root を置換
+	 * Per-provider retry policy override。定義されている場合は root を置換
 	 * (フィールド単位のマージはしない)。
 	 */
 	retry?: RetryConfig;
@@ -115,8 +125,8 @@ export interface Config {
 	/** Root-level skill discovery defaults (overridden by per-provider). */
 	skills?: SkillsConfig;
 	/**
-	 * Root-level retry policy defaults. provider の `retry` が定義されている
-	 * 場合は丸ごと無視される (フィールド単位のマージはしない)。
+	 * ルートのリトライポリシー。provider の `retry` が定義されている場合は
+	 * 丸ごと無視される (フィールド単位のマージはしない)。
 	 */
 	retry?: RetryConfig;
 }
@@ -146,6 +156,6 @@ export interface ResolvedAgent {
 	env: Record<string, string>;
 	/** Skill discovery flags resolved from per-provider > root > defaults. */
 	skills: ResolvedSkillsConfig;
-	/** Retry policy resolved from per-provider > root > defaults. */
+	/** Resolved retry policy (per-provider > root > defaults)。 */
 	retry: ResolvedRetryConfig;
 }

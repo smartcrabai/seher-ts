@@ -6,15 +6,17 @@ import {
 import { loadConfig as loadConfigImpl } from "../config/load.ts";
 import { scanCandidates } from "../scan.ts";
 import { sleepUntil as sleepUntilImpl } from "../sleep/sleepUntil.ts";
-import type {
-	AgentLimit,
-	Config,
-	ResolvedAgent,
-	ResolvedRetryConfig,
-	ResolvedSkillsConfig,
-	RetryConfig,
-	SdkKind,
-	SkillsConfig,
+
+import {
+	type AgentLimit,
+	type Config,
+	DEFAULT_RETRY_CONFIG,
+	type ResolvedAgent,
+	type ResolvedRetryConfig,
+	type ResolvedSkillsConfig,
+	type RetryConfig,
+	type SdkKind,
+	type SkillsConfig,
 } from "../types.ts";
 
 function resolveSkills(
@@ -26,16 +28,6 @@ function resolveSkills(
 			providerSkills?.includeClaude ?? rootSkills?.includeClaude ?? true,
 	};
 }
-
-/** RetryConfig の hard-coded defaults (Rust 側 `RetryConfig::default` と一致)。 */
-const RETRY_DEFAULTS: ResolvedRetryConfig = {
-	enabled: true,
-	maxAttempts: 5,
-	initialDelaySecs: 2,
-	maxDelaySecs: 60,
-	multiplier: 2.0,
-	retryClientErrors: false,
-};
 
 /**
  * provider-level の `retry` が定義されていれば root を丸ごと置換し、
@@ -50,19 +42,19 @@ export function resolveRetry(
 ): ResolvedRetryConfig {
 	const source = providerRetry ?? rootRetry;
 	if (source === undefined) {
-		return { ...RETRY_DEFAULTS };
+		return { ...DEFAULT_RETRY_CONFIG };
 	}
-	const maxAttempts = source.maxAttempts ?? RETRY_DEFAULTS.maxAttempts;
-	const multiplier = source.multiplier ?? RETRY_DEFAULTS.multiplier;
+	const maxAttempts = source.maxAttempts ?? DEFAULT_RETRY_CONFIG.maxAttempts;
+	const multiplier = source.multiplier ?? DEFAULT_RETRY_CONFIG.multiplier;
 	return {
-		enabled: source.enabled ?? RETRY_DEFAULTS.enabled,
+		enabled: source.enabled ?? DEFAULT_RETRY_CONFIG.enabled,
 		maxAttempts: maxAttempts < 1 ? 1 : maxAttempts,
 		initialDelaySecs:
-			source.initialDelaySecs ?? RETRY_DEFAULTS.initialDelaySecs,
-		maxDelaySecs: source.maxDelaySecs ?? RETRY_DEFAULTS.maxDelaySecs,
+			source.initialDelaySecs ?? DEFAULT_RETRY_CONFIG.initialDelaySecs,
+		maxDelaySecs: source.maxDelaySecs ?? DEFAULT_RETRY_CONFIG.maxDelaySecs,
 		multiplier: multiplier < 1.0 ? 1.0 : multiplier,
 		retryClientErrors:
-			source.retryClientErrors ?? RETRY_DEFAULTS.retryClientErrors,
+			source.retryClientErrors ?? DEFAULT_RETRY_CONFIG.retryClientErrors,
 	};
 }
 

@@ -28,9 +28,19 @@ export {
 	resolveAgent,
 } from "./sdk/resolve.ts";
 export {
+	delayForAttempt,
+	effectiveMaxAttempts,
+	effectiveMultiplier,
+	isClientErrorRetryable,
+	isRetryableMessage,
+	isTransientHttpError,
+} from "./sdk/retry.ts";
+export {
+	type LimitRetryInfo,
 	SeherSDK,
 	type SeherSDKConfig,
 	type SeherSDKOptions,
+	type TransientRetryInfo,
 } from "./sdk/seherSdk.ts";
 export { TimeoutError } from "./sdk/timeout.ts";
 export type { SeherTool } from "./sdk/tools.ts";
@@ -54,3 +64,4 @@ export type {
 	SdkKind,
 	SkillsConfig,
 } from "./types.ts";
+export { DEFAULT_RETRY_CONFIG } from "./types.ts";

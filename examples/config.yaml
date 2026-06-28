@@ -5,15 +5,19 @@
 skills:
   includeClaude: true
 
-# トップレベルの retry も全 provider のデフォルト。
-# provider 側で `retry:` が定義されると root の値は丸ごと置き換えられる。
+# トップレベルの retry も全 provider のデフォルト。一時的な HTTP エラー
+# (`HTTP 429 / 500 / 502 / 503 / 504`) は同じプロバイダに対して指数バックオフで
+# 再試行され、それでも回復しない場合に LimitError 経路を通って次のプロバイダへ
+# 切り替わる。provider 側で `retry:` が定義されると root の値はブロックごと
+# 完全に置き換えられる (フィールド単位のマージはしない)。
 retry:
   enabled: true
   maxAttempts: 5
   initialDelaySecs: 2
   maxDelaySecs: 60
   multiplier: 2.0
-  retryClientErrors: false
+  retryClientErrors: false  # true にすると HTTP 401/404 もリトライ対象
+
 
 providers:
   codex:
@@ -41,6 +45,8 @@ providers:
       enabled: true
       maxAttempts: 3
       initialDelaySecs: 1
+      maxDelaySecs: 10
+      multiplier: 2.0
     models:
       plan: glm-5.1
       build: glm-5.1

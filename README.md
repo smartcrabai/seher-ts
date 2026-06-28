@@ -178,7 +178,7 @@ and the JSON Schema at
 | `api.key` | string | Mapped to the SDK's native key field (e.g. `ANTHROPIC_API_KEY`, `gitHubToken`, …). |
 | `api.endpoint` | string | Mapped to the SDK's native base URL field (e.g. `ANTHROPIC_BASE_URL`, OpenCode `baseURL`, …). |
 | `skills.includeClaude` | boolean | Per-provider override of the top-level `skills.includeClaude`. |
-| `retry` | object | Per-provider retry policy override. Replaces the root `retry` block as a whole — fields are **not** merged individually. Missing fields fall back to the hard-coded defaults. |
+| `retry` | object | Per-provider retry policy override. Replaces the root `retry` block as a whole — fields are **not** merged individually. Missing fields fall back to the hard-coded defaults. See [Retry policy](#retry-policy). |
 | `models` | map | Mode key (`plan` / `build` / custom) → `{ model: string, priority?: number }`. A bare string is shorthand for `{ model: <string> }`. |
 
 ### Top-level options
@@ -190,27 +190,35 @@ and the JSON Schema at
 
 ### Retry policy
 
-`retry` configures an exponential-backoff retry policy for transient provider
-API errors. It may be specified at the top level and/or per-provider; when a
-provider defines its own `retry` block it **replaces** the root block as a
-whole rather than merging fields. Missing fields fall back to the defaults
-shown below.
+Transient provider API errors (`HTTP 429 / 500 / 502 / 503 / 504`) are
+retried against the **same provider** with exponential backoff before the
+limit-retry loop kicks in and switches to another provider. `LimitError`
+(rate / usage limit) bypasses the transient-retry loop and goes straight
+to the provider-switch path so the next available provider can take over
+without waiting.
+
+Configure at the root or per-provider; provider-level settings replace
+the root block entirely rather than merging individual fields. Missing
+fields fall back to the defaults shown below.
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `enabled` | boolean | `true` | Whether retries are enabled. |
-| `maxAttempts` | integer (≥ 1) | `5` | Maximum number of attempts before giving up. |
+| `maxAttempts` | integer (≥ 1) | `5` | Maximum number of attempts before giving up (initial attempt + up to `maxAttempts - 1` retries). |
 | `initialDelaySecs` | integer (≥ 0) | `2` | Delay before the first retry, in seconds. |
 | `maxDelaySecs` | integer (≥ 0) | `60` | Cap on the delay between retries, in seconds. |
-| `multiplier` | number (≥ 1.0) | `2.0` | Factor applied to the delay after each retry. |
+| `multiplier` | number (≥ 1.0) | `2.0` | Factor applied to the delay after each retry. Clamped to `1.0` to avoid decay. |
 | `retryClientErrors` | boolean | `false` | Opt in to also retry HTTP 401/404 (some providers return these during transient outages). |
 
 ```yaml
 # Root-level default applied to every provider that doesn't override it.
 retry:
+  enabled: true
   maxAttempts: 5
   initialDelaySecs: 2
+  maxDelaySecs: 60
   multiplier: 2.0
+  retryClientErrors: false
 
 providers:
   claude:
@@ -228,10 +236,6 @@ providers:
     models:
       build: glm-5.1
 ```
-
-The retry policy is currently surfaced on `ResolvedAgent.retry` but is not
-yet wired into the SDK dispatch path — it will start applying once the
-streaming/retry layer lands.
 
 ### Model entries
 
@@ -304,6 +308,9 @@ for await (const chunk of sdk.stream({ prompt: "Hello!" })) {
 | `kind` | Skip resolution and use this SDK kind directly. |
 | `tools` | In-process tools forwarded to providers that support them (Claude, Copilot, Kimi). Codex / Cursor / OpenCode candidates are filtered out and a warning is emitted if a non-supporting kind is selected. |
 | `timeoutMs` | Default per-run timeout (ms). Per-call override: `SeherRunOptions.timeoutMs` on `run()` / `stream()`. On expiry, the SDK rejects with `TimeoutError` (importable from `@seher-ts/sdk`); in-flight provider work is **not** aborted. |
+| `retryOnLimit` | When true (and `kind` is unset), auto-fail over to the next non-limited provider on `LimitError`. The CLI sets this by default. |
+| `onLimitRetry`, `onAllLimited`, `onLimitWaitTick` | Hooks for the limit-retry loop (provider switch, all-limited polling). |
+| `onTransientRetry` | Hook fired right before the SDK retries the **same provider** for a transient HTTP error (`HTTP 429 / 500 / 502 / 503 / 504`, plus `401 / 404` when `retryClientErrors` is true). Receives `{ provider, attempt, maxAttempts, message, delayMs }`. Disabled when `retry.enabled === false` on the resolved agent. |
 | `cwd` | Working directory forwarded to the resolved SDK. For `claude` / `claude-terminal` / `cursor` / `pi` this becomes the agent's `cwd`; for `kimi` it is also mapped to `workDir`. Multi-turn sessions are bound to this directory. |
 | `apiKey`, `baseURL`, `gitHubToken`, … | Per-provider config knobs (forwarded when relevant to the resolved kind). |
 
@@ -362,7 +369,8 @@ modeKey, api?, env, skills, retry }`. `provider` is the resolved provider
 name (used by CodexBar / `-p`), defaulting to the YAML map key when no
 `provider` field is set on the entry. `skills` and `retry` are the
 per-candidate resolved view of the [Retry policy](#retry-policy) and
-skill auto-discovery (per-provider > root > defaults).
+skill auto-discovery (per-provider > root > defaults). `retry` drives the
+SDK's same-provider transient-HTTP retry loop.
 
 ## Auto-loaded skills
 
