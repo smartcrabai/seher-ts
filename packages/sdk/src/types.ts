@@ -6,6 +6,7 @@
 export const ALL_SDK_KINDS = [
 	"claude",
 	"claude-terminal",
+	"claude-headless",
 	"codex",
 	"copilot",
 	"kimi",

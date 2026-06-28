@@ -26,6 +26,7 @@
 			"enum": [
 				"claude",
 				"claude-terminal",
+				"claude-headless",
 				"codex",
 				"copilot",
 				"kimi",

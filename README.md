@@ -15,6 +15,7 @@ rate-limit checks. Providers that CodexBar does not know about
 |---|---|---|
 | `claude` | `claude` | `@anthropic-ai/claude-agent-sdk` |
 | `claude-terminal` | `claude-terminal` | Claude Code CLI driven via tmux |
+| `claude-headless` | `claude-headless` | `claude -p` subprocess |
 | `codex` | `codex` | `@openai/codex-sdk` |
 | `cursor` | `cursor` | `@cursor/sdk` |
 | `opencodego` | `opencode` | `@opencode-ai/sdk` |
@@ -27,6 +28,12 @@ tmux session and captures responses by polling its JSONL transcript
 under `~/.claude/projects/`. It shares the same CodexBar account quota
 as `claude` (i.e. `claude-terminal` candidates are checked against the
 `claude` usage entry).
+
+The `claude-headless` SDK is a lightweight alternative: it runs
+`claude -p "<prompt>"` as a one-shot subprocess and returns the captured
+stdout. There is no tmux pane and no transcript polling — useful when
+you just want a single-shot completion from the Claude CLI. It also
+shares the `claude` CodexBar account quota.
 
 Paste-detection (the step that waits for the pasted prompt to appear
 in the TUI before submitting Enter) is robust against long Japanese /
@@ -139,7 +146,7 @@ and the JSON Schema at
 | Field | Type | Notes |
 |---|---|---|
 | `provider` | string | Resolved provider name. Defaults to the YAML map key. Drives the built-in SDK default lookup, the CodexBar usage query, and the `-p` filter. Use this to share a CodexBar pool between multiple entries (e.g. two `provider: claude` entries with different priorities/models). |
-| `sdk` | `"claude" \| "claude-terminal" \| "codex" \| "copilot" \| "kimi" \| "opencode" \| "cursor" \| "pi"` | Required when the resolved provider name is outside the built-in set; optional otherwise (defaults from the table above). |
+| `sdk` | `"claude" \| "claude-terminal" \| "claude-headless" \| "codex" \| "copilot" \| "kimi" \| "opencode" \| "cursor" \| "pi"` | Required when the resolved provider name is outside the built-in set; optional otherwise (defaults from the table above). |
 | `priority` | number | Provider-level shorthand. Used when a model entry omits its own priority. |
 | `api.key` | string | Mapped to the SDK's native key field (e.g. `ANTHROPIC_API_KEY`, `gitHubToken`, …). |
 | `api.endpoint` | string | Mapped to the SDK's native base URL field (e.g. `ANTHROPIC_BASE_URL`, OpenCode `baseURL`, …). |
@@ -281,6 +288,7 @@ checks (used by `plan` mode to re-resolve under `build`).
 ```ts
 import { ClaudeSDK } from "@seher-ts/sdk/claude";
 import { ClaudeTerminalSDK } from "@seher-ts/sdk/claude-terminal";
+import { ClaudeHeadlessSDK } from "@seher-ts/sdk/claude-headless";
 import { CodexSDK } from "@seher-ts/sdk/codex";
 import { CopilotSDK } from "@seher-ts/sdk/copilot";
 import { CursorSDK } from "@seher-ts/sdk/cursor";

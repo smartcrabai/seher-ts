@@ -26,6 +26,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 const SDK_KINDS: ReadonlySet<SdkKind> = new Set<SdkKind>([
 	"claude",
 	"claude-terminal",
+	"claude-headless",
 	"codex",
 	"copilot",
 	"kimi",
@@ -39,6 +40,7 @@ const DEFAULT_SDK_BY_PROVIDER: Readonly<Record<string, SdkKind>> = {
 	codex: "codex",
 	claude: "claude",
 	"claude-terminal": "claude-terminal",
+	"claude-headless": "claude-headless",
 	cursor: "cursor",
 	opencodego: "opencode",
 	copilot: "copilot",
@@ -51,7 +53,7 @@ function parseSdk(raw: unknown, label: string): SdkKind {
 	}
 	if (!SDK_KINDS.has(raw as SdkKind)) {
 		fail(
-			`${label}.sdk must be one of "claude", "claude-terminal", "codex", "copilot", "kimi", "opencode", "cursor", "pi"`,
+			`${label}.sdk must be one of "claude", "claude-terminal", "claude-headless", "codex", "copilot", "kimi", "opencode", "cursor", "pi"`,
 		);
 	}
 	return raw as SdkKind;
