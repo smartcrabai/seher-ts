@@ -59,9 +59,15 @@ seher [plan|build] [options] [prompt...]
 - `build` (the default subcommand) streams the prompt through the resolved
   agent. Permissions are auto-allowed (yolo).
 - `plan` first generates an implementation plan with the resolved
-  plan-mode provider, opens it in `$EDITOR` (vim) for you to review/edit,
-  then re-resolves under build mode and runs the approved plan as the
-  next prompt. Saving an empty file cancels the run.
+  plan-mode provider (captured internally, **not** streamed to stdout),
+  opens it in `$EDITOR` (vim) for you to review/edit, then re-resolves
+  under build mode and runs the approved plan as the next prompt, whose
+  output streams to stdout as usual. Saving an empty file cancels the
+  run. Because `plan` must launch an editor, it requires a foreground
+  terminal; running without one (e.g. inside an agent harness with
+  redirected stdio) exits with an explicit
+  `seher is not running in the foreground terminal` error instead of
+  being suspended by `SIGTTOU`/`SIGTTIN`.
 - With no positional prompt and a TTY, the CLI opens `$EDITOR` so you can
   type a prompt. Piping into stdin is also supported.
 
