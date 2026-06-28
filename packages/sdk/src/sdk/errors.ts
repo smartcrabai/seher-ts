@@ -1,6 +1,22 @@
 import type { SdkKind } from "../types.ts";
 
 /**
+ * Claude のエラーメッセージにレート制限 / クォータ系のフレーズが含まれているか判定する。
+ * `claude` / `claude-terminal` / `claude-headless` の各 SDK で文字列ベースに
+ * 失敗を分類する際に共有する。新しいフレーズが現れたときに 1 箇所で更新できるよう、
+ * 共通ヘルパーにまとめてある。
+ */
+export function isClaudeRateLimitMessage(msg: string): boolean {
+	const lower = msg.toLowerCase();
+	return (
+		lower.includes("rate limit") ||
+		lower.includes("usage limit") ||
+		lower.includes("too many requests") ||
+		lower.includes("session limit")
+	);
+}
+
+/**
  * Thrown by a provider wrapper when it detects an API rate-limit / quota
  * signal during `run()` or `stream()`. The retry orchestration in
  * `SeherSDK` catches this and falls over to the next non-limited provider

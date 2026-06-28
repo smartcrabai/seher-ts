@@ -70,4 +70,36 @@ describe("buildClaudeCommand", () => {
 			"bypassPermissions",
 		]);
 	});
+
+	test("認識可能な `:thinking` サフィックスは strip して `--model` に base のみを渡す", () => {
+		expect(
+			buildClaudeCommand({
+				claudeBin: "claude",
+				model: "claude-opus-4-5:high",
+				permissionMode: "bypassPermissions",
+			}),
+		).toEqual([
+			"claude",
+			"--model",
+			"claude-opus-4-5",
+			"--permission-mode",
+			"bypassPermissions",
+		]);
+	});
+
+	test("認識できないサフィックス(`:free` 等)は原文のまま `--model` に渡す", () => {
+		expect(
+			buildClaudeCommand({
+				claudeBin: "claude",
+				model: "openrouter/meta-llama/llama-3.1-8b-instruct:free",
+				permissionMode: "bypassPermissions",
+			}),
+		).toEqual([
+			"claude",
+			"--model",
+			"openrouter/meta-llama/llama-3.1-8b-instruct:free",
+			"--permission-mode",
+			"bypassPermissions",
+		]);
+	});
 });

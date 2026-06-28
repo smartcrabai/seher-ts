@@ -206,4 +206,35 @@ describe("parseArgs", () => {
 		expect(result.cwd).toBeUndefined();
 		expect(result.resume).toBeUndefined();
 	});
+
+	// --- --show-resolution ---
+	test("--show-resolution sets showResolution=true", () => {
+		const result = parseArgs(["--show-resolution"]);
+		expect(result.showResolution).toBe(true);
+		// prompt 不要のフラグなので trailing は空のまま。
+		expect(result.trailing).toEqual([]);
+	});
+
+	test("showResolution defaults to false when --show-resolution omitted", () => {
+		const result = parseArgs(["hi"]);
+		expect(result.showResolution).toBe(false);
+	});
+
+	test("--show-resolution combines with -m and -p", () => {
+		const result = parseArgs([
+			"--show-resolution",
+			"-m",
+			"plan",
+			"-p",
+			"codex",
+		]);
+		expect(result.showResolution).toBe(true);
+		expect(result.model).toBe("plan");
+		expect(result.provider).toBe("codex");
+	});
+
+	test("help includes --show-resolution", () => {
+		const result = parseArgs(["--help"]);
+		expect(result.output ?? "").toContain("--show-resolution");
+	});
 });

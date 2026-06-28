@@ -2,6 +2,10 @@ import type { ResolvedAgent, SdkKind } from "../types.ts";
 import { ALL_SDK_KINDS } from "../types.ts";
 import { ClaudeSDK, type ClaudeSDKConfig } from "./claude.ts";
 import {
+	ClaudeHeadlessSDK,
+	type ClaudeHeadlessSDKConfig,
+} from "./claude-headless.ts";
+import {
 	ClaudeTerminalSDK,
 	type ClaudeTerminalSDKConfig,
 } from "./claude-terminal/index.ts";
@@ -62,6 +66,7 @@ function stripEnv(config: SeherSDKConfig): SeherSDKConfig {
 
 export type SeherSDKConfig = ClaudeSDKConfig &
 	ClaudeTerminalSDKConfig &
+	ClaudeHeadlessSDKConfig &
 	CodexSDKConfig &
 	CopilotSDKConfig &
 	CursorSDKConfig &
@@ -119,8 +124,11 @@ export interface SeherSDKOptions extends SeherSDKConfig {
 /**
  * Apply provider-level api/env to the underlying SDK config in the right
  * field per SDK kind. Caller-supplied opts take precedence.
+ *
+ * @internal 低レベル `dispatch` API 用に export しているヘルパー。SeherSDK の利用者は
+ *           直接呼ばずに `runForResolved` / `streamForResolved` を使う。
  */
-function applyResolvedAgent(
+export function applyResolvedAgent(
 	kind: SdkKind,
 	base: SeherSDKConfig,
 	agent: ResolvedAgent,
@@ -130,6 +138,7 @@ function applyResolvedAgent(
 	const apiEndpoint = agent.api?.endpoint;
 	switch (kind) {
 		case "claude":
+		case "claude-headless":
 			if (apiKey !== undefined && out.apiKey === undefined) out.apiKey = apiKey;
 			if (apiEndpoint !== undefined && out.baseURL === undefined) {
 				out.baseURL = apiEndpoint;
@@ -195,7 +204,13 @@ function applyResolvedAgent(
 	return out;
 }
 
-function buildInstance(
+/**
+ * 解決済みの SDK kind と統合済みの config から SDK インスタンスを構築する。
+ *
+ * @internal 低レベル `dispatch` API 用に export しているヘルパー。
+ *           SeherSDK の利用者は直接呼ばずに `runForResolved` / `streamForResolved` を使う。
+ */
+export function buildInstance(
 	kind: SdkKind,
 	config: SeherSDKConfig,
 ): SeherSDKInstance {
@@ -220,6 +235,8 @@ function buildInstance(
 			return new ClaudeSDK(effective);
 		case "claude-terminal":
 			return new ClaudeTerminalSDK(effective);
+		case "claude-headless":
+			return new ClaudeHeadlessSDK(effective);
 		case "codex":
 			return new CodexSDK(effective);
 		case "copilot":

@@ -128,6 +128,37 @@ describe("ClaudeSDK", () => {
 		expect(lastCall().options.model).toBeUndefined();
 	});
 
+	test("認識可能な `:thinking` サフィックスは strip して base のみを options.model に渡す", async () => {
+		queryMessages = [successResult("ok")];
+		const sdk = new ClaudeSDK();
+		await sdk.run({ prompt: "p", model: "claude-opus-4-5:high" });
+
+		expect(lastCall().options.model).toBe("claude-opus-4-5");
+	});
+
+	test("`:free` のような未認識サフィックスは原文のまま options.model に渡す", async () => {
+		queryMessages = [successResult("ok")];
+		const sdk = new ClaudeSDK();
+		await sdk.run({
+			prompt: "p",
+			model: "openrouter/meta-llama/llama-3.1-8b-instruct:free",
+		});
+
+		expect(lastCall().options.model).toBe(
+			"openrouter/meta-llama/llama-3.1-8b-instruct:free",
+		);
+	});
+
+	test("defaultModel に `:thinking` サフィックスが付いていても strip される", async () => {
+		queryMessages = [successResult("ok")];
+		const sdk = new ClaudeSDK({
+			defaultModel: "anthropic/claude-opus-4-5:medium",
+		});
+		await sdk.run({ prompt: "p" });
+
+		expect(lastCall().options.model).toBe("anthropic/claude-opus-4-5");
+	});
+
 	test("apiKey and baseURL are forwarded as env vars", async () => {
 		queryMessages = [successResult("ok")];
 		const sdk = new ClaudeSDK({ apiKey: "my-key", baseURL: "https://b" });

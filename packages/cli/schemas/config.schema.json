@@ -2,22 +2,37 @@
 	"$schema": "http://json-schema.org/draft-07/schema#",
 	"$id": "https://raw.githubusercontent.com/smartcrabai/seher-ts/main/packages/cli/schemas/config.schema.json",
 	"title": "seher-ts config",
-	"description": "Provider/mode/YAML configuration for the seher CLI.",
+	"description": "Provider/mode/YAML configuration for the seher CLI. Loaded as YAML from (in order) `-c <path>`、`$SEHER_CONFIG`、`~/.config/seher/config.yaml`。Rust 実装の `seher` と同じ JSON Schema 形状を踏襲しており、エディタ拡張による補完/検証に利用できる。",
 	"type": "object",
 	"additionalProperties": false,
 	"properties": {
+		"$schema": {
+			"type": "string",
+			"description": "エディタの検証/補完用に任意で書ける JSON Schema URI。"
+		},
+		"skills": {
+			"$ref": "#/definitions/skillsConfig",
+			"description": "トップレベルのスキル自動検出デフォルト。各 provider の `skills` ブロックで個別に上書きできる。"
+		},
+		"retry": {
+			"$ref": "#/definitions/retryConfig",
+			"description": "トップレベルのリトライポリシーデフォルト。各 provider の `retry` ブロックで個別に上書きできる。provider-level 設定が定義されている場合、root のブロック全体が置き換えられ、フィールド単位でのマージは行わない。"
+		},
 		"providers": {
 			"type": "object",
-			"description": "Map of provider key -> provider entry. Insertion order is preserved as a tiebreaker for equal-priority candidates.",
+			"description": "provider キー → provider エントリのマップ。YAML 上の挿入順は同 priority のタイブレイクとして保持される。マップキーは provider ラベル兼デフォルト provider 名として使われる。",
 			"additionalProperties": { "$ref": "#/definitions/providerEntry" }
 		}
 	},
 	"definitions": {
 		"sdkKind": {
 			"type": "string",
+			"description": "実行エンジンの種類。`pi` / `claude` / `claude-headless` / `claude-terminal` が tool 対応の有無に応じてランタイムで利用可能。それ以外 (`codex` / `copilot` / `cursor` / `kimi` / `opencode`) は seher-ts 固有の追加バックエンド。",
 			"enum": [
 				"claude",
+				"claude-headless",
 				"claude-terminal",
+				"claude-headless",
 				"codex",
 				"copilot",
 				"kimi",
@@ -26,34 +41,96 @@
 				"pi"
 			]
 		},
+		"skillsConfig": {
+			"type": "object",
+			"description": "スキル自動検出のオン/オフ切り替え。",
+			"additionalProperties": false,
+			"properties": {
+				"includeClaude": {
+					"type": "boolean",
+					"description": "Claude 形式のスキル (`~/.claude/skills`、`<cwd>/.claude/skills`) を自動検出するかどうか。デフォルト: true。"
+				}
+			}
+		},
+		"retryConfig": {
+			"type": "object",
+			"description": "transient な provider API エラー向けの指数バックオフリトライポリシー。provider-level の設定は root の設定をブロック単位で置き換える (フィールド単位の merge ではない)。未指定フィールドは下記デフォルトが使われる。",
+			"additionalProperties": false,
+			"properties": {
+				"enabled": {
+					"type": "boolean",
+					"description": "リトライを有効にするか。デフォルト: true。",
+					"default": true
+				},
+				"maxAttempts": {
+					"type": "integer",
+					"description": "諦めるまでの最大試行回数。デフォルト: 5。",
+					"default": 5,
+					"minimum": 1
+				},
+				"initialDelaySecs": {
+					"type": "integer",
+					"description": "最初のリトライまでの待機秒数。デフォルト: 2。",
+					"default": 2,
+					"minimum": 0
+				},
+				"maxDelaySecs": {
+					"type": "integer",
+					"description": "リトライ間隔の上限秒数。デフォルト: 60。",
+					"default": 60,
+					"minimum": 0
+				},
+				"multiplier": {
+					"type": "number",
+					"description": "リトライ毎に遅延に掛ける倍率。デフォルト: 2.0。",
+					"default": 2.0,
+					"minimum": 1.0
+				},
+				"retryClientErrors": {
+					"type": "boolean",
+					"description": "HTTP 401/404 もリトライ対象にするオプトインフラグ。一部 provider は一過性障害時にもこれらを返すため許容できる場合のみ有効化する。デフォルト: false。",
+					"default": false
+				}
+			}
+		},
 		"modelEntry": {
+			"description": "bare な model id (文字列) もしくは `{ model, priority }` 形式のオブジェクト。model id は `provider/model` 形式で、末尾の `:level` サフィックスは pi 経由実行時の thinking レベルを選択する。",
 			"oneOf": [
 				{
 					"type": "string",
-					"description": "Model id (priority inherited from provider)."
+					"description": "bare な model id。priority は provider レベルを継承する。",
+					"minLength": 1
 				},
 				{
 					"type": "object",
 					"required": ["model"],
 					"additionalProperties": false,
 					"properties": {
-						"model": { "type": "string" },
-						"priority": { "type": "number" }
+						"model": {
+							"type": "string",
+							"description": "SDK へ渡される model id。",
+							"minLength": 1
+						},
+						"priority": {
+							"type": "number",
+							"description": "model レベルの priority。指定された場合、provider レベルの `priority` より優先される。"
+						}
 					}
 				}
 			]
 		},
 		"providerApi": {
 			"type": "object",
+			"description": "provider 毎に SDK コンストラクタへ転送する API 設定。",
 			"additionalProperties": false,
 			"properties": {
 				"key": {
 					"type": "string",
-					"description": "API key (mapped to the SDK's native key field, e.g. ANTHROPIC_API_KEY)."
+					"description": "API キー (例: ANTHROPIC_API_KEY 相当)。pi 実行時は省略すると ANTHROPIC_API_KEY / OPENAI_API_KEY にフォールバックする。"
 				},
 				"endpoint": {
 					"type": "string",
-					"description": "Base URL for the provider (mapped to the SDK's native baseURL field)."
+					"description": "API エンドポイントの上書き (provider の baseURL 相当)。"
 				}
 			}
 		},
@@ -64,20 +141,29 @@
 			"properties": {
 				"provider": {
 					"type": "string",
-					"description": "Resolved provider name. Defaults to the YAML map key. Drives the built-in SDK default (codex / claude / claude-terminal / cursor / opencodego / copilot / kimi), the CodexBar usage lookup, and the `-p` filter."
+					"description": "明示的な provider 名。省略時は YAML マップキーがそのまま使われる。組み込み SDK のデフォルトマッピング、CodexBar の usage 問い合わせ、`-p` フィルタの基準となる。"
 				},
 				"sdk": {
 					"$ref": "#/definitions/sdkKind",
-					"description": "Required when the resolved provider name (the `provider` field, or the YAML map key when omitted) is outside the built-in set."
+					"description": "明示的に SDK を指定する。`provider` フィールド (または YAML マップキー) が組み込みセット外の名前のとき必須。"
 				},
 				"priority": {
 					"type": "number",
-					"description": "Provider-level shorthand priority used when a model entry omits its own priority."
+					"description": "provider レベルの shorthand priority。各 model エントリが priority を持たない場合に使われる。高いほうが優先され、同値の場合は YAML 上の出現順がタイブレイク。"
 				},
 				"api": { "$ref": "#/definitions/providerApi" },
+				"skills": {
+					"$ref": "#/definitions/skillsConfig",
+					"description": "トップレベル `skills` の provider 毎の上書き。"
+				},
+				"retry": {
+					"$ref": "#/definitions/retryConfig",
+					"description": "トップレベル `retry` の provider 毎の上書き。フィールド単位ではなくブロック全体が置き換えられる。"
+				},
 				"models": {
 					"type": "object",
-					"description": "Mode key (plan / build / custom) -> model entry.",
+					"description": "モードキー (`plan` / `build` / 任意のキー) → model エントリのマップ。モデルを 1 つも持たない provider はロード時に拒否される。",
+					"minProperties": 1,
 					"additionalProperties": { "$ref": "#/definitions/modelEntry" }
 				}
 			}

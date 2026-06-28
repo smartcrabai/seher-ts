@@ -7,6 +7,7 @@ interface DepsBuildInput {
 	resolvePrompt?: RunSeherDeps["resolvePrompt"];
 	runBuildMode?: RunSeherDeps["runBuildMode"];
 	runPlanMode?: RunSeherDeps["runPlanMode"];
+	runShowResolutionMode?: RunSeherDeps["runShowResolutionMode"];
 }
 
 function buildDeps(input: DepsBuildInput = {}): {
@@ -21,6 +22,7 @@ function buildDeps(input: DepsBuildInput = {}): {
 		quiet: false,
 		help: false,
 		version: false,
+		showResolution: false,
 		trailing: [],
 		...input.parsed,
 	};
@@ -30,6 +32,8 @@ function buildDeps(input: DepsBuildInput = {}): {
 		runBuildMode:
 			input.runBuildMode ?? mock(async () => ({ exitCode: 0, text: "" })),
 		runPlanMode: input.runPlanMode ?? mock(async () => ({ exitCode: 0 })),
+		runShowResolutionMode:
+			input.runShowResolutionMode ?? mock(async () => ({ exitCode: 0 })),
 		stdout: (text) => {
 			stdout.push(text);
 		},

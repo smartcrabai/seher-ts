@@ -11,7 +11,9 @@ import {
 	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+
 import { assertValidResumeId, rethrowAsLimit } from "./errors.ts";
+import { splitThinkingSuffix, type ThinkingLevel } from "./model.ts";
 import { extractTextBlocks, joinSystemPrompt } from "./text.ts";
 import { withStreamTimeout, withTimeout } from "./timeout.ts";
 import type {
@@ -36,16 +38,46 @@ export interface PiSDKConfig {
 	defaultProviderID?: string;
 	cwd?: string;
 	agentDir?: string;
-	thinkingLevel?: "low" | "medium" | "high";
+	/**
+	 * pi に渡す thinking レベル。`model:thinking` サフィックス (例:
+	 * `anthropic/claude-opus-4-5:high`) で渡された場合は SDK 内部で
+	 * モデル ID から strip され、こちらのフィールドより優先される。
+	 */
+	thinkingLevel?: ThinkingLevel;
 	/** Default `run()` / `stream()` timeout in ms. Per-call: `SeherRunOptions.timeoutMs`. */
 	timeoutMs?: number;
 	/**
-	 * When true (default), inject `~/.claude/skills` and `<cwd>/.claude/skills`
-	 * into the underlying Pi agent's resource loader. Pi does not auto-discover
-	 * Claude-format skills natively, so this opts into the agentskills.io
-	 * standard layout shared with Claude Code.
+	 * When true (default), additionally inject `~/.claude/skills` and
+	 * `<cwd>/.claude/skills` into the underlying Pi agent's resource loader.
+	 * Pi does not auto-discover Claude-format skills natively, so this opts
+	 * into the agentskills.io standard layout shared with Claude Code.
+	 *
+	 * `~/.agents/skills` is always injected regardless of this flag (matching
+	 * the Rust seher reference implementation), so a user-wide skills directory
+	 * shared with other agent runners works without any configuration.
 	 */
 	includeClaudeSkills?: boolean;
+}
+
+/**
+ * `additionalSkillPaths` の組み立てロジックを切り出した純粋関数。テストしやすさと
+ * 順序保証 (Rust リファレンスと同じ並び) のために独立させている。
+ *
+ * - `~/.agents/skills` は常に最初に入る (Rust seher のハードコードと同等)。
+ * - `~/.claude/skills` と `<cwd>/.claude/skills` は `includeClaudeSkills` が
+ *   `false` 以外 (= デフォルト true 扱い) のときだけ追加される。
+ */
+export function buildAdditionalSkillPaths(args: {
+	homeDir: string;
+	cwd: string;
+	includeClaudeSkills?: boolean;
+}): string[] {
+	const paths: string[] = [join(args.homeDir, ".agents", "skills")];
+	if (args.includeClaudeSkills !== false) {
+		paths.push(join(args.homeDir, ".claude", "skills"));
+		paths.push(join(args.cwd, ".claude", "skills"));
+	}
+	return paths;
 }
 
 const DEFAULT_PROVIDER_ID = "anthropic";
@@ -173,17 +205,22 @@ export class PiSDK implements SeherSDKInstance {
 	private buildModel(opts: SeherRunOptions): {
 		providerID: string;
 		modelID: string;
+		thinking?: ThinkingLevel;
 	} {
 		const fallbackProvider =
 			this.config.defaultProviderID ?? DEFAULT_PROVIDER_ID;
-		if (opts.model !== undefined)
-			return parseModel(opts.model, fallbackProvider);
-		if (this.config.defaultModel !== undefined) {
-			return parseModel(this.config.defaultModel, fallbackProvider);
+		const rawModel = opts.model ?? this.config.defaultModel;
+		if (rawModel === undefined) {
+			throw new Error(
+				"no model configured: provide runOpts.model or config.defaultModel",
+			);
 		}
-		throw new Error(
-			"no model configured: provide runOpts.model or config.defaultModel",
-		);
+		// 先に `:thinking` サフィックスを切り出してから provider/model を分解
+		// する。`anthropic/claude-opus-4-5:high` -> base=`anthropic/claude-opus-4-5`,
+		// thinking=`high`。`openrouter/.../llama:free` のような変種は base に残る。
+		const { base, thinking } = splitThinkingSuffix(rawModel);
+		const parsed = parseModel(base, fallbackProvider);
+		return thinking !== undefined ? { ...parsed, thinking } : parsed;
 	}
 
 	private async ensureSession(
@@ -212,7 +249,7 @@ export class PiSDK implements SeherSDKInstance {
 		if (this._sessionPending !== null) return this._sessionPending;
 
 		this._sessionPending = (async () => {
-			const { providerID, modelID } = this.buildModel(opts);
+			const { providerID, modelID, thinking } = this.buildModel(opts);
 			const authStorage = AuthStorage.inMemory();
 
 			if (this.config.apiKey !== undefined) {
@@ -244,25 +281,40 @@ export class PiSDK implements SeherSDKInstance {
 				cwd,
 				agentDir,
 			};
-			if (this.config.thinkingLevel !== undefined)
-				sessionOpts.thinkingLevel = this.config.thinkingLevel;
+			// モデル ID のサフィックス (`model:high` 等) は config の
+			// thinkingLevel より優先する。どちらも未指定なら pi のデフォルト
+			// (extended thinking なし) を使う。
+			const effectiveThinking = thinking ?? this.config.thinkingLevel;
+			if (effectiveThinking !== undefined)
+				sessionOpts.thinkingLevel = effectiveThinking;
 
-			const includeClaudeSkills = this.config.includeClaudeSkills ?? true;
-			if (includeClaudeSkills) {
-				const settingsManager = SettingsManager.create(cwd, agentDir);
-				const resourceLoader = new DefaultResourceLoader({
-					cwd,
-					agentDir,
-					settingsManager,
-					additionalSkillPaths: [
-						join(homedir(), ".claude", "skills"),
-						join(cwd, ".claude", "skills"),
-					],
-				});
+			// `~/.agents/skills` を常に含めるため、`includeClaudeSkills` の値に関係なく
+			// 必ず resource loader を組み立てる (Rust seher の hardcode と同等の挙動)。
+			const additionalSkillPaths = buildAdditionalSkillPaths({
+				homeDir: homedir(),
+				cwd,
+				includeClaudeSkills: this.config.includeClaudeSkills,
+			});
+			const settingsManager = SettingsManager.create(cwd, agentDir);
+			const resourceLoader = new DefaultResourceLoader({
+				cwd,
+				agentDir,
+				settingsManager,
+				additionalSkillPaths,
+			});
+			// `DefaultResourceLoader.reload()` は存在しない skill path を黙ってスキップ
+			// (内部で diagnostics に積むだけ) するが、念のため例外を握り潰して
+			// セッション作成自体が落ちないようにする。
+			try {
 				await resourceLoader.reload();
-				sessionOpts.resourceLoader = resourceLoader;
-				sessionOpts.settingsManager = settingsManager;
+			} catch (err) {
+				console.info(
+					"[seher-ts/pi] resourceLoader.reload() の呼び出しで例外が発生したため無視します:",
+					err,
+				);
 			}
+			sessionOpts.resourceLoader = resourceLoader;
+			sessionOpts.settingsManager = settingsManager;
 
 			// fresh / resume いずれも事前に SessionManager を構築して渡す。
 			// fresh の場合は新規 id が採番され、resume の場合は既存ファイルをロードして
