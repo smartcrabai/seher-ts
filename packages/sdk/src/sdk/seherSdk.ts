@@ -2,6 +2,10 @@ import type { ResolvedAgent, SdkKind } from "../types.ts";
 import { ALL_SDK_KINDS } from "../types.ts";
 import { ClaudeSDK, type ClaudeSDKConfig } from "./claude.ts";
 import {
+	ClaudeHeadlessSDK,
+	type ClaudeHeadlessSDKConfig,
+} from "./claude-headless.ts";
+import {
 	ClaudeTerminalSDK,
 	type ClaudeTerminalSDKConfig,
 } from "./claude-terminal/index.ts";
@@ -20,6 +24,11 @@ import {
 	resolveAgent,
 	TOOL_SUPPORTING_KINDS,
 } from "./resolve.ts";
+import {
+	delayForAttempt,
+	effectiveMaxAttempts,
+	isRetryableMessage,
+} from "./retry.ts";
 import type {
 	SeherRunOptions,
 	SeherRunResult,
@@ -46,6 +55,15 @@ function hasTools(config: SeherSDKConfig): boolean {
 	return config.tools !== undefined && config.tools.length > 0;
 }
 
+/**
+ * シンプルな promise ベースの待機。0 以下のときは即座に解決する
+ * (退化したテスト設定や負の attempt に対する防御)。
+ */
+function sleepMs(ms: number): Promise<void> {
+	if (ms <= 0) return Promise.resolve();
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function requiresToolsSupport(opts: SeherSDKOptions): boolean {
 	return opts.kind === undefined && hasTools(opts);
 }
@@ -62,6 +80,7 @@ function stripEnv(config: SeherSDKConfig): SeherSDKConfig {
 
 export type SeherSDKConfig = ClaudeSDKConfig &
 	ClaudeTerminalSDKConfig &
+	ClaudeHeadlessSDKConfig &
 	CodexSDKConfig &
 	CopilotSDKConfig &
 	CursorSDKConfig &
@@ -72,6 +91,21 @@ export type SeherSDKConfig = ClaudeSDKConfig &
 export interface LimitRetryInfo {
 	provider: string;
 	resetAt?: Date;
+}
+
+/**
+ * 同一プロバイダに対する transient HTTP エラー再試行時に通知される情報。
+ */
+export interface TransientRetryInfo {
+	provider: string;
+	/** 失敗した試行番号 (1 始まり)。 */
+	attempt: number;
+	/** 設定上の最大試行回数 (effectiveMaxAttempts 適用済み)。 */
+	maxAttempts: number;
+	/** リトライ要因となったエラーメッセージ。 */
+	message: string;
+	/** 次の試行までの待機 (ミリ秒)。 */
+	delayMs: number;
 }
 
 export interface SeherSDKOptions extends SeherSDKConfig {
@@ -101,6 +135,12 @@ export interface SeherSDKOptions extends SeherSDKConfig {
 	onAllLimited?: () => void;
 	/** Called once per scan attempt while waiting for any provider to recover. */
 	onLimitWaitTick?: (attempt: number) => void;
+	/**
+	 * 一時的な HTTP エラー (`HTTP 429/500/502/503/504`) を同じプロバイダ
+	 * で再試行する直前に呼ばれる hook。`agent.retry.enabled === false` の
+	 * 場合は再試行が無効化されるため呼ばれない。
+	 */
+	onTransientRetry?: (info: TransientRetryInfo) => void;
 	/** Cancellation signal for the indefinite poll wait. */
 	limitWaitSignal?: AbortSignal;
 	/** Advanced: override individual collaborators used during resolution (tests). */
@@ -119,8 +159,11 @@ export interface SeherSDKOptions extends SeherSDKConfig {
 /**
  * Apply provider-level api/env to the underlying SDK config in the right
  * field per SDK kind. Caller-supplied opts take precedence.
+ *
+ * @internal 低レベル `dispatch` API 用に export しているヘルパー。SeherSDK の利用者は
+ *           直接呼ばずに `runForResolved` / `streamForResolved` を使う。
  */
-function applyResolvedAgent(
+export function applyResolvedAgent(
 	kind: SdkKind,
 	base: SeherSDKConfig,
 	agent: ResolvedAgent,
@@ -130,6 +173,7 @@ function applyResolvedAgent(
 	const apiEndpoint = agent.api?.endpoint;
 	switch (kind) {
 		case "claude":
+		case "claude-headless":
 			if (apiKey !== undefined && out.apiKey === undefined) out.apiKey = apiKey;
 			if (apiEndpoint !== undefined && out.baseURL === undefined) {
 				out.baseURL = apiEndpoint;
@@ -170,6 +214,11 @@ function applyResolvedAgent(
 				}
 				out.env = kimiEnv;
 			}
+			// kimi 固有: 共通 `cwd` を SDK 固有の `workDir` にも写しておく
+			// (両方未設定なら何もしない)。明示の `workDir` が優先される。
+			if (out.cwd !== undefined && out.workDir === undefined) {
+				out.workDir = out.cwd;
+			}
 			break;
 		case "opencode":
 			if (apiEndpoint !== undefined && out.baseURL === undefined) {
@@ -190,7 +239,13 @@ function applyResolvedAgent(
 	return out;
 }
 
-function buildInstance(
+/**
+ * 解決済みの SDK kind と統合済みの config から SDK インスタンスを構築する。
+ *
+ * @internal 低レベル `dispatch` API 用に export しているヘルパー。
+ *           SeherSDK の利用者は直接呼ばずに `runForResolved` / `streamForResolved` を使う。
+ */
+export function buildInstance(
 	kind: SdkKind,
 	config: SeherSDKConfig,
 ): SeherSDKInstance {
@@ -215,6 +270,8 @@ function buildInstance(
 			return new ClaudeSDK(effective);
 		case "claude-terminal":
 			return new ClaudeTerminalSDK(effective);
+		case "claude-headless":
+			return new ClaudeHeadlessSDK(effective);
 		case "codex":
 			return new CodexSDK(effective);
 		case "copilot":
@@ -260,13 +317,13 @@ export class SeherSDK {
 	async run(runOpts: SeherRunOptions): Promise<SeherRunResult> {
 		if (!this.shouldRetryOnLimit()) {
 			const sdk = await this.ensure();
-			return sdk.run(this.translateRunOpts(runOpts));
+			return this.runWithTransientRetry(sdk, runOpts);
 		}
 		const excluded: string[] = [];
 		while (true) {
 			try {
 				const sdk = await this.resolveForRetry(excluded);
-				return await sdk.run(this.translateRunOpts(runOpts));
+				return await this.runWithTransientRetry(sdk, runOpts);
 			} catch (err) {
 				const next = await this.handleRetryError(err, excluded);
 				if (next === "rethrow") throw err;
@@ -280,8 +337,12 @@ export class SeherSDK {
 			return {
 				async *[Symbol.asyncIterator]() {
 					const sdk = await self.ensure();
-					const translated = self.translateRunOpts(runOpts);
-					for await (const chunk of sdk.stream(translated)) yield chunk;
+					for await (const chunk of self.streamWithTransientRetry(
+						sdk,
+						runOpts,
+					)) {
+						yield chunk;
+					}
 				},
 			};
 		}
@@ -297,9 +358,13 @@ export class SeherSDK {
 						if (next === "rethrow") throw err;
 						continue;
 					}
-					const translated = self.translateRunOpts(runOpts);
 					try {
-						for await (const chunk of sdk.stream(translated)) yield chunk;
+						for await (const chunk of self.streamWithTransientRetry(
+							sdk,
+							runOpts,
+						)) {
+							yield chunk;
+						}
 						return;
 					} catch (err) {
 						const next = await self.handleRetryError(err, excluded);
@@ -314,6 +379,17 @@ export class SeherSDK {
 	async resolved(): Promise<{ kind: SdkKind; agent: ResolvedAgent | null }> {
 		const sdk = await this.ensure();
 		return { kind: sdk.kind, agent: this.resolvedAgent };
+	}
+
+	/**
+	 * Session id of the most recent `run()` / `stream()` call, or `undefined`
+	 * if the underlying provider does not own multi-turn sessions or the
+	 * SDK has not run yet. Caller is expected to consult this *after* a run
+	 * to print `session: <id>` to stderr.
+	 */
+	lastSessionId(): string | undefined {
+		if (this.instance === null) return undefined;
+		return this.instance.lastSessionId?.();
 	}
 
 	/** Drop any cached resolution so the next call re-runs CodexBar checks. */
@@ -361,6 +437,86 @@ export class SeherSDK {
 
 	private shouldRetryOnLimit(): boolean {
 		return this.opts.retryOnLimit === true && this.opts.kind === undefined;
+	}
+
+	/**
+	 * 解決済みエージェントの `retry` ポリシーに従って同一プロバイダで
+	 * `run` を再試行する。`LimitError` は即座に再スローして上位の
+	 * provider 切替ループに任せる (Rust 版 `stream_with_http_retry` と
+	 * 同じ責務分割)。
+	 */
+	private async runWithTransientRetry(
+		sdk: SeherSDKInstance,
+		runOpts: SeherRunOptions,
+	): Promise<SeherRunResult> {
+		const agent = this.resolvedAgent;
+		const translated = this.translateRunOpts(runOpts);
+		if (agent === null || agent.retry.enabled === false) {
+			return sdk.run(translated);
+		}
+		const maxAttempts = effectiveMaxAttempts(agent.retry);
+		let attempt = 1;
+		while (true) {
+			try {
+				return await sdk.run(translated);
+			} catch (err) {
+				if (err instanceof LimitError) throw err;
+				if (!(err instanceof Error)) throw err;
+				if (attempt >= maxAttempts) throw err;
+				if (!isRetryableMessage(err.message, agent.retry)) throw err;
+				const delayMs = delayForAttempt(attempt, agent.retry);
+				this.opts.onTransientRetry?.({
+					provider: agent.provider,
+					attempt,
+					maxAttempts,
+					message: err.message,
+					delayMs,
+				});
+				await sleepMs(delayMs);
+				attempt += 1;
+			}
+		}
+	}
+
+	/**
+	 * `runWithTransientRetry` のストリーム版。最初の chunk 到着前後を問わず
+	 * 同じ semantics で同一プロバイダ再試行する。途中まで yield 済みでも
+	 * リトライ時は新しいストリームを最初から開始する点に注意 (Rust 版と
+	 * 同じく seher 側は逐次出力なので、CLI 層は再描画を許容する想定)。
+	 */
+	private async *streamWithTransientRetry(
+		sdk: SeherSDKInstance,
+		runOpts: SeherRunOptions,
+	): AsyncIterable<SeherStreamChunk> {
+		const agent = this.resolvedAgent;
+		const translated = this.translateRunOpts(runOpts);
+		if (agent === null || agent.retry.enabled === false) {
+			for await (const chunk of sdk.stream(translated)) yield chunk;
+			return;
+		}
+		const maxAttempts = effectiveMaxAttempts(agent.retry);
+		let attempt = 1;
+		while (true) {
+			try {
+				for await (const chunk of sdk.stream(translated)) yield chunk;
+				return;
+			} catch (err) {
+				if (err instanceof LimitError) throw err;
+				if (!(err instanceof Error)) throw err;
+				if (attempt >= maxAttempts) throw err;
+				if (!isRetryableMessage(err.message, agent.retry)) throw err;
+				const delayMs = delayForAttempt(attempt, agent.retry);
+				this.opts.onTransientRetry?.({
+					provider: agent.provider,
+					attempt,
+					maxAttempts,
+					message: err.message,
+					delayMs,
+				});
+				await sleepMs(delayMs);
+				attempt += 1;
+			}
+		}
 	}
 
 	private async resolveForRetry(
@@ -434,9 +590,9 @@ export class SeherSDK {
 	}
 
 	/**
-	 * Always pin the run to the resolved model unless the caller explicitly
-	 * overrides via `runOpts.model`. Explicit-kind users without a resolved
-	 * agent fall through with whatever they passed.
+	 * 解決済みエージェントの `modelId` を `runOpts.model` のデフォルトとして
+	 * 適用する。明示的に `runOpts.model` が指定されていればそちらを優先。
+	 * 明示的な `kind` で解決済みエージェントが無いケースは passthrough。
 	 */
 	private translateRunOpts(runOpts: SeherRunOptions): SeherRunOptions {
 		if (runOpts.model !== undefined) return runOpts;

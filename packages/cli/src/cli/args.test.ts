@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { realpathSync } from "node:fs";
 import { parseArgs } from "./args.ts";
 
 describe("parseArgs", () => {
@@ -131,5 +132,109 @@ describe("parseArgs", () => {
 	test("help includes --timeout", () => {
 		const result = parseArgs(["--help"]);
 		expect(result.output ?? "").toContain("--timeout");
+	});
+
+	// --- --cwd ---
+	test("--cwd canonicalizes the path (resolves symlinks)", () => {
+		// macOS の `/tmp` は `/private/tmp` への symlink。canonicalize 後は
+		// `/private/tmp` になることを確認する。
+		const result = parseArgs(["--cwd", "/tmp", "hi"]);
+		const expected = realpathSync.native("/tmp");
+		expect(result.cwd).toBe(expected);
+	});
+
+	test("--cwd rejects a nonexistent directory", () => {
+		expect(() =>
+			parseArgs(["--cwd", "/nonexistent-dir-xyz-zzz", "hi"]),
+		).toThrow(/Invalid --cwd/);
+	});
+
+	test("--cwd rejects a regular file", () => {
+		// 任意のファイルパスを使う: __filename 相当が無いので process.argv[1] 経由で
+		// 確実に存在するファイルを使う。
+		const filePath = process.argv[1] ?? "/etc/hosts";
+		expect(() => parseArgs(["--cwd", filePath, "hi"])).toThrow(/Invalid --cwd/);
+	});
+
+	test("help text includes --cwd", () => {
+		const result = parseArgs(["--help"]);
+		expect(result.output ?? "").toContain("--cwd");
+	});
+
+	// --- --resume ---
+	test("--resume accepts uuid-like ids", () => {
+		const result = parseArgs([
+			"-r",
+			"963f3c95-78ba-472a-8adf-a5218af2d135",
+			"hi",
+		]);
+		expect(result.resume).toBe("963f3c95-78ba-472a-8adf-a5218af2d135");
+	});
+
+	test("--resume accepts underscores and mixed alphanumerics", () => {
+		const result = parseArgs(["--resume", "abc_123-XYZ", "hi"]);
+		expect(result.resume).toBe("abc_123-XYZ");
+	});
+
+	test("--resume rejects path separators", () => {
+		expect(() => parseArgs(["-r", "../../../etc/passwd", "hi"])).toThrow(
+			/Invalid --resume/,
+		);
+		expect(() => parseArgs(["-r", "a/b", "hi"])).toThrow(/Invalid --resume/);
+	});
+
+	test("--resume rejects empty value via '='", () => {
+		expect(() => parseArgs(["--resume=", "hi"])).toThrow(/Invalid --resume/);
+	});
+
+	test("help text includes --resume", () => {
+		const result = parseArgs(["--help"]);
+		expect(result.output ?? "").toContain("--resume");
+	});
+
+	test("--help defers cwd/resume validation so help still prints", () => {
+		const result = parseArgs([
+			"--cwd",
+			"/nonexistent-xyz",
+			"--resume",
+			"bad/id",
+			"--help",
+		]);
+		expect(result.help).toBe(true);
+		expect(result.output ?? "").toContain("--cwd");
+		// 値検証を skip しているので throw しない / cwd / resume はセットされない。
+		expect(result.cwd).toBeUndefined();
+		expect(result.resume).toBeUndefined();
+	});
+
+	// --- --show-resolution ---
+	test("--show-resolution sets showResolution=true", () => {
+		const result = parseArgs(["--show-resolution"]);
+		expect(result.showResolution).toBe(true);
+		// prompt 不要のフラグなので trailing は空のまま。
+		expect(result.trailing).toEqual([]);
+	});
+
+	test("showResolution defaults to false when --show-resolution omitted", () => {
+		const result = parseArgs(["hi"]);
+		expect(result.showResolution).toBe(false);
+	});
+
+	test("--show-resolution combines with -m and -p", () => {
+		const result = parseArgs([
+			"--show-resolution",
+			"-m",
+			"plan",
+			"-p",
+			"codex",
+		]);
+		expect(result.showResolution).toBe(true);
+		expect(result.model).toBe("plan");
+		expect(result.provider).toBe("codex");
+	});
+
+	test("help includes --show-resolution", () => {
+		const result = parseArgs(["--help"]);
+		expect(result.output ?? "").toContain("--show-resolution");
 	});
 });

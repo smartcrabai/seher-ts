@@ -53,11 +53,26 @@ export interface ClaudeTranscriptReader {
 	 * does not exist yet.
 	 */
 	listSessionNames(opts: { root: string; cwd: string }): Promise<Set<string>>;
+	/**
+	 * Count assistant messages currently present in `transcriptPath`. Used to
+	 * establish a baseline before a resumed turn is submitted, so
+	 * `waitForAssistantResponse` only returns once the count grows. Returns `0`
+	 * if the file does not exist or is empty.
+	 */
+	countAssistantMessages?(transcriptPath: string): Promise<number>;
 }
 
 export interface WaitForAssistantResponseOptions {
 	timeoutMs: number;
 	pollIntervalMs: number;
+	/**
+	 * Minimum number of assistant messages that must exist in the transcript
+	 * before the poll loop considers the turn complete. Used by `--resume`,
+	 * where the file already contains the prior turn's messages: the new turn
+	 * must produce **more** than the baseline before we return. Default: `0`
+	 * (any assistant message satisfies, matching the fresh-turn semantics).
+	 */
+	minAssistantCount?: number;
 }
 
 export interface TranscriptMessage {

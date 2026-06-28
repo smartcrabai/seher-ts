@@ -12,6 +12,10 @@ export interface BuildModeOptions {
 	timeoutMs?: number;
 	quiet?: boolean;
 	systemPrompt?: string;
+	/** Canonicalized working directory for the agent. */
+	cwd?: string;
+	/** Session id to resume; passed straight through to the underlying SDK. */
+	resume?: string;
 	logger: Logger;
 	/** Optional pre-constructed SDK (for plan-mode reuse / tests). */
 	sdk?: SeherSDK;
@@ -22,6 +26,12 @@ export interface BuildModeOptions {
 export interface BuildModeResult {
 	exitCode: number;
 	text: string;
+	/**
+	 * Session id reported by the underlying SDK for this run. Only populated
+	 * for SDKs that own multi-turn sessions; callers typically suppress the
+	 * `session: <id>` stderr print when `resume` was given.
+	 */
+	sessionId?: string;
 }
 
 function buildSdkOptions(opts: BuildModeOptions): SeherSDKOptions {
@@ -31,6 +41,7 @@ function buildSdkOptions(opts: BuildModeOptions): SeherSDKOptions {
 	if (opts.provider !== undefined) out.provider = opts.provider;
 	if (opts.configPath !== undefined) out.configPath = opts.configPath;
 	if (opts.timeoutMs !== undefined) out.timeoutMs = opts.timeoutMs;
+	if (opts.cwd !== undefined) out.cwd = opts.cwd;
 	// Claude SDK: enable yolo by default for CLI agents.
 	out.permissionMode = "bypassPermissions";
 	applyRetryHooks(out, opts.logger);
@@ -53,7 +64,10 @@ export async function runBuildMode(
 	if (opts.systemPrompt !== undefined)
 		streamOpts.systemPrompt = opts.systemPrompt;
 	if (opts.timeoutMs !== undefined) streamOpts.timeoutMs = opts.timeoutMs;
+	if (opts.resume !== undefined) streamOpts.resume = opts.resume;
 	if (opts.write !== undefined) streamOpts.write = opts.write;
-	const text = await streamToStdout(sdk, streamOpts);
-	return { exitCode: 0, text };
+	const { text, sessionId } = await streamToStdout(sdk, streamOpts);
+	const result: BuildModeResult = { exitCode: 0, text };
+	if (sessionId !== undefined) result.sessionId = sessionId;
+	return result;
 }

@@ -29,6 +29,10 @@
 			"types": "./dist/entries/claude-terminal.d.ts",
 			"import": "./dist/entries/claude-terminal.js"
 		},
+		"./claude-headless": {
+			"types": "./dist/entries/claude-headless.d.ts",
+			"import": "./dist/entries/claude-headless.js"
+		},
 		"./codex": {
 			"types": "./dist/entries/codex.d.ts",
 			"import": "./dist/entries/codex.js"

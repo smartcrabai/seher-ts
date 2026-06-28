@@ -4,10 +4,12 @@ import type { CodexBarUsageResponse, CodexBarWindow } from "./types.ts";
 
 /**
  * Some SDK kinds share their codexbar account with a different provider name —
- * `claude-terminal` invokes the Claude CLI which authenticates as `claude`.
+ * `claude-terminal` / `claude-headless` invoke the Claude CLI which
+ * authenticates as `claude`.
  */
 const CODEXBAR_PROVIDER_ALIAS: Partial<Record<SdkKind, string>> = {
 	"claude-terminal": "claude",
+	"claude-headless": "claude",
 };
 
 export function codexbarProviderName(

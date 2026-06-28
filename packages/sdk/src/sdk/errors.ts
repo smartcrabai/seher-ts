@@ -1,6 +1,22 @@
 import type { SdkKind } from "../types.ts";
 
 /**
+ * Claude のエラーメッセージにレート制限 / クォータ系のフレーズが含まれているか判定する。
+ * `claude` / `claude-terminal` / `claude-headless` の各 SDK で文字列ベースに
+ * 失敗を分類する際に共有する。新しいフレーズが現れたときに 1 箇所で更新できるよう、
+ * 共通ヘルパーにまとめてある。
+ */
+export function isClaudeRateLimitMessage(msg: string): boolean {
+	const lower = msg.toLowerCase();
+	return (
+		lower.includes("rate limit") ||
+		lower.includes("usage limit") ||
+		lower.includes("too many requests") ||
+		lower.includes("session limit")
+	);
+}
+
+/**
  * Thrown by a provider wrapper when it detects an API rate-limit / quota
  * signal during `run()` or `stream()`. The retry orchestration in
  * `SeherSDK` catches this and falls over to the next non-limited provider
@@ -47,4 +63,40 @@ export function rethrowAsLimit(
 		throw new LimitError(kind, opts);
 	}
 	throw err;
+}
+
+// セッション id は (1) ファイル名や (2) 子プロセスの引数として渡るため、
+// CLI 層の validation だけでなく SDK 層でも防御する。CLI を介さず SeherSDK
+// を直接呼ぶライブラリ利用者から `../../etc/passwd` や `--dangerous-flag` のような
+// 値が来ても、`run()` / `stream()` に到達する前にここで弾く。
+const SDK_RESUME_PATTERN = /^[A-Za-z0-9_-]+$/;
+const SDK_RESUME_MAX_LEN = 128;
+
+/**
+ * Validate a session resume id at the SDK boundary.
+ *
+ * - Rejects empty / >128 chars (length DoS guard).
+ * - Rejects path separators / shell metacharacters (path traversal).
+ * - Rejects ids that start with `-` (would be misread as a CLI flag when
+ *   forwarded to `claude --resume <id>` etc.).
+ *
+ * Throws `TypeError` on rejection so callers can distinguish argument errors
+ * from runtime failures.
+ */
+export function assertValidResumeId(id: string): void {
+	if (id.length === 0 || id.length > SDK_RESUME_MAX_LEN) {
+		throw new TypeError(
+			`Invalid resume id: expected 1..${SDK_RESUME_MAX_LEN} chars, got ${id.length}`,
+		);
+	}
+	if (!SDK_RESUME_PATTERN.test(id)) {
+		throw new TypeError(
+			`Invalid resume id '${id}': expected alphanumeric, '-', '_'`,
+		);
+	}
+	if (id.startsWith("-")) {
+		throw new TypeError(
+			`Invalid resume id '${id}': must not start with '-' (would be parsed as a CLI flag)`,
+		);
+	}
 }

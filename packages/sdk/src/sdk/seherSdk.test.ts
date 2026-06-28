@@ -10,13 +10,35 @@ import {
 
 // --- Mock the underlying provider SDKs so no real network calls happen. ---
 const claudeQueryCalls: Array<{ prompt: unknown; options: unknown }> = [];
-// Side-channel for retry tests: when set to "limit", the next claude.run/stream
-// emits a `rate_limit_event` (which the wrapper converts to `LimitError`).
-const claudeBehavior: { mode: "success" | "limit" } = { mode: "success" };
+/**
+ * Side-channel for retry tests.
+ *
+ * - `success` (default): normal streaming + result message.
+ * - `limit`: emit a single `rate_limit_event` which the wrapper converts to
+ *   `LimitError`.
+ * - `transient-then-success`: throw a transient HTTP error during streaming
+ *   on each call up to `transientFailures` times, then succeed. Used to
+ *   verify the SDK-level same-provider transient HTTP retry loop.
+ * - `transient-forever`: always throw a transient HTTP error. Used to verify
+ *   that the retry loop eventually gives up and rethrows after
+ *   `maxAttempts` attempts.
+ */
+const claudeBehavior: {
+	mode: "success" | "limit" | "transient-then-success" | "transient-forever";
+	transientFailures: number;
+	transientCount: number;
+} = { mode: "success", transientFailures: 1, transientCount: 0 };
 mock.module("@anthropic-ai/claude-agent-sdk", () => {
 	function query(params: { prompt: unknown; options?: unknown }) {
 		claudeQueryCalls.push({ prompt: params.prompt, options: params.options });
 		const mode = claudeBehavior.mode;
+		const shouldThrowTransient =
+			mode === "transient-forever" ||
+			(mode === "transient-then-success" &&
+				claudeBehavior.transientCount < claudeBehavior.transientFailures);
+		if (shouldThrowTransient) {
+			claudeBehavior.transientCount += 1;
+		}
 		return {
 			async *[Symbol.asyncIterator]() {
 				if (mode === "limit") {
@@ -27,6 +49,9 @@ mock.module("@anthropic-ai/claude-agent-sdk", () => {
 						session_id: "s",
 					};
 					return;
+				}
+				if (shouldThrowTransient) {
+					throw new Error("Anthropic API error (HTTP 500): internal error");
 				}
 				yield {
 					type: "assistant",
@@ -293,6 +318,16 @@ mock.module("@earendil-works/pi-coding-agent", () => ({
 	SettingsManager: {
 		create: () => ({}),
 	},
+	SessionManager: {
+		create: (cwd: string, _sessionDir?: string) => ({
+			getSessionId: () => "mock-session-id",
+			getCwd: () => cwd,
+		}),
+		open: (_path: string) => ({
+			getSessionId: () => "mock-resumed-id",
+			getCwd: () => "/tmp/mock-cwd",
+		}),
+	},
 }));
 
 const { SeherSDK } = await import("./seherSdk.ts");
@@ -319,6 +354,8 @@ describe("SeherSDK class", () => {
 		piPromptCalls.length = 0;
 		piDisposeCalls.length = 0;
 		claudeBehavior.mode = "success";
+		claudeBehavior.transientFailures = 1;
+		claudeBehavior.transientCount = 0;
 	});
 
 	test("kind=claude: synchronous construction, run dispatches to ClaudeSDK", async () => {
@@ -912,5 +949,242 @@ describe("SeherSDK class", () => {
 		});
 		const result = await sdk.run({ prompt: "hi" });
 		expect(result.kind).toBe("pi");
+	});
+
+	test("transient HTTP error: 1 回失敗してから同じ provider で再試行し成功する", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			retry: {
+				enabled: true,
+				maxAttempts: 5,
+				initialDelaySecs: 0,
+				maxDelaySecs: 0,
+				multiplier: 1,
+				retryClientErrors: false,
+			},
+			models: { build: { model: "sonnet" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		claudeBehavior.mode = "transient-then-success";
+		claudeBehavior.transientFailures = 1;
+		const onTransientRetry = mock((_: unknown) => {});
+		const sdk = new SeherSDK({
+			onTransientRetry,
+			resolveOverrides: { config, checkLimit },
+		});
+		const result = await sdk.run({ prompt: "hi" });
+		expect(result.kind).toBe("claude");
+		expect(result.text).toBe("claude reply");
+		// 2 回呼ばれている (1 回目: 500、2 回目: success)。
+		expect(claudeQueryCalls.length).toBe(2);
+		expect(onTransientRetry).toHaveBeenCalledTimes(1);
+		const info = onTransientRetry.mock.calls[0]?.[0] as {
+			provider: string;
+			attempt: number;
+			maxAttempts: number;
+			message: string;
+			delayMs: number;
+		};
+		expect(info.provider).toBe("claude");
+		expect(info.attempt).toBe(1);
+		expect(info.maxAttempts).toBe(5);
+		expect(info.message).toContain("HTTP 500");
+		expect(info.delayMs).toBe(0);
+	});
+
+	test("transient HTTP error: stream() でも同じ provider で再試行できる", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			retry: {
+				enabled: true,
+				maxAttempts: 3,
+				initialDelaySecs: 0,
+				maxDelaySecs: 0,
+				multiplier: 1,
+			},
+			models: { build: { model: "sonnet" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		claudeBehavior.mode = "transient-then-success";
+		claudeBehavior.transientFailures = 1;
+		const sdk = new SeherSDK({
+			resolveOverrides: { config, checkLimit },
+		});
+		const deltas: string[] = [];
+		for await (const chunk of sdk.stream({ prompt: "hi" })) {
+			expect(chunk.kind).toBe("claude");
+			deltas.push(chunk.delta);
+		}
+		expect(deltas.join("")).toBe("claude stream");
+		expect(claudeQueryCalls.length).toBe(2);
+	});
+
+	test("transient HTTP error: maxAttempts 回失敗後はエラーを rethrow する", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			retry: {
+				enabled: true,
+				maxAttempts: 2,
+				initialDelaySecs: 0,
+				maxDelaySecs: 0,
+				multiplier: 1,
+			},
+			models: { build: { model: "sonnet" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		claudeBehavior.mode = "transient-forever";
+		const sdk = new SeherSDK({
+			resolveOverrides: { config, checkLimit },
+		});
+		await expect(sdk.run({ prompt: "hi" })).rejects.toThrow(/HTTP 500/);
+		// maxAttempts=2 → 試行 1 失敗 + 試行 2 失敗 で計 2 回 query 呼ばれる。
+		expect(claudeQueryCalls.length).toBe(2);
+	});
+
+	test("transient HTTP error: retry.enabled=false なら再試行しない", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			retry: { enabled: false },
+			models: { build: { model: "sonnet" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		claudeBehavior.mode = "transient-forever";
+		const sdk = new SeherSDK({
+			resolveOverrides: { config, checkLimit },
+		});
+		await expect(sdk.run({ prompt: "hi" })).rejects.toThrow(/HTTP 500/);
+		expect(claudeQueryCalls.length).toBe(1);
+	});
+
+	test("transient retry 中に LimitError を受けたら provider 切替経路へ抜ける", async () => {
+		const config = mkConfig(
+			{
+				key: "claude",
+				order: 0,
+				sdk: "claude",
+				priority: 9,
+				retry: {
+					enabled: true,
+					maxAttempts: 5,
+					initialDelaySecs: 0,
+					maxDelaySecs: 0,
+					multiplier: 1,
+				},
+				models: { build: { model: "sonnet" } },
+			},
+			{
+				key: "codex",
+				order: 1,
+				sdk: "codex",
+				priority: 1,
+				models: { build: { model: "gpt-5.5" } },
+			},
+		);
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		claudeBehavior.mode = "limit";
+		const onLimitRetry = mock(() => {});
+		const onTransientRetry = mock((_: unknown) => {});
+		const sdk = new SeherSDK({
+			retryOnLimit: true,
+			onLimitRetry,
+			onTransientRetry,
+			resolveOverrides: { config, checkLimit },
+		});
+		const result = await sdk.run({ prompt: "hi" });
+		expect(result.kind).toBe("codex");
+		expect(onLimitRetry).toHaveBeenCalledTimes(1);
+		// transient retry hook は呼ばれない (LimitError は別経路)。
+		expect(onTransientRetry).not.toHaveBeenCalled();
+	});
+
+	// --- cwd / resume propagation ---
+
+	test("kind=claude: cwd flows to Claude SDK options.cwd", async () => {
+		const sdk = new SeherSDK({ kind: "claude", cwd: "/tmp/proj" });
+		await sdk.run({ prompt: "hi" });
+		const opts = claudeQueryCalls[0]?.options as { cwd?: string };
+		expect(opts.cwd).toBe("/tmp/proj");
+	});
+
+	test("kind=claude: runOpts.resume flows to Claude SDK options.resume", async () => {
+		const sdk = new SeherSDK({ kind: "claude" });
+		await sdk.run({ prompt: "hi", resume: "sess-1234" });
+		const opts = claudeQueryCalls[0]?.options as { resume?: string };
+		expect(opts.resume).toBe("sess-1234");
+	});
+
+	test("kind=claude: lastSessionId() reflects session_id from messages", async () => {
+		const sdk = new SeherSDK({ kind: "claude" });
+		const result = await sdk.run({ prompt: "hi" });
+		expect(result.sessionId).toBe("s");
+		expect(sdk.lastSessionId()).toBe("s");
+	});
+
+	test("kind=pi: cwd is forwarded to createAgentSession", async () => {
+		const sdk = new SeherSDK({
+			kind: "pi",
+			apiKey: "k",
+			defaultModel: "anthropic/claude-sonnet",
+			cwd: "/tmp/pi-proj",
+		});
+		await sdk.run({ prompt: "hi" });
+		const createOpts = piCreateSessionCalls[0] as { cwd?: string };
+		expect(createOpts.cwd).toBe("/tmp/pi-proj");
+	});
+
+	test("kind=pi: lastSessionId() returns the SessionManager id (fresh)", async () => {
+		const sdk = new SeherSDK({
+			kind: "pi",
+			apiKey: "k",
+			defaultModel: "anthropic/claude-sonnet",
+		});
+		const result = await sdk.run({ prompt: "hi" });
+		// SessionManager mock returns "mock-session-id" for create() and
+		// "mock-resumed-id" for open(). A fresh run uses create().
+		expect(result.sessionId).toBe("mock-session-id");
+		expect(sdk.lastSessionId()).toBe("mock-session-id");
+	});
+
+	test("kind=claude: rejects unsafe resume id (path traversal)", async () => {
+		const sdk = new SeherSDK({ kind: "claude" });
+		await expect(
+			sdk.run({ prompt: "hi", resume: "../../etc/passwd" }),
+		).rejects.toThrow(/Invalid resume id/);
+	});
+
+	test("kind=claude: rejects resume id starting with '-'", async () => {
+		const sdk = new SeherSDK({ kind: "claude" });
+		await expect(
+			sdk.run({ prompt: "hi", resume: "-dangerous-flag" }),
+		).rejects.toThrow(/must not start with '-'/);
+	});
+
+	test("kind=pi: rejects unsafe resume id (path traversal)", async () => {
+		const sdk = new SeherSDK({
+			kind: "pi",
+			apiKey: "k",
+			defaultModel: "anthropic/claude-sonnet",
+		});
+		await expect(
+			sdk.run({ prompt: "hi", resume: "../../etc/passwd" }),
+		).rejects.toThrow(/Invalid resume id/);
 	});
 });
