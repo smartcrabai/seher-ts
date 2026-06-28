@@ -1,5 +1,16 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/smartcrabai/seher-ts/main/packages/cli/schemas/config.schema.json
 
+# 一時的な HTTP エラー (`HTTP 429 / 500 / 502 / 503 / 504`) は同じ
+# プロバイダに対して指数バックオフで再試行され、それでも回復しない
+# 場合に LimitError 経路を通って次のプロバイダへ切り替わる。
+retry:
+  enabled: true
+  maxAttempts: 5
+  initialDelaySecs: 2
+  maxDelaySecs: 60
+  multiplier: 2.0
+  retryClientErrors: false  # true にすると HTTP 401/404 もリトライ対象
+
 providers:
   codex:
     models:
@@ -18,6 +29,13 @@ providers:
     api:
       key: sk-za-xxxxxxxxxxxxx
       endpoint: https://api.zai.example.com
+    # ルートの retry をブロックごと完全に上書き (部分マージではない)。
+    retry:
+      enabled: true
+      maxAttempts: 3
+      initialDelaySecs: 1
+      maxDelaySecs: 10
+      multiplier: 2.0
     models:
       plan: glm-5.1
       build: glm-5.1

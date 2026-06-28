@@ -10,6 +10,10 @@
 			"type": "object",
 			"description": "Map of provider key -> provider entry. Insertion order is preserved as a tiebreaker for equal-priority candidates.",
 			"additionalProperties": { "$ref": "#/definitions/providerEntry" }
+		},
+		"retry": {
+			"$ref": "#/definitions/retryConfig",
+			"description": "Top-level retry policy defaults. Each provider may override this via its own `retry` block (which replaces the root retry block entirely rather than merging individual fields)."
 		}
 	},
 	"definitions": {
@@ -57,6 +61,47 @@
 				}
 			}
 		},
+		"retryConfig": {
+			"type": "object",
+			"description": "Exponential-backoff retry policy for transient provider API errors (HTTP 429/500/502/503/504). Provider-level settings override root-level settings as a whole; missing values fall back to the defaults shown below.",
+			"additionalProperties": false,
+			"properties": {
+				"enabled": {
+					"type": "boolean",
+					"description": "Whether retries are enabled. Default: true.",
+					"default": true
+				},
+				"maxAttempts": {
+					"type": "integer",
+					"description": "Maximum number of attempts (including the initial call) before giving up. Default: 5.",
+					"default": 5,
+					"minimum": 1
+				},
+				"initialDelaySecs": {
+					"type": "integer",
+					"description": "Delay before the first retry, in seconds. Default: 2.",
+					"default": 2,
+					"minimum": 0
+				},
+				"maxDelaySecs": {
+					"type": "integer",
+					"description": "Maximum delay between retries, in seconds. Default: 60.",
+					"default": 60,
+					"minimum": 0
+				},
+				"multiplier": {
+					"type": "number",
+					"description": "Multiplier applied to the delay after each retry. Default: 2.0.",
+					"default": 2.0,
+					"minimum": 1.0
+				},
+				"retryClientErrors": {
+					"type": "boolean",
+					"description": "Opt-in flag to also retry HTTP 401/404 errors. Some providers (e.g. Kimi) return these during transient outages, but normally they indicate authentication or routing failures. Default: false.",
+					"default": false
+				}
+			}
+		},
 		"providerEntry": {
 			"type": "object",
 			"required": ["models"],
@@ -75,6 +120,10 @@
 					"description": "Provider-level shorthand priority used when a model entry omits its own priority."
 				},
 				"api": { "$ref": "#/definitions/providerApi" },
+				"retry": {
+					"$ref": "#/definitions/retryConfig",
+					"description": "Per-provider override of the top-level retry policy. This replaces the root retry block entirely rather than merging individual fields."
+				},
 				"models": {
 					"type": "object",
 					"description": "Mode key (plan / build / custom) -> model entry.",

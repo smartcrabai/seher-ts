@@ -6,13 +6,16 @@ import {
 import { loadConfig as loadConfigImpl } from "../config/load.ts";
 import { scanCandidates } from "../scan.ts";
 import { sleepUntil as sleepUntilImpl } from "../sleep/sleepUntil.ts";
-import type {
-	AgentLimit,
-	Config,
-	ResolvedAgent,
-	ResolvedSkillsConfig,
-	SdkKind,
-	SkillsConfig,
+import {
+	type AgentLimit,
+	type Config,
+	DEFAULT_RETRY_CONFIG,
+	type ResolvedAgent,
+	type ResolvedRetryConfig,
+	type ResolvedSkillsConfig,
+	type RetryConfig,
+	type SdkKind,
+	type SkillsConfig,
 } from "../types.ts";
 
 function resolveSkills(
@@ -22,6 +25,29 @@ function resolveSkills(
 	return {
 		includeClaude:
 			providerSkills?.includeClaude ?? rootSkills?.includeClaude ?? true,
+	};
+}
+
+/**
+ * provider 単位の retry がある場合はブロックごと上書き、なければルート、
+ * それも無ければ `DEFAULT_RETRY_CONFIG` にフォールバック。Rust 実装
+ * `Config::resolve_retry` と同じ semantics。
+ */
+function resolveRetry(
+	providerRetry: RetryConfig | undefined,
+	rootRetry: RetryConfig | undefined,
+): ResolvedRetryConfig {
+	const source = providerRetry ?? rootRetry;
+	if (source === undefined) return { ...DEFAULT_RETRY_CONFIG };
+	return {
+		enabled: source.enabled ?? DEFAULT_RETRY_CONFIG.enabled,
+		maxAttempts: source.maxAttempts ?? DEFAULT_RETRY_CONFIG.maxAttempts,
+		initialDelaySecs:
+			source.initialDelaySecs ?? DEFAULT_RETRY_CONFIG.initialDelaySecs,
+		maxDelaySecs: source.maxDelaySecs ?? DEFAULT_RETRY_CONFIG.maxDelaySecs,
+		multiplier: source.multiplier ?? DEFAULT_RETRY_CONFIG.multiplier,
+		retryClientErrors:
+			source.retryClientErrors ?? DEFAULT_RETRY_CONFIG.retryClientErrors,
 	};
 }
 
@@ -145,6 +171,7 @@ function buildCandidates(
 			modeKey,
 			env: {},
 			skills: resolveSkills(entry.skills, config.skills),
+			retry: resolveRetry(entry.retry, config.retry),
 		};
 		if (entry.api !== undefined) resolved.api = entry.api;
 		list.push({

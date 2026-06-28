@@ -125,7 +125,37 @@ and the JSON Schema at
 | `priority` | number | Provider-level shorthand. Used when a model entry omits its own priority. |
 | `api.key` | string | Mapped to the SDK's native key field (e.g. `ANTHROPIC_API_KEY`, `gitHubToken`, …). |
 | `api.endpoint` | string | Mapped to the SDK's native base URL field (e.g. `ANTHROPIC_BASE_URL`, OpenCode `baseURL`, …). |
+| `retry` | object | Per-provider exponential-backoff retry policy override (replaces the root `retry` block as a whole; see [Retry policy](#retry-policy)). |
 | `models` | map | Mode key (`plan` / `build` / custom) → `{ model: string, priority?: number }`. A bare string is shorthand for `{ model: <string> }`. |
+
+### Retry policy
+
+Transient provider API errors (`HTTP 429 / 500 / 502 / 503 / 504`) are
+retried against the **same provider** with exponential backoff before the
+limit-retry loop kicks in and switches to another provider. Configure at
+the root or per-provider; provider-level settings replace the root block
+entirely rather than merging individual fields.
+
+```yaml
+retry:
+  enabled: true          # default: true
+  maxAttempts: 5         # default: 5 (initial attempt + up to 4 retries)
+  initialDelaySecs: 2    # default: 2
+  maxDelaySecs: 60       # default: 60
+  multiplier: 2.0        # default: 2.0 (clamped to >= 1.0)
+  retryClientErrors: false  # default: false; opt-in to also retry HTTP 401/404
+
+providers:
+  claude:
+    retry:
+      enabled: false     # disables retries for this provider only
+    models:
+      build: sonnet-4.6
+```
+
+`LimitError` (rate / usage limit) bypasses the transient-retry loop and
+goes straight to the provider-switch path so the next available provider
+can take over without waiting.
 
 ### Selection logic
 
@@ -171,6 +201,9 @@ for await (const chunk of sdk.stream({ prompt: "Hello!" })) {
 | `kind` | Skip resolution and use this SDK kind directly. |
 | `tools` | In-process tools forwarded to providers that support them (Claude, Copilot, Kimi). Codex / Cursor / OpenCode candidates are filtered out and a warning is emitted if a non-supporting kind is selected. |
 | `timeoutMs` | Default per-run timeout (ms). Per-call override: `SeherRunOptions.timeoutMs` on `run()` / `stream()`. On expiry, the SDK rejects with `TimeoutError` (importable from `@seher-ts/sdk`); in-flight provider work is **not** aborted. |
+| `retryOnLimit` | When true (and `kind` is unset), auto-fail over to the next non-limited provider on `LimitError`. The CLI sets this by default. |
+| `onLimitRetry`, `onAllLimited`, `onLimitWaitTick` | Hooks for the limit-retry loop (provider switch, all-limited polling). |
+| `onTransientRetry` | Hook fired right before the SDK retries the **same provider** for a transient HTTP error (`HTTP 429 / 500 / 502 / 503 / 504`, plus `401 / 404` when `retryClientErrors` is true). Receives `{ provider, attempt, maxAttempts, message, delayMs }`. Disabled when `retry.enabled === false` on the resolved agent. |
 | `apiKey`, `baseURL`, `gitHubToken`, … | Per-provider config knobs (forwarded when relevant to the resolved kind). |
 
 `resolved()` forces resolution and returns the chosen `{ kind, agent }`.
@@ -208,9 +241,12 @@ const agent = await resolveAgent({ config, modeKey: "build" });
 ```
 
 `resolveAgent` returns `ResolvedAgent` with `{ provider, kind, modelId,
-modeKey, api?, env }`. `provider` is the resolved provider name (used
-by CodexBar / `-p`), defaulting to the YAML map key when no `provider`
-field is set on the entry.
+modeKey, api?, env, skills, retry }`. `provider` is the resolved
+provider name (used by CodexBar / `-p`), defaulting to the YAML map key
+when no `provider` field is set on the entry. `retry` is the fully
+resolved (`ResolvedRetryConfig`) policy — provider override > root >
+defaults — and drives the SDK's same-provider transient-HTTP retry
+loop.
 
 ## Known limitations
 

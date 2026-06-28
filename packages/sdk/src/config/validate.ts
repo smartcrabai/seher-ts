@@ -3,6 +3,7 @@ import type {
 	ModelEntry,
 	ProviderApi,
 	ProviderEntry,
+	RetryConfig,
 	SdkKind,
 	SkillsConfig,
 } from "../types.ts";
@@ -72,6 +73,69 @@ function parseApi(raw: unknown, label: string): ProviderApi {
 		api.endpoint = raw.endpoint;
 	}
 	return api;
+}
+
+function parseRetry(raw: unknown, label: string): RetryConfig {
+	if (!isPlainObject(raw)) {
+		fail(`${label} must be an object`);
+	}
+	const out: RetryConfig = {};
+	if ("enabled" in raw && raw.enabled !== undefined) {
+		if (typeof raw.enabled !== "boolean") {
+			fail(`${label}.enabled must be a boolean`);
+		}
+		out.enabled = raw.enabled;
+	}
+	if ("maxAttempts" in raw && raw.maxAttempts !== undefined) {
+		// 0 以下のときは `effectiveMaxAttempts` がランタイムで 1 にクランプ
+		// する (Rust と同じ) ので、ここでは整数であることだけ要求する。
+		if (
+			typeof raw.maxAttempts !== "number" ||
+			!Number.isInteger(raw.maxAttempts)
+		) {
+			fail(`${label}.maxAttempts must be an integer`);
+		}
+		out.maxAttempts = raw.maxAttempts;
+	}
+	if ("initialDelaySecs" in raw && raw.initialDelaySecs !== undefined) {
+		if (
+			typeof raw.initialDelaySecs !== "number" ||
+			!Number.isInteger(raw.initialDelaySecs) ||
+			raw.initialDelaySecs < 0
+		) {
+			fail(`${label}.initialDelaySecs must be a non-negative integer`);
+		}
+		out.initialDelaySecs = raw.initialDelaySecs;
+	}
+	if ("maxDelaySecs" in raw && raw.maxDelaySecs !== undefined) {
+		if (
+			typeof raw.maxDelaySecs !== "number" ||
+			!Number.isInteger(raw.maxDelaySecs) ||
+			raw.maxDelaySecs < 0
+		) {
+			fail(`${label}.maxDelaySecs must be a non-negative integer`);
+		}
+		out.maxDelaySecs = raw.maxDelaySecs;
+	}
+	if ("multiplier" in raw && raw.multiplier !== undefined) {
+		// 1.0 未満は decay 防止のため `effectiveMultiplier` がランタイムで
+		// 1.0 にクランプする (Rust 実装と同じ semantics) ので、ここでは
+		// 有限数であることだけ確認する。
+		if (
+			typeof raw.multiplier !== "number" ||
+			!Number.isFinite(raw.multiplier)
+		) {
+			fail(`${label}.multiplier must be a finite number`);
+		}
+		out.multiplier = raw.multiplier;
+	}
+	if ("retryClientErrors" in raw && raw.retryClientErrors !== undefined) {
+		if (typeof raw.retryClientErrors !== "boolean") {
+			fail(`${label}.retryClientErrors must be a boolean`);
+		}
+		out.retryClientErrors = raw.retryClientErrors;
+	}
+	return out;
 }
 
 function parseSkills(raw: unknown, label: string): SkillsConfig {
@@ -172,6 +236,11 @@ function parseProvider(
 		skills = parseSkills(raw.skills, `${label}.skills`);
 	}
 
+	let retry: RetryConfig | undefined;
+	if ("retry" in raw && raw.retry !== undefined) {
+		retry = parseRetry(raw.retry, `${label}.retry`);
+	}
+
 	if (!("models" in raw) || raw.models === undefined) {
 		fail(`${label}.models is required`);
 	}
@@ -181,6 +250,7 @@ function parseProvider(
 	if (priority !== undefined) entry.priority = priority;
 	if (api !== undefined) entry.api = api;
 	if (skills !== undefined) entry.skills = skills;
+	if (retry !== undefined) entry.retry = retry;
 	return entry;
 }
 
@@ -192,9 +262,14 @@ export function validateConfig(input: unknown): Config {
 	if ("skills" in input && input.skills !== undefined) {
 		skills = parseSkills(input.skills, "skills");
 	}
+	let retry: RetryConfig | undefined;
+	if ("retry" in input && input.retry !== undefined) {
+		retry = parseRetry(input.retry, "retry");
+	}
 	if (!("providers" in input) || input.providers === undefined) {
 		const out: Config = { providers: [] };
 		if (skills !== undefined) out.skills = skills;
+		if (retry !== undefined) out.retry = retry;
 		return out;
 	}
 	if (!isPlainObject(input.providers)) {
@@ -208,5 +283,6 @@ export function validateConfig(input: unknown): Config {
 	}
 	const out: Config = { providers };
 	if (skills !== undefined) out.skills = skills;
+	if (retry !== undefined) out.retry = retry;
 	return out;
 }
