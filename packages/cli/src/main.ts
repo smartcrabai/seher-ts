@@ -7,6 +7,7 @@ import { type ParsedArgs, parseArgs as parseArgsImpl } from "./cli/args.ts";
 import { resolvePrompt as resolvePromptImpl } from "./cli/prompt.ts";
 import { runBuildMode as runBuildModeImpl } from "./mode/build.ts";
 import { runPlanMode as runPlanModeImpl } from "./mode/plan.ts";
+import { runShowResolutionMode as runShowResolutionModeImpl } from "./mode/show-resolution.ts";
 import { createLogger } from "./util/logger.ts";
 
 export interface RunSeherDeps {
@@ -14,6 +15,7 @@ export interface RunSeherDeps {
 	resolvePrompt: typeof resolvePromptImpl;
 	runBuildMode: typeof runBuildModeImpl;
 	runPlanMode: typeof runPlanModeImpl;
+	runShowResolutionMode: typeof runShowResolutionModeImpl;
 	stdout: (text: string) => void;
 	stderr: (text: string) => void;
 }
@@ -23,6 +25,7 @@ const defaultDeps: RunSeherDeps = {
 	resolvePrompt: resolvePromptImpl,
 	runBuildMode: runBuildModeImpl,
 	runPlanMode: runPlanModeImpl,
+	runShowResolutionMode: runShowResolutionModeImpl,
 	stdout: (text) => process.stdout.write(text),
 	stderr: (text) => process.stderr.write(text),
 };
@@ -44,6 +47,23 @@ export async function runSeher(
 	if (args.help || args.version) {
 		emitHelpOrVersion(args, deps);
 		return 0;
+	}
+
+	if (args.showResolution) {
+		const logger = createLogger({
+			quiet: args.quiet,
+			stderr: deps.stderr,
+		});
+		const showOpts: Parameters<typeof runShowResolutionModeImpl>[0] = {
+			mode: args.model ?? (args.mode === "plan" ? "plan" : "build"),
+			logger,
+			stderr: deps.stderr,
+			stdout: deps.stdout,
+		};
+		if (args.provider !== undefined) showOpts.provider = args.provider;
+		if (args.config !== undefined) showOpts.configPath = args.config;
+		const result = await deps.runShowResolutionMode(showOpts);
+		return result.exitCode;
 	}
 
 	const prompt = await deps.resolvePrompt({ trailing: args.trailing });

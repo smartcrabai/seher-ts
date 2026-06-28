@@ -74,7 +74,19 @@ seher [plan|build] [options] [prompt...]
 | `-c, --config <path>` | Path to YAML config (defaults to `$SEHER_CONFIG` or `~/.config/seher/config.yaml`). |
 | `-t, --timeout <ms>` | Per-run timeout in milliseconds. Default is the SDK default — usually none, except Copilot (60_000). On timeout the CLI exits 1 with a `TimeoutError` message; in-flight provider work is **not** aborted. |
 | `-q, --quiet` | Suppress informational output. |
+| `--show-resolution` | Show which provider/model/SDK would be selected and exit (no prompt required). Candidates are listed on stderr (with `[LIMITED until ...]` / `[probe error]` tags from codexbar); the winner is printed as a single-line JSON object on stdout. Combine with `-p` to filter candidates or `-m` to override the mode key. |
 | `-h, --help` / `-v, --version` | Print help / version and exit. |
+
+#### `--show-resolution` examples
+
+```bash
+# Show which provider/model/SDK would be selected (dry run)
+seher --show-resolution
+seher --show-resolution -m plan
+seher --show-resolution -p codex
+```
+
+The winner JSON has the shape `{"provider": "...", "model": "...", "sdk": "...", "mode": "..."}`. When all candidates are rate-limited (`AllAgentsLimitedError`) or no providers match (`NoMatchingAgentError`) the CLI exits 1 with the error message on stderr.
 
 ## Configuration
 
