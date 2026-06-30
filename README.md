@@ -306,7 +306,7 @@ for await (const chunk of sdk.stream({ prompt: "Hello!" })) {
 | `configPath` | Override the YAML config path. |
 | `noWait` | Throw `AllAgentsLimitedError` instead of sleeping. |
 | `kind` | Skip resolution and use this SDK kind directly. |
-| `tools` | In-process tools forwarded to providers that support them (Claude, Copilot, Kimi). Codex / Cursor / OpenCode candidates are filtered out and a warning is emitted if a non-supporting kind is selected. |
+| `tools` | In-process tools forwarded to providers that support them (Claude, Copilot, Kimi). All other candidates (Codex, Cursor, OpenCode, Pi, Claude Terminal, Claude Headless) are filtered out during resolution; a warning is emitted (and the tools dropped) if a non-supporting kind is selected explicitly via `kind`. |
 | `timeoutMs` | Default per-run timeout (ms). Per-call override: `SeherRunOptions.timeoutMs` on `run()` / `stream()`. On expiry, the SDK rejects with `TimeoutError` (importable from `@seher-ts/sdk`); in-flight provider work is **not** aborted. |
 | `retryOnLimit` | When true (and `kind` is unset), auto-fail over to the next non-limited provider on `LimitError`. The CLI sets this by default. |
 | `onLimitRetry`, `onAllLimited`, `onLimitWaitTick` | Hooks for the limit-retry loop (provider switch, all-limited polling). |
@@ -419,7 +419,7 @@ for await (const chunk of streamForResolved(agent, { prompt: "hello" })) {
 ```
 
 Passing non-empty `tools` to a kind that cannot honor them (anything
-other than `claude` / `copilot` / `kimi` / `pi`) throws a
+other than `claude` / `copilot` / `kimi`) throws a
 `DispatchToolsNotSupportedError` synchronously from `runForResolved` and
 at iteration time from `streamForResolved`.
 
