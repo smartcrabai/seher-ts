@@ -32,7 +32,17 @@ function isPiLimit(err: unknown): boolean {
 }
 
 export interface PiSDKConfig {
+	/**
+	 * 未指定の場合、pi 本体と同じ認証解決 (`<agentDir>/auth.json` に保存された
+	 * `pi login` の認証情報 → 環境変数 (`ANTHROPIC_API_KEY` 等) の順) に委ねる。
+	 * 明示すると runtime override として最優先で使われる。
+	 */
 	apiKey?: string;
+	/**
+	 * apiKey を併指定しない場合、認証は通常通り apiKey の解決ルールに従う
+	 * (`<agentDir>/auth.json` / 環境変数の既存クレデンシャルがそのまま使われる)。
+	 * 別の宛先に既存の認証情報を送りたくない場合は apiKey も明示すること。
+	 */
 	baseURL?: string;
 	defaultModel?: string;
 	defaultProviderID?: string;
@@ -250,13 +260,24 @@ export class PiSDK implements SeherSDKInstance {
 
 		this._sessionPending = (async () => {
 			const { providerID, modelID, thinking } = this.buildModel(opts);
-			const authStorage = AuthStorage.inMemory();
+			const cwd = this.config.cwd ?? process.cwd();
+			const agentDir = this.config.agentDir ?? getAgentDir();
+
+			// pi 本体のデフォルトと同じファイル (`<agentDir>/auth.json` /
+			// `<agentDir>/models.json`) を読む。これにより `pi login` 済みの認証情報や
+			// 環境変数、ユーザー定義の models.json が apiKey 未指定でもそのまま使われる
+			// (Rust seher リファレンスが pi_agent_rust 側のデフォルト解決に委ねているのと
+			// 同じ挙動)。apiKey が明示された場合のみ runtime override で上書きする。
+			const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
 
 			if (this.config.apiKey !== undefined) {
 				authStorage.setRuntimeApiKey(providerID, this.config.apiKey);
 			}
 
-			const registry = ModelRegistry.inMemory(authStorage);
+			const registry = ModelRegistry.create(
+				authStorage,
+				join(agentDir, "models.json"),
+			);
 
 			if (this.config.baseURL !== undefined) {
 				registry.registerProvider(providerID, {
@@ -267,13 +288,18 @@ export class PiSDK implements SeherSDKInstance {
 
 			const model = registry.find(providerID, modelID);
 			if (model === undefined) {
+				// models.json が壊れている場合、ModelRegistry は例外を投げず built-in
+				// モデルのみで継続する。`find()` の不在だけでは原因が分からないため、
+				// registry のロードエラーがあれば原因として併記する。
+				const modelsJsonError = registry.getError();
 				throw new Error(
-					`pi: model not found for provider "${providerID}" / model "${modelID}"`,
+					`pi: model not found for provider "${providerID}" / model "${modelID}"` +
+						(modelsJsonError !== undefined
+							? ` (models.json load error: ${modelsJsonError})`
+							: ""),
 				);
 			}
 
-			const cwd = this.config.cwd ?? process.cwd();
-			const agentDir = this.config.agentDir ?? getAgentDir();
 			const sessionOpts: Record<string, unknown> = {
 				model,
 				authStorage,

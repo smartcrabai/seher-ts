@@ -11,6 +11,11 @@ const registerProviderCalls: Array<{
 const setApiKeyCalls: Array<{ provider: string; apiKey: string }> = [];
 const resourceLoaderCtorCalls: Array<Record<string, unknown>> = [];
 const resourceLoaderReloadCalls: number[] = [];
+const authStorageCreateCalls: Array<string | undefined> = [];
+const modelRegistryCreateCalls: Array<{
+	authStorage: unknown;
+	modelsJsonPath: string | undefined;
+}> = [];
 
 let sessionMessages: Array<{
 	role: string;
@@ -18,6 +23,8 @@ let sessionMessages: Array<{
 }> = [];
 let emittedEvents: Array<Record<string, unknown>> = [];
 let promptShouldThrow: Error | null = null;
+let modelFindShouldReturnUndefined = false;
+let modelRegistryErrorMessage: string | undefined;
 
 const listeners: Array<(event: unknown) => void> = [];
 
@@ -54,22 +61,30 @@ mock.module("@earendil-works/pi-coding-agent", () => ({
 		};
 	},
 	AuthStorage: {
-		inMemory: () => ({
-			setRuntimeApiKey: (provider: string, apiKey: string) => {
-				setApiKeyCalls.push({ provider, apiKey });
-			},
-		}),
+		create: (authPath?: string) => {
+			authStorageCreateCalls.push(authPath);
+			return {
+				setRuntimeApiKey: (provider: string, apiKey: string) => {
+					setApiKeyCalls.push({ provider, apiKey });
+				},
+			};
+		},
 	},
 	ModelRegistry: {
-		inMemory: (_authStorage?: unknown) => ({
-			find: (provider: string, modelId: string) => {
-				modelFindCalls.push({ provider, modelId });
-				return { provider, modelId };
-			},
-			registerProvider: (name: string, opts: Record<string, unknown>) => {
-				registerProviderCalls.push({ provider: name, opts });
-			},
-		}),
+		create: (authStorage: unknown, modelsJsonPath?: string) => {
+			modelRegistryCreateCalls.push({ authStorage, modelsJsonPath });
+			return {
+				find: (provider: string, modelId: string) => {
+					modelFindCalls.push({ provider, modelId });
+					if (modelFindShouldReturnUndefined) return undefined;
+					return { provider, modelId };
+				},
+				registerProvider: (name: string, opts: Record<string, unknown>) => {
+					registerProviderCalls.push({ provider: name, opts });
+				},
+				getError: () => modelRegistryErrorMessage,
+			};
+		},
 	},
 	DefaultResourceLoader: class {
 		constructor(opts: Record<string, unknown>) {
@@ -106,10 +121,14 @@ describe("PiSDK", () => {
 		modelFindCalls.length = 0;
 		registerProviderCalls.length = 0;
 		setApiKeyCalls.length = 0;
+		authStorageCreateCalls.length = 0;
+		modelRegistryCreateCalls.length = 0;
 		listeners.length = 0;
 		sessionMessages = [];
 		emittedEvents = [];
 		promptShouldThrow = null;
+		modelFindShouldReturnUndefined = false;
+		modelRegistryErrorMessage = undefined;
 	});
 
 	test("run invokes createAgentSession and returns text from agent_end messages", async () => {
@@ -215,6 +234,15 @@ describe("PiSDK", () => {
 		);
 	});
 
+	test("model not found エラーに models.json のロードエラーを併記する", async () => {
+		modelFindShouldReturnUndefined = true;
+		modelRegistryErrorMessage = "Invalid models.json schema: ...";
+		const sdk = new PiSDK({ defaultModel: "anthropic/claude-sonnet-4-5" });
+		await expect(sdk.run({ prompt: "p" })).rejects.toThrow(
+			/model not found.*models\.json load error: Invalid models\.json schema/,
+		);
+	});
+
 	test("stream yields text_delta chunks from message_update events", async () => {
 		emittedEvents = [
 			{
@@ -309,6 +337,27 @@ describe("PiSDK", () => {
 			provider: "anthropic",
 			apiKey: "sk-test",
 		});
+	});
+
+	test("apiKey 未指定でも agentDir 配下の auth.json / models.json を使って認証解決できる (pi 本体のデフォルトと同じ)", async () => {
+		emittedEvents = [
+			{
+				type: "agent_end",
+				messages: [
+					{ role: "assistant", content: [{ type: "text", text: "ok" }] },
+				],
+			},
+		];
+		const sdk = new PiSDK({ defaultModel: "anthropic/claude-sonnet-4-5" });
+		await sdk.run({ prompt: "p" });
+
+		expect(authStorageCreateCalls).toEqual(["/tmp/mock-agent-dir/auth.json"]);
+		expect(modelRegistryCreateCalls.length).toBe(1);
+		expect(modelRegistryCreateCalls[0]?.modelsJsonPath).toBe(
+			"/tmp/mock-agent-dir/models.json",
+		);
+		// apiKey を渡していないので runtime override は設定されない。
+		expect(setApiKeyCalls.length).toBe(0);
 	});
 
 	test("baseURL is registered via ModelRegistry.registerProvider", async () => {
@@ -531,10 +580,14 @@ describe("PiSDK :thinking suffix", () => {
 		modelFindCalls.length = 0;
 		registerProviderCalls.length = 0;
 		setApiKeyCalls.length = 0;
+		authStorageCreateCalls.length = 0;
+		modelRegistryCreateCalls.length = 0;
 		listeners.length = 0;
 		sessionMessages = [];
 		emittedEvents = [];
 		promptShouldThrow = null;
+		modelFindShouldReturnUndefined = false;
+		modelRegistryErrorMessage = undefined;
 	});
 
 	test("`:thinking` サフィックスは strip してから provider/model を分解し、thinkingLevel を session に渡す", async () => {

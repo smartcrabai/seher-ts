@@ -301,12 +301,12 @@ mock.module("@earendil-works/pi-coding-agent", () => ({
 		};
 	},
 	AuthStorage: {
-		inMemory: () => ({
+		create: () => ({
 			setRuntimeApiKey: () => {},
 		}),
 	},
 	ModelRegistry: {
-		inMemory: () => ({
+		create: () => ({
 			find: () => ({ provider: "stub" }),
 			registerProvider: () => {},
 		}),
