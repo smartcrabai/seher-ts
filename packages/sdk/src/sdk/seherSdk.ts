@@ -178,6 +178,14 @@ export function applyResolvedAgent(
 			if (apiEndpoint !== undefined && out.baseURL === undefined) {
 				out.baseURL = apiEndpoint;
 			}
+			if (agent.effort !== undefined && out.effortLevel === undefined) {
+				out.effortLevel = agent.effort;
+			}
+			break;
+		case "claude-terminal":
+			if (agent.effort !== undefined && out.effortLevel === undefined) {
+				out.effortLevel = agent.effort;
+			}
 			break;
 		case "pi":
 			if (apiKey !== undefined && out.apiKey === undefined) out.apiKey = apiKey;

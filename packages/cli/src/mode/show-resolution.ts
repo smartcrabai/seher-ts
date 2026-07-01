@@ -118,8 +118,10 @@ export async function runShowResolutionMode(
 			const c = candidates[i];
 			const tag = tags[i];
 			if (c === undefined || tag === undefined) continue;
+			const effortSuffix =
+				c.resolved.effort !== undefined ? `, effort=${c.resolved.effort}` : "";
 			opts.stderr(
-				`  ${i}. ${c.resolved.provider} (sdk=${c.resolved.kind}, model=${c.resolved.modelId}, priority=${c.priority})${tag.tag}\n`,
+				`  ${i}. ${c.resolved.provider} (sdk=${c.resolved.kind}, model=${c.resolved.modelId}, priority=${c.priority}${effortSuffix})${tag.tag}\n`,
 			);
 		}
 		opts.stderr("\n");
@@ -135,12 +137,19 @@ export async function runShowResolutionMode(
 			noWait: true,
 			checkLimit,
 		});
-		const winner = {
+		const winner: {
+			provider: string;
+			model: string;
+			sdk: string;
+			mode: string;
+			effort?: string;
+		} = {
 			provider: agent.provider,
 			model: agent.modelId,
 			sdk: agent.kind,
 			mode: agent.modeKey,
 		};
+		if (agent.effort !== undefined) winner.effort = agent.effort;
 		opts.stdout(`${JSON.stringify(winner)}\n`);
 		return { exitCode: 0 };
 	} catch (err) {

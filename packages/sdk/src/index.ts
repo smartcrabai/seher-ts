@@ -15,6 +15,8 @@ export {
 	streamForResolved,
 } from "./sdk/dispatch.ts";
 export { LimitError, type LimitErrorOptions } from "./sdk/errors.ts";
+export type { EffortLevel } from "./sdk/model.ts";
+export { EFFORT_LEVELS } from "./sdk/model.ts";
 export { PiSDK, type PiSDKConfig } from "./sdk/pi.ts";
 export {
 	AllAgentsLimitedError,

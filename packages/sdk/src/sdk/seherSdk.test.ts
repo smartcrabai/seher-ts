@@ -584,6 +584,89 @@ describe("SeherSDK class", () => {
 		expect(opts.env?.ANTHROPIC_BASE_URL).toBe("https://zai.test");
 	});
 
+	test("effort: models.<mode>.effort is forwarded to Claude as effortLevel", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "sonnet", effort: "high" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			resolveOverrides: { config, checkLimit },
+		});
+		const { agent } = await sdk.resolved();
+		expect(agent?.effort).toBe("high");
+	});
+
+	test("effort: models.<mode>.effort is forwarded to claude-headless as effortLevel", async () => {
+		const config = mkConfig({
+			key: "claude-headless",
+			order: 0,
+			sdk: "claude-headless",
+			models: { build: { model: "sonnet", effort: "max" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			resolveOverrides: { config, checkLimit },
+		});
+		const { kind, agent } = await sdk.resolved();
+		expect(kind).toBe("claude-headless");
+		expect(agent?.effort).toBe("max");
+	});
+
+	test("effort: models.<mode>.effort is forwarded to claude-terminal as effortLevel", async () => {
+		const { applyResolvedAgent } = await import("./seherSdk.ts");
+		const config = mkConfig({
+			key: "claude-terminal",
+			order: 0,
+			sdk: "claude-terminal",
+			models: { build: { model: "sonnet", effort: "low" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			resolveOverrides: { config, checkLimit },
+		});
+		const { kind, agent } = await sdk.resolved();
+		expect(kind).toBe("claude-terminal");
+		expect(agent?.effort).toBe("low");
+		// applyResolvedAgent は claude-terminal にも effortLevel 設定の case を持つ
+		// (apiKey/baseURL のような config フィールドが無いため effort 専用)。
+		if (agent !== null) {
+			const merged = applyResolvedAgent(kind, {}, agent);
+			expect(merged.effortLevel).toBe("low");
+		}
+	});
+
+	test("effort: caller-supplied effortLevel wins over resolved agent's effort", async () => {
+		const { applyResolvedAgent } = await import("./seherSdk.ts");
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "sonnet", effort: "high" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			effortLevel: "medium",
+			resolveOverrides: { config, checkLimit },
+		});
+		const { kind, agent } = await sdk.resolved();
+		expect(agent?.effort).toBe("high");
+		if (agent !== null) {
+			const merged = applyResolvedAgent(kind, { effortLevel: "medium" }, agent);
+			expect(merged.effortLevel).toBe("medium");
+		}
+	});
+
 	test("auto-resolution pins the run model to the resolved modelId", async () => {
 		const config = mkConfig({
 			key: "claude",

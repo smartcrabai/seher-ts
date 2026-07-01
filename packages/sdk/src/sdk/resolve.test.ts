@@ -60,6 +60,39 @@ describe("resolveAgent", () => {
 		expect(agent.provider).toBe("claude");
 	});
 
+	test("model-level effort is forwarded to the resolved agent", async () => {
+		const config = mkConfig(
+			{
+				key: "claude",
+				order: 0,
+				sdk: "claude",
+				models: { build: { model: "sonnet", effort: "high" } },
+			},
+			{
+				key: "codex",
+				order: 1,
+				sdk: "codex",
+				models: { build: { model: "gpt-5.5" } },
+			},
+		);
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const claudeAgent = await resolveAgent({
+			config,
+			checkLimit,
+			provider: "claude",
+		});
+		expect(claudeAgent.effort).toBe("high");
+
+		const codexAgent = await resolveAgent({
+			config,
+			checkLimit,
+			provider: "codex",
+		});
+		expect(codexAgent.effort).toBeUndefined();
+	});
+
 	test("excludes providers that do not define the requested mode", async () => {
 		const config = mkConfig(
 			{

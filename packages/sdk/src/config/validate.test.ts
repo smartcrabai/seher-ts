@@ -127,6 +127,42 @@ describe("validateConfig", () => {
 		).toThrow(/priority must be a finite number/);
 	});
 
+	test("model object with explicit effort", () => {
+		const cfg = validateConfig({
+			providers: {
+				claude: {
+					models: { build: { model: "x", effort: "high" } },
+				},
+			},
+		});
+		const claude = cfg.providers[0];
+		expect(claude?.models.build).toEqual({ model: "x", effort: "high" });
+	});
+
+	test("invalid effort value rejected", () => {
+		expect(() =>
+			validateConfig({
+				providers: {
+					claude: {
+						models: { build: { model: "x", effort: "ultra" } },
+					},
+				},
+			}),
+		).toThrow(/effort must be one of/);
+	});
+
+	test("model entry without effort leaves it undefined", () => {
+		const cfg = validateConfig({
+			providers: {
+				claude: {
+					models: { build: { model: "x" } },
+				},
+			},
+		});
+		const claude = cfg.providers[0];
+		expect(claude?.models.build).toEqual({ model: "x" });
+	});
+
 	test("opencodego maps to opencode SDK", () => {
 		const cfg = validateConfig({
 			providers: { opencodego: { models: { build: "anthropic/sonnet" } } },

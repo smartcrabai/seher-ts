@@ -1,7 +1,11 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
+import type {
+	EffortLevel,
+	PermissionMode,
+} from "@anthropic-ai/claude-agent-sdk";
 import type { SdkKind } from "../types.ts";
 import { isClaudeRateLimitMessage, LimitError } from "./errors.ts";
+import { splitEffortSuffix } from "./model.ts";
 import type {
 	SeherRunOptions,
 	SeherRunResult,
@@ -17,6 +21,12 @@ export interface ClaudeHeadlessSDKConfig {
 	claudeBin?: string;
 	/** モデル ID。`SeherRunOptions.model` の方が優先される。 */
 	model?: string;
+	/**
+	 * `claude --effort <level>` に渡すデフォルトの reasoning effort。
+	 * モデル ID の `:level` サフィックス (例: `claude-opus-4-5:high`) が
+	 * あればそちらが優先される。
+	 */
+	effortLevel?: EffortLevel;
 	/**
 	 * `--permission-mode <mode>` に渡す値。`claude-headless` は対話 UI を持たない
 	 * ため、デフォルトは `"bypassPermissions"`。
@@ -41,7 +51,7 @@ export interface ClaudeHeadlessSDKConfig {
 
 /**
  * `buildClaudeArgs` の入力。Rust 側 `ClaudeHeadlessRunner::build_args` と同等。
- * 引数順は `[--resume <id>?] -p <prompt> [--model <m>] [--append-system-prompt <s>] --permission-mode <mode>`。
+ * 引数順は `[--resume <id>?] -p <prompt> [--model <m>] [--effort <level>?] [--append-system-prompt <s>] --permission-mode <mode>`。
  */
 export interface BuildClaudeHeadlessArgsOptions {
 	prompt: string;
@@ -49,6 +59,8 @@ export interface BuildClaudeHeadlessArgsOptions {
 	systemPrompt?: string;
 	permissionMode: PermissionMode;
 	resume?: string;
+	/** Reasoning effort fallback when `model` carries no recognized `:level` suffix. */
+	effortLevel?: EffortLevel;
 }
 
 export function buildClaudeArgs(
@@ -59,8 +71,15 @@ export function buildClaudeArgs(
 		args.push("--resume", opts.resume);
 	}
 	args.push("-p", opts.prompt);
+	let suffixEffort: EffortLevel | undefined;
 	if (opts.model !== undefined) {
-		args.push("--model", opts.model);
+		const { base, effort } = splitEffortSuffix(opts.model);
+		args.push("--model", base);
+		suffixEffort = effort;
+	}
+	const effectiveEffort = suffixEffort ?? opts.effortLevel;
+	if (effectiveEffort !== undefined) {
+		args.push("--effort", effectiveEffort);
 	}
 	if (opts.systemPrompt !== undefined) {
 		args.push("--append-system-prompt", opts.systemPrompt);
@@ -156,6 +175,9 @@ export class ClaudeHeadlessSDK implements SeherSDKInstance {
 		};
 		const model = opts.model ?? this.config.model;
 		if (model !== undefined) argsOpts.model = model;
+		if (this.config.effortLevel !== undefined) {
+			argsOpts.effortLevel = this.config.effortLevel;
+		}
 		if (opts.systemPrompt !== undefined)
 			argsOpts.systemPrompt = opts.systemPrompt;
 		if (this.config.resumeSessionId !== undefined) {

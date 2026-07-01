@@ -1,4 +1,8 @@
-import { SeherSDK, type SeherSDKOptions } from "@seher-ts/sdk";
+import {
+	type EffortLevel,
+	SeherSDK,
+	type SeherSDKOptions,
+} from "@seher-ts/sdk";
 import { streamToStdout, type WriteFn } from "../cli/stream.ts";
 import type { Logger } from "../util/logger.ts";
 import { applyRetryHooks } from "../util/retry.ts";
@@ -10,6 +14,7 @@ export interface BuildModeOptions {
 	model?: string;
 	configPath?: string;
 	timeoutMs?: number;
+	effortLevel?: EffortLevel;
 	quiet?: boolean;
 	systemPrompt?: string;
 	/** Canonicalized working directory for the agent. */
@@ -42,6 +47,7 @@ function buildSdkOptions(opts: BuildModeOptions): SeherSDKOptions {
 	if (opts.configPath !== undefined) out.configPath = opts.configPath;
 	if (opts.timeoutMs !== undefined) out.timeoutMs = opts.timeoutMs;
 	if (opts.cwd !== undefined) out.cwd = opts.cwd;
+	if (opts.effortLevel !== undefined) out.effortLevel = opts.effortLevel;
 	// Claude SDK: enable yolo by default for CLI agents.
 	out.permissionMode = "bypassPermissions";
 	applyRetryHooks(out, opts.logger);

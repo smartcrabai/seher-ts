@@ -110,6 +110,20 @@ describe("runSeher", () => {
 		expect(callArgs[0].mode).toBe("low");
 	});
 
+	test("--effort forwards effortLevel to the build mode", async () => {
+		const runBuildMode = mock(async () => ({ exitCode: 0, text: "" }));
+		const { deps } = buildDeps({
+			parsed: { mode: "build", effortLevel: "high" },
+			resolvePrompt: mock(async () => "x"),
+			runBuildMode: runBuildMode as unknown as RunSeherDeps["runBuildMode"],
+		});
+		await runSeher([], deps);
+		const callArgs = runBuildMode.mock.calls[0] as unknown as [
+			{ effortLevel?: string },
+		];
+		expect(callArgs[0].effortLevel).toBe("high");
+	});
+
 	test("empty prompt returns 1 with stderr message", async () => {
 		const { deps, stderr } = buildDeps({
 			resolvePrompt: mock(async () => null),

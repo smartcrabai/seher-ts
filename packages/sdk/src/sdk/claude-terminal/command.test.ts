@@ -71,7 +71,32 @@ describe("buildClaudeCommand", () => {
 		]);
 	});
 
-	test("認識可能な `:thinking` サフィックスは strip して `--model` に base のみを渡す", () => {
+	test("combines all options including effortLevel and resume in stable order", () => {
+		expect(
+			buildClaudeCommand({
+				claudeBin: "/opt/claude",
+				model: "claude-sonnet-4-6",
+				effortLevel: "high",
+				systemPrompt: "sys",
+				resume: "session-id",
+				permissionMode: "bypassPermissions",
+			}),
+		).toEqual([
+			"/opt/claude",
+			"--model",
+			"claude-sonnet-4-6",
+			"--effort",
+			"high",
+			"--append-system-prompt",
+			"sys",
+			"--resume",
+			"session-id",
+			"--permission-mode",
+			"bypassPermissions",
+		]);
+	});
+
+	test("認識可能な effort サフィックスは strip して `--model` に base のみを渡し `--effort` として転送する", () => {
 		expect(
 			buildClaudeCommand({
 				claudeBin: "claude",
@@ -82,6 +107,8 @@ describe("buildClaudeCommand", () => {
 			"claude",
 			"--model",
 			"claude-opus-4-5",
+			"--effort",
+			"high",
 			"--permission-mode",
 			"bypassPermissions",
 		]);
@@ -98,6 +125,44 @@ describe("buildClaudeCommand", () => {
 			"claude",
 			"--model",
 			"openrouter/meta-llama/llama-3.1-8b-instruct:free",
+			"--permission-mode",
+			"bypassPermissions",
+		]);
+	});
+
+	test("model に effort サフィックスがなければ effortLevel を `--effort` として転送する", () => {
+		expect(
+			buildClaudeCommand({
+				claudeBin: "claude",
+				model: "claude-opus-4-5",
+				effortLevel: "medium",
+				permissionMode: "bypassPermissions",
+			}),
+		).toEqual([
+			"claude",
+			"--model",
+			"claude-opus-4-5",
+			"--effort",
+			"medium",
+			"--permission-mode",
+			"bypassPermissions",
+		]);
+	});
+
+	test("model の effort サフィックスが effortLevel より優先される", () => {
+		expect(
+			buildClaudeCommand({
+				claudeBin: "claude",
+				model: "claude-opus-4-5:high",
+				effortLevel: "medium",
+				permissionMode: "bypassPermissions",
+			}),
+		).toEqual([
+			"claude",
+			"--model",
+			"claude-opus-4-5",
+			"--effort",
+			"high",
 			"--permission-mode",
 			"bypassPermissions",
 		]);

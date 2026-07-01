@@ -198,6 +198,7 @@ export function buildCandidates(
 			retry: resolveRetry(entry.retry, config.retry),
 		};
 		if (entry.api !== undefined) resolved.api = entry.api;
+		if (model.effort !== undefined) resolved.effort = model.effort;
 		list.push({
 			provider: entry.provider,
 			priority,

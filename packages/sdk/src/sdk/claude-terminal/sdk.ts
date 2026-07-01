@@ -1,5 +1,8 @@
 import { join } from "node:path";
-import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
+import type {
+	EffortLevel,
+	PermissionMode,
+} from "@anthropic-ai/claude-agent-sdk";
 import type { SdkKind } from "../../types.ts";
 import { assertValidResumeId } from "../errors.ts";
 import type {
@@ -89,6 +92,12 @@ export interface ClaudeTerminalSDKConfig {
 	 * tool-use permission prompts, so a non-bypass mode would hang.
 	 */
 	permissionMode?: PermissionMode;
+	/**
+	 * `claude --effort <level>` に渡すデフォルトの reasoning effort。
+	 * モデル ID の `:level` サフィックス (例: `claude-opus-4-5:high`) が
+	 * あればそちらが優先される。
+	 */
+	effortLevel?: EffortLevel;
 	backendImpl?: TerminalBackend;
 	transcriptReader?: ClaudeTranscriptReader;
 	now?: () => Date;
@@ -208,6 +217,9 @@ export class ClaudeTerminalSDK implements SeherSDKInstance {
 			permissionMode: this.config.permissionMode ?? DEFAULT_PERMISSION_MODE,
 		};
 		if (opts.model !== undefined) cmdOpts.model = opts.model;
+		if (this.config.effortLevel !== undefined) {
+			cmdOpts.effortLevel = this.config.effortLevel;
+		}
 		if (opts.systemPrompt !== undefined)
 			cmdOpts.systemPrompt = opts.systemPrompt;
 		// resume を指定したら `claude --resume <id>` で起動する。

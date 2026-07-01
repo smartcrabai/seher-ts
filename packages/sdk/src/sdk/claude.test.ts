@@ -314,3 +314,73 @@ describe("ClaudeSDK", () => {
 		expect(deltas).toEqual(["partial"]);
 	});
 });
+
+describe("ClaudeSDK effort level", () => {
+	beforeEach(() => {
+		queryCalls.length = 0;
+		queryMessages = [];
+	});
+
+	test("認識可能な `:high` サフィックスは base を strip し options.effort に渡す", async () => {
+		queryMessages = [successResult("ok")];
+		const sdk = new ClaudeSDK();
+		await sdk.run({ prompt: "p", model: "claude-opus-4-5:high" });
+
+		const opts = lastCall().options;
+		expect(opts.model).toBe("claude-opus-4-5");
+		expect(opts.effort).toBe("high");
+	});
+
+	test("認識可能な `:max` サフィックスは options.effort に渡す", async () => {
+		queryMessages = [successResult("ok")];
+		const sdk = new ClaudeSDK();
+		await sdk.run({ prompt: "p", model: "claude-opus-4-5:max" });
+
+		expect(lastCall().options.effort).toBe("max");
+	});
+
+	test("config.effortLevel はモデル ID にサフィックスが無ければそのまま使われる", async () => {
+		queryMessages = [successResult("ok")];
+		const sdk = new ClaudeSDK({ effortLevel: "medium" });
+		await sdk.run({ prompt: "p", model: "claude-opus-4-5" });
+
+		expect(lastCall().options.effort).toBe("medium");
+	});
+
+	test("モデル ID の `:level` サフィックスは config.effortLevel より優先される", async () => {
+		queryMessages = [successResult("ok")];
+		const sdk = new ClaudeSDK({ effortLevel: "medium" });
+		await sdk.run({ prompt: "p", model: "claude-opus-4-5:high" });
+
+		expect(lastCall().options.effort).toBe("high");
+	});
+
+	test("config.effortLevel はモデル指定が一切無くても適用される", async () => {
+		queryMessages = [successResult("ok")];
+		const sdk = new ClaudeSDK({ effortLevel: "low" });
+		await sdk.run({ prompt: "p" });
+
+		expect(lastCall().options.effort).toBe("low");
+	});
+
+	test("effortLevel もサフィックスも無ければ options.effort は未設定", async () => {
+		queryMessages = [successResult("ok")];
+		const sdk = new ClaudeSDK();
+		await sdk.run({ prompt: "p" });
+
+		expect(lastCall().options.effort).toBeUndefined();
+	});
+
+	test("`:free` のような未認識サフィックスは effort に影響せず model も原文のまま", async () => {
+		queryMessages = [successResult("ok")];
+		const sdk = new ClaudeSDK();
+		await sdk.run({
+			prompt: "p",
+			model: "openrouter/meta-llama/llama-3.1-8b-instruct:free",
+		});
+
+		const opts = lastCall().options;
+		expect(opts.model).toBe("openrouter/meta-llama/llama-3.1-8b-instruct:free");
+		expect(opts.effort).toBeUndefined();
+	});
+});
