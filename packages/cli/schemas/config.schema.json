@@ -125,7 +125,7 @@
 			"properties": {
 				"key": {
 					"type": "string",
-					"description": "API キー (例: ANTHROPIC_API_KEY 相当)。pi 実行時は省略すると ANTHROPIC_API_KEY / OPENAI_API_KEY にフォールバックする。"
+					"description": "API キー (例: ANTHROPIC_API_KEY 相当)。pi 実行時は省略すると pi 本体の auth.json / 環境変数解決に委ねる。"
 				},
 				"endpoint": {
 					"type": "string",
@@ -144,7 +144,7 @@
 				},
 				"sdk": {
 					"$ref": "#/definitions/sdkKind",
-					"description": "明示的に SDK を指定する。`provider` フィールド (または YAML マップキー) が組み込みセット外の名前のとき必須。"
+					"description": "明示的に SDK を指定する。`provider` フィールド (または YAML マップキー) が組み込みセット外の名前のとき必須。`sdk: pi` は pi 本体の認証解決を使えるため `api` なしでも動作する。"
 				},
 				"priority": {
 					"type": "number",

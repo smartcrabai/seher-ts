@@ -48,6 +48,9 @@ const DEFAULT_SDK_BY_PROVIDER: Readonly<Record<string, SdkKind>> = {
 	kimi: "kimi",
 };
 
+/** SDKs that can resolve credentials from their own native config. */
+const SDKS_WITH_OPTIONAL_API: ReadonlySet<SdkKind> = new Set<SdkKind>(["pi"]);
+
 function parseSdk(raw: unknown, label: string): SdkKind {
 	if (typeof raw !== "string") {
 		fail(`${label}.sdk must be a string`);
@@ -287,7 +290,7 @@ function parseProvider(
 	let api: ProviderApi | undefined;
 	if ("api" in raw && raw.api !== undefined) {
 		api = parseApi(raw.api, label);
-	} else if (!isBuiltIn) {
+	} else if (!isBuiltIn && !SDKS_WITH_OPTIONAL_API.has(sdk)) {
 		fail(
 			`${label}.api is required when the resolved provider name ("${provider}") is outside the built-in set (provide \`api.key\` and/or \`api.endpoint\`)`,
 		);

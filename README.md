@@ -46,8 +46,10 @@ alternative signal. The wait has its own short timeout
 control to the caller for retry instead of blocking the whole
 response timeout.
 
-Provider keys outside this table must declare `sdk: <kind>` and an `api`
-block. Use `sdk: pi` with any provider key to drive the pi.dev agent.
+Provider keys outside this table must declare `sdk: <kind>`. They also
+need an `api` block unless the selected SDK can resolve credentials from
+its own native config. In particular, `sdk: pi` needs no `api` block by
+default because the pi.dev agent reads its own auth store / environment.
 There is no default provider mapping for pi; setting `sdk: pi` is the only
 way to opt in.
 
@@ -176,7 +178,7 @@ and the JSON Schema at
 | `provider` | string | Resolved provider name. Defaults to the YAML map key. Drives the built-in SDK default lookup, the CodexBar usage query, and the `-p` filter. Use this to share a CodexBar pool between multiple entries (e.g. two `provider: claude` entries with different priorities/models). |
 | `sdk` | `"claude" \| "claude-terminal" \| "claude-headless" \| "codex" \| "copilot" \| "kimi" \| "opencode" \| "cursor" \| "pi"` | Required when the resolved provider name is outside the built-in set; optional otherwise (defaults from the table above). |
 | `priority` | number | Provider-level shorthand. Used when a model entry omits its own priority. |
-| `api.key` | string | Mapped to the SDK's native key field (e.g. `ANTHROPIC_API_KEY`, `gitHubToken`, …). |
+| `api.key` | string | Mapped to the SDK's native key field (e.g. `ANTHROPIC_API_KEY`, `gitHubToken`, …). Optional for `sdk: pi` unless you want a runtime override. |
 | `api.endpoint` | string | Mapped to the SDK's native base URL field (e.g. `ANTHROPIC_BASE_URL`, OpenCode `baseURL`, …). |
 | `skills.includeClaude` | boolean | Per-provider override of the top-level `skills.includeClaude`. |
 | `retry` | object | Per-provider retry policy override. Replaces the root `retry` block as a whole — fields are **not** merged individually. Missing fields fall back to the hard-coded defaults. See [Retry policy](#retry-policy). |
