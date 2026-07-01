@@ -30,11 +30,11 @@ function resolveSkills(
 }
 
 /**
- * provider-level の `retry` が定義されていれば root を丸ごと置換し、
- * provider 単体で defaults にフォールバックする (フィールド単位の
- * マージはしない)。root のみ定義なら root を使用し、両方未定義なら
- * defaults を返す。値が defaults より逸脱した場合 (`maxAttempts < 1`、
- * `multiplier < 1.0`) は安全な値にクランプする。
+ * If a provider-level `retry` is defined, it completely replaces the root
+ * config, falling back to defaults for any fields the provider doesn't set
+ * (no per-field merging). If only root is defined, root is used; if
+ * neither is defined, defaults are returned. Values outside safe bounds
+ * (`maxAttempts < 1`, `multiplier < 1.0`) are clamped.
  */
 export function resolveRetry(
 	providerRetry: RetryConfig | undefined,
@@ -142,16 +142,16 @@ export interface Candidate {
 }
 
 /**
- * `buildCandidates` のオプション。`modeKey` のみ必須で、他は任意。
+ * Options for `buildCandidates`. Only `modeKey` is required; the rest are optional.
  */
 export interface BuildCandidatesOptions {
 	/** Mode key (e.g., `plan`, `build`). */
 	modeKey: string;
-	/** `-p` で指定された provider key (一致するもののみ残す)。 */
+	/** Provider key given via `-p` (only matching providers are kept). */
 	providerFilter?: string;
-	/** 候補から除外する provider key 一覧。 */
+	/** List of provider keys to exclude from the candidates. */
 	excludeProviders?: readonly string[];
-	/** true のとき tools をサポートしない SDK を除外する。 */
+	/** When true, exclude SDKs that don't support tools. */
 	requireToolsSupport?: boolean;
 }
 
@@ -163,8 +163,9 @@ function effectivePriority(
 }
 
 /**
- * config から優先度順に候補を組み立てる。`--show-resolution` のように、
- * resolve 全体を走らせずに候補リストだけ欲しい呼び出し側のために export している。
+ * Builds the candidate list from config in priority order. Exported for
+ * callers like `--show-resolution` that just want the candidate list
+ * without running the full resolve.
  */
 export function buildCandidates(
 	config: Config,

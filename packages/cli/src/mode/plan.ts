@@ -23,9 +23,9 @@ export interface PlanModeDeps {
 	editPlan?: (initial: string) => Promise<string>;
 	createSdk?: (opts: ConstructorParameters<typeof SeherSDK>[0]) => SeherSDK;
 	/**
-	 * エディタを起動できる環境かを確認するための差し替え可能なフック。
-	 * 既定では `ensureEditorAvailable` をそのまま使う。テストで TTY の
-	 * 有無を制御するために差し替えられる。
+	 * Overridable hook for checking whether the environment can launch an
+	 * editor. Defaults to using `ensureEditorAvailable` as-is. Can be
+	 * swapped out in tests to control TTY availability.
 	 */
 	ensureEditorAvailable?: () => void;
 }
@@ -71,10 +71,10 @@ export async function runPlanMode(
 	const ensureEditor =
 		opts.deps?.ensureEditorAvailable ?? ensureEditorAvailable;
 
-	// プラン生成のコストを払う前に、エディタを安全に開けるかをまず確認し
-	// 失敗時は即座にエラーにする (Rust 版の `seher plan` と同じ挙動)。
-	// CLI UX 上はスタックトレースを出さず、メッセージのみ stderr に出して
-	// exit 1 で終了する。
+	// Before paying the cost of plan generation, first check that the editor
+	// can be safely opened and fail immediately if not (same behavior as the
+	// Rust version's `seher plan`). For CLI UX, print only the message to
+	// stderr without a stack trace, then exit with code 1.
 	try {
 		ensureEditor();
 	} catch (err) {
@@ -83,8 +83,9 @@ export async function runPlanMode(
 		return { exitCode: 1 };
 	}
 
-	// 1) プランを生成する。Rust 側の StreamOutput::CaptureOnly に合わせて
-	//    stdout には流さず、生成結果をそのままエディタに seed として渡す。
+	// 1) Generate the plan. To match the Rust side's StreamOutput::CaptureOnly,
+	//    don't stream to stdout; pass the generated result directly to the
+	//    editor as its seed.
 	const planSdkOpts: ConstructorParameters<typeof SeherSDK>[0] = {
 		mode: "plan",
 		permissionMode: "bypassPermissions",
@@ -117,14 +118,14 @@ export async function runPlanMode(
 	const planResult = await planSdk.run(runOpts);
 	const planText = planResult.text;
 
-	// 2) 生成したプランをエディタで開いてレビュー/編集してもらう。
+	// 2) Open the generated plan in the editor for review/editing.
 	const edited = (await editPlan(planText)).trim();
 	if (edited.length === 0) {
 		if (!opts.quiet) opts.logger.info("Plan canceled");
 		return { exitCode: 0, canceled: true };
 	}
 
-	// 3) build モードで再解決して、承認されたプランを実行する。
+	// 3) Re-resolve in build mode and execute the approved plan.
 	const buildPrompt = APPROVED_BUILD_TEMPLATE(edited);
 	const buildSdkOpts: ConstructorParameters<typeof SeherSDK>[0] = {
 		mode: "build",

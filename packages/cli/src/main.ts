@@ -38,10 +38,10 @@ function emitHelpOrVersion(args: ParsedArgs, deps: RunSeherDeps): void {
 }
 
 /**
- * 新規セッション (resume なし) の `session: <id>` を stderr に出す。
- * Rust 版 stream.rs と同様、stdout は assistant text 専用に保ち、id は stderr に
- * 流して `2>/dev/null` でパイプ運用しても影響しないようにする。`--quiet` 時は
- * 抑止する (informational 扱い)。
+ * Emits `session: <id>` to stderr for a fresh session (no resume).
+ * As in the Rust version's stream.rs, stdout is kept dedicated to assistant
+ * text, and the id is sent to stderr so piping with `2>/dev/null` is
+ * unaffected. Suppressed when `--quiet` is set (treated as informational).
  */
 function emitSessionIdIfFresh(
 	args: ParsedArgs,

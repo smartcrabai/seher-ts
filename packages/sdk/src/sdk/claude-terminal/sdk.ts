@@ -93,9 +93,9 @@ export interface ClaudeTerminalSDKConfig {
 	 */
 	permissionMode?: PermissionMode;
 	/**
-	 * `claude --effort <level>` に渡すデフォルトの reasoning effort。
-	 * モデル ID の `:level` サフィックス (例: `claude-opus-4-5:high`) が
-	 * あればそちらが優先される。
+	 * Default reasoning effort forwarded to `claude --effort <level>`.
+	 * A `:level` suffix on the model ID (e.g. `claude-opus-4-5:high`) takes
+	 * precedence when present.
 	 */
 	effortLevel?: EffortLevel;
 	backendImpl?: TerminalBackend;
@@ -162,8 +162,9 @@ export class ClaudeTerminalSDK implements SeherSDKInstance {
 	}
 
 	async run(opts: SeherRunOptions): Promise<SeherRunResult> {
-		// 直前の run/stream で残った id を `lastSessionId()` が誤って晒さないよう、
-		// 開始時にリセット。成功時は execute() の戻りで上書きする。
+		// Reset the id at the start of the run so a stale one left over from a
+		// previous run/stream call is never wrongly exposed via `lastSessionId()`;
+		// a fresh value is set from execute()'s return on success.
 		this._lastSessionId = undefined;
 		const response = await this.execute(opts);
 		const text = normalizeText(response);
@@ -222,19 +223,21 @@ export class ClaudeTerminalSDK implements SeherSDKInstance {
 		}
 		if (opts.systemPrompt !== undefined)
 			cmdOpts.systemPrompt = opts.systemPrompt;
-		// resume を指定したら `claude --resume <id>` で起動する。
-		// `--resume` 経由では既存の transcript ファイルが追記される (新規 jsonl は
-		// 作られない) ため、findSession の "fresh-only" 検索ではヒットしない。
-		// よって resume 時は transcript パスを id から決め打ちで構築する。
-		// id を子プロセスの引数 / ファイルパスに使うので、SDK 層で validate する。
+		// When `resume` is given, launch with `claude --resume <id>`.
+		// `--resume` appends to the existing transcript file (no new jsonl is
+		// created), so findSession's "fresh-only" search will not find it.
+		// The transcript path is therefore built deterministically from the id
+		// on resume. The id is used in a child-process argument / file path, so
+		// it is validated at the SDK layer.
 		if (opts.resume !== undefined) {
 			assertValidResumeId(opts.resume);
 			cmdOpts.resume = opts.resume;
 		}
 		const command = buildClaudeCommand(cmdOpts);
 
-		// resume 時は excludeNames のスキャンを省略 (一致するファイルは確実に
-		// 既存なので除外しても無意味)。fresh 時のみ既存 jsonl を除外する。
+		// On resume, skip the excludeNames scan (any matching file is guaranteed
+		// to already exist, so excluding it is moot); only exclude existing jsonl
+		// files on a fresh run.
 		const excludeNames =
 			opts.resume === undefined
 				? await this.transcripts.listSessionNames({
@@ -255,9 +258,10 @@ export class ClaudeTerminalSDK implements SeherSDKInstance {
 				timeoutMs: pasteVisibleTimeoutMs,
 				pollIntervalMs: readyPollIntervalMs,
 			});
-			// resume 時は submit 前にベースラインの assistant メッセージ数を取得し、
-			// `waitForAssistantResponse` がそれを超える応答 (= 新ターンの出力) まで
-			// 待つようにする。これを忘れると prior turn の `result` が即返ってしまう。
+			// On resume, capture the baseline assistant-message count before submit
+			// so `waitForAssistantResponse` waits until the count exceeds it (i.e.
+			// the new turn's output). Skipping this would return the prior turn's
+			// `result` immediately.
 			let resumeRef: { sessionId: string; transcriptPath: string } | undefined;
 			let baselineAssistantCount = 0;
 			if (opts.resume !== undefined) {

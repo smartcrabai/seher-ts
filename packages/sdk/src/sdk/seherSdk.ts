@@ -56,8 +56,8 @@ function hasTools(config: SeherSDKConfig): boolean {
 }
 
 /**
- * シンプルな promise ベースの待機。0 以下のときは即座に解決する
- * (退化したテスト設定や負の attempt に対する防御)。
+ * Simple promise-based delay. Resolves immediately when `ms` is <= 0
+ * (guards against degenerate test configs or a negative attempt count).
  */
 function sleepMs(ms: number): Promise<void> {
 	if (ms <= 0) return Promise.resolve();
@@ -94,17 +94,17 @@ export interface LimitRetryInfo {
 }
 
 /**
- * 同一プロバイダに対する transient HTTP エラー再試行時に通知される情報。
+ * Info reported when retrying a transient HTTP error against the same provider.
  */
 export interface TransientRetryInfo {
 	provider: string;
-	/** 失敗した試行番号 (1 始まり)。 */
+	/** The failed attempt number (1-based). */
 	attempt: number;
-	/** 設定上の最大試行回数 (effectiveMaxAttempts 適用済み)。 */
+	/** Configured max attempts (after applying effectiveMaxAttempts). */
 	maxAttempts: number;
-	/** リトライ要因となったエラーメッセージ。 */
+	/** The error message that triggered the retry. */
 	message: string;
-	/** 次の試行までの待機 (ミリ秒)。 */
+	/** Delay before the next attempt (milliseconds). */
 	delayMs: number;
 }
 
@@ -136,9 +136,9 @@ export interface SeherSDKOptions extends SeherSDKConfig {
 	/** Called once per scan attempt while waiting for any provider to recover. */
 	onLimitWaitTick?: (attempt: number) => void;
 	/**
-	 * 一時的な HTTP エラー (`HTTP 429/500/502/503/504`) を同じプロバイダ
-	 * で再試行する直前に呼ばれる hook。`agent.retry.enabled === false` の
-	 * 場合は再試行が無効化されるため呼ばれない。
+	 * Hook called right before retrying a transient HTTP error
+	 * (`HTTP 429/500/502/503/504`) against the same provider. Not called when
+	 * `agent.retry.enabled === false`, since retry is disabled in that case.
 	 */
 	onTransientRetry?: (info: TransientRetryInfo) => void;
 	/** Cancellation signal for the indefinite poll wait. */
@@ -160,8 +160,9 @@ export interface SeherSDKOptions extends SeherSDKConfig {
  * Apply provider-level api/env to the underlying SDK config in the right
  * field per SDK kind. Caller-supplied opts take precedence.
  *
- * @internal 低レベル `dispatch` API 用に export しているヘルパー。SeherSDK の利用者は
- *           直接呼ばずに `runForResolved` / `streamForResolved` を使う。
+ * @internal Exported for the low-level `dispatch` API. SeherSDK consumers
+ *           should not call this directly; use `runForResolved` /
+ *           `streamForResolved` instead.
  */
 export function applyResolvedAgent(
 	kind: SdkKind,
@@ -222,8 +223,8 @@ export function applyResolvedAgent(
 				}
 				out.env = kimiEnv;
 			}
-			// kimi 固有: 共通 `cwd` を SDK 固有の `workDir` にも写しておく
-			// (両方未設定なら何もしない)。明示の `workDir` が優先される。
+			// kimi-specific: also mirror the common `cwd` into the SDK-specific
+			// `workDir` (no-op if both are unset). An explicit `workDir` wins.
 			if (out.cwd !== undefined && out.workDir === undefined) {
 				out.workDir = out.cwd;
 			}
@@ -248,10 +249,11 @@ export function applyResolvedAgent(
 }
 
 /**
- * 解決済みの SDK kind と統合済みの config から SDK インスタンスを構築する。
+ * Build an SDK instance from a resolved SDK kind and the merged config.
  *
- * @internal 低レベル `dispatch` API 用に export しているヘルパー。
- *           SeherSDK の利用者は直接呼ばずに `runForResolved` / `streamForResolved` を使う。
+ * @internal Exported for the low-level `dispatch` API. SeherSDK consumers
+ *           should not call this directly; use `runForResolved` /
+ *           `streamForResolved` instead.
  */
 export function buildInstance(
 	kind: SdkKind,
@@ -448,10 +450,10 @@ export class SeherSDK {
 	}
 
 	/**
-	 * 解決済みエージェントの `retry` ポリシーに従って同一プロバイダで
-	 * `run` を再試行する。`LimitError` は即座に再スローして上位の
-	 * provider 切替ループに任せる (Rust 版 `stream_with_http_retry` と
-	 * 同じ責務分割)。
+	 * Retry `run` against the same provider according to the resolved
+	 * agent's `retry` policy. `LimitError` is rethrown immediately, leaving
+	 * the provider-switch loop above to handle it (the same division of
+	 * responsibility as the Rust `stream_with_http_retry`).
 	 */
 	private async runWithTransientRetry(
 		sdk: SeherSDKInstance,
@@ -487,10 +489,12 @@ export class SeherSDK {
 	}
 
 	/**
-	 * `runWithTransientRetry` のストリーム版。最初の chunk 到着前後を問わず
-	 * 同じ semantics で同一プロバイダ再試行する。途中まで yield 済みでも
-	 * リトライ時は新しいストリームを最初から開始する点に注意 (Rust 版と
-	 * 同じく seher 側は逐次出力なので、CLI 層は再描画を許容する想定)。
+	 * Streaming counterpart of `runWithTransientRetry`. Retries against the
+	 * same provider with the same semantics, whether or not the first chunk
+	 * has already arrived. Note that a retry restarts the stream from
+	 * scratch even if some chunks were already yielded (as in the Rust
+	 * version, seher emits output incrementally, so the CLI layer is
+	 * expected to tolerate a redraw).
 	 */
 	private async *streamWithTransientRetry(
 		sdk: SeherSDKInstance,
@@ -598,9 +602,10 @@ export class SeherSDK {
 	}
 
 	/**
-	 * 解決済みエージェントの `modelId` を `runOpts.model` のデフォルトとして
-	 * 適用する。明示的に `runOpts.model` が指定されていればそちらを優先。
-	 * 明示的な `kind` で解決済みエージェントが無いケースは passthrough。
+	 * Apply the resolved agent's `modelId` as the default for
+	 * `runOpts.model`. An explicitly provided `runOpts.model` always wins.
+	 * Passthrough when there is no resolved agent (i.e. an explicit `kind`
+	 * was given).
 	 */
 	private translateRunOpts(runOpts: SeherRunOptions): SeherRunOptions {
 		if (runOpts.model !== undefined) return runOpts;

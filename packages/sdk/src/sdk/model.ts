@@ -1,18 +1,18 @@
 import type { EffortLevel } from "@anthropic-ai/claude-agent-sdk";
 
 /**
- * モデル ID の `:thinking` サフィックス処理。
+ * Handling of the `:thinking` suffix on model IDs.
  *
- * `config.yaml` の `model` 値には `model:thinking` 形式で pi の thinking
- * レベルを指定できる(例: `anthropic/claude-opus-4-5:high`)。本モジュー
- * ルは末尾の `:level` を切り出し、認識できれば `ThinkingLevel` として返
- * す。認識できないサフィックス(OpenRouter の `:free` variant 等)は原
- * 文をそのまま返すため、既存のモデル ID を壊さない。
+ * The `model` value in `config.yaml` can specify a pi thinking level using
+ * the `model:thinking` form (e.g. `anthropic/claude-opus-4-5:high`). This
+ * module extracts the trailing `:level` and returns it as a `ThinkingLevel`
+ * when recognized. Unrecognized suffixes (such as the OpenRouter `:free`
+ * variant) are returned unchanged, so existing model IDs are never broken.
  */
 
 /**
- * pi の thinking レベル。pi-coding-agent (`@earendil-works/pi-agent-core`)
- * が受け付ける正規化済みリテラルと一致する。
+ * pi's thinking level. Matches the normalized literals accepted by
+ * pi-coding-agent (`@earendil-works/pi-agent-core`).
  */
 export type ThinkingLevel =
 	| "off"
@@ -23,10 +23,10 @@ export type ThinkingLevel =
 	| "xhigh";
 
 /**
- * 認識する thinking レベルとエイリアスの対応表。Rust 側 pi クレートの
- * `ThinkingLevel::FromStr` 実装と完全に一致させてある(`off` / `none` /
- * `0`、`minimal` / `min`、`low` / `1`、`medium` / `med` / `2`、`high` /
- * `3`、`xhigh` / `4`)。
+ * Table of recognized thinking levels and their aliases. Kept fully in sync
+ * with the `ThinkingLevel::FromStr` implementation in the Rust-side pi
+ * crate (`off` / `none` / `0`, `minimal` / `min`, `low` / `1`,
+ * `medium` / `med` / `2`, `high` / `3`, `xhigh` / `4`).
  */
 const THINKING_ALIASES: Readonly<Record<string, ThinkingLevel>> = {
 	off: "off",
@@ -46,8 +46,8 @@ const THINKING_ALIASES: Readonly<Record<string, ThinkingLevel>> = {
 };
 
 /**
- * `suffix` を thinking レベルとして解釈する。認識できなければ
- * `undefined` を返す。比較は小文字化・トリム済みで行う。
+ * Interprets `suffix` as a thinking level. Returns `undefined` if it isn't
+ * recognized. Comparison is done after lowercasing and trimming.
  */
 function parseThinkingLevel(suffix: string): ThinkingLevel | undefined {
 	const normalized = suffix.trim().toLowerCase();
@@ -58,15 +58,16 @@ function parseThinkingLevel(suffix: string): ThinkingLevel | undefined {
 }
 
 /**
- * モデル ID 末尾の `:level` thinking サフィックスを切り出す。
+ * Extracts the trailing `:level` thinking suffix from a model ID.
  *
- * - サフィックスが認識可能な thinking レベルだった場合のみ strip して
- *   `thinking` を返す。
- * - 認識できないサフィックス(`:free` 等)はそのまま `base` に残す。
- * - `:` を含まない場合は原文を `base` として返す。
+ * - Only strips the suffix and returns `thinking` if it's a recognized
+ *   thinking level.
+ * - Unrecognized suffixes (e.g. `:free`) are left in `base` as-is.
+ * - If there is no `:`, the original string is returned as `base`.
  *
- * provider 区切り `/` は無視し、**最後の** `:` だけを判定対象にする。
- * `anthropic/claude-opus-4-5:high` の base は `anthropic/claude-opus-4-5`。
+ * The provider separator `/` is ignored; only the **last** `:` is
+ * considered. For `anthropic/claude-opus-4-5:high`, the base is
+ * `anthropic/claude-opus-4-5`.
  */
 export function splitThinkingSuffix(modelId: string): {
 	base: string;
@@ -83,9 +84,9 @@ export function splitThinkingSuffix(modelId: string): {
 export type { EffortLevel };
 
 /**
- * 認識する effort level の正規名。`@anthropic-ai/claude-agent-sdk` の
- * `Options.effort` / `claude --effort` CLI フラグが受け付ける 5 値
- * (low/medium/high/xhigh/max) と完全一致させる。
+ * Canonical names of recognized effort levels. Kept exactly in sync with the
+ * 5 values (low/medium/high/xhigh/max) accepted by `Options.effort` in
+ * `@anthropic-ai/claude-agent-sdk` and the `claude --effort` CLI flag.
  */
 export const EFFORT_LEVELS = [
 	"low",
@@ -96,10 +97,11 @@ export const EFFORT_LEVELS = [
 ] as const satisfies readonly EffortLevel[];
 
 /**
- * `suffix` を effort レベルとして解釈する。認識できなければ `undefined`
- * を返す。比較は小文字化・トリム済みで行う。エイリアスは設けず
- * `EFFORT_LEVELS` の正規名のみを受け付ける(`claude --effort` CLI /
- * YAML `models.<mode>.effort` と同じ語彙に統一するため)。
+ * Interprets `suffix` as an effort level. Returns `undefined` if it isn't
+ * recognized. Comparison is done after lowercasing and trimming. No aliases
+ * are defined; only the canonical names in `EFFORT_LEVELS` are accepted, to
+ * keep the vocabulary consistent with the `claude --effort` CLI and the
+ * YAML `models.<mode>.effort` field.
  */
 function parseEffortLevel(suffix: string): EffortLevel | undefined {
 	const normalized = suffix.trim().toLowerCase();
@@ -110,14 +112,16 @@ function parseEffortLevel(suffix: string): EffortLevel | undefined {
 }
 
 /**
- * モデル ID 末尾の `:level` effort サフィックスを切り出す。`splitThinkingSuffix`
- * の effort 版で、pi 向けの thinking レベルとは独立に Claude 系 SDK
- * (`claude` / `claude-headless` / `claude-terminal`) が解釈する。
+ * Extracts the trailing `:level` effort suffix from a model ID. This is the
+ * effort counterpart to `splitThinkingSuffix`, interpreted independently of
+ * pi's thinking level by the Claude-family SDKs (`claude` /
+ * `claude-headless` / `claude-terminal`).
  *
- * - サフィックスが認識可能な effort レベルだった場合のみ strip して
- *   `effort` を返す。
- * - 認識できないサフィックス(`:free` 等)はそのまま `base` に残す。
- * - provider 区切り `/` は無視し、**最後の** `:` だけを判定対象にする。
+ * - Only strips the suffix and returns `effort` if it's a recognized effort
+ *   level.
+ * - Unrecognized suffixes (e.g. `:free`) are left in `base` as-is.
+ * - The provider separator `/` is ignored; only the **last** `:` is
+ *   considered.
  */
 export function splitEffortSuffix(modelId: string): {
 	base: string;

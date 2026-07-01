@@ -19,16 +19,17 @@ export async function readPromptFromStdin(): Promise<string | null> {
 }
 
 /**
- * エディタを安全に起動できる環境かどうかを確認する。
+ * Verifies that the environment can safely launch an editor.
  *
- * Unix では `/dev/tty` を `r+` で開けることを確認する (制御端末が
- * 失われた状態でエディタを起動すると `SIGTTOU`/`SIGTTIN` で
- * プロセスがサスペンドされてしまうため)。非 Unix では stdin/stdout
- * がいずれも TTY であることを確認する。
+ * On Unix, this checks that `/dev/tty` can be opened with `r+` (launching an
+ * editor after losing the controlling terminal would suspend the process via
+ * `SIGTTOU`/`SIGTTIN`). On non-Unix, this checks that both stdin/stdout are
+ * TTYs.
  *
- * Rust 版 (`seher::prompt::ensure_editor_available`) と挙動を揃えるため、
- * エラーメッセージには英語の `seher is not running in the foreground terminal`
- * を含める (ログから検索可能にするため)。
+ * To match the behavior of the Rust version
+ * (`seher::prompt::ensure_editor_available`), the error message includes the
+ * English string `seher is not running in the foreground terminal` (so it
+ * stays greppable in logs).
  */
 export function ensureEditorAvailable(): void {
 	if (process.platform !== "win32") {
@@ -53,7 +54,8 @@ export function ensureEditorAvailable(): void {
 		}
 		return;
 	}
-	// 非 Unix (Windows) では /dev/tty が無いので stdin/stdout の TTY 判定で代用する。
+	// On non-Unix (Windows), there is no /dev/tty, so fall back to checking
+	// whether stdin/stdout are TTYs.
 	if (process.stdin.isTTY !== true || process.stdout.isTTY !== true) {
 		throw new Error(
 			"seher is not running in the foreground terminal. " +
@@ -73,16 +75,17 @@ export async function editPromptInEditor(initial?: string): Promise<string> {
 	const file = Bun.file(tmpPath);
 	await Bun.write(file, initial ?? "");
 
-	// Unix では stdin/stdout がリダイレクトされていてもユーザの端末で
-	// 編集できるよう、`/dev/tty` を改めて開いてエディタの stdio に渡す。
+	// On Unix, re-open `/dev/tty` and pass it as the editor's stdio so the
+	// user can still edit on their terminal even if stdin/stdout are
+	// redirected.
 	let ttyFd: number | null = null;
 	try {
 		if (process.platform !== "win32") {
 			try {
 				ttyFd = openSync("/dev/tty", "r+");
 			} catch {
-				// `ensureEditorAvailable()` が直前で通っていれば普通は失敗しないが、
-				// 万が一失敗した場合は inherit にフォールバックする。
+				// This normally won't fail if `ensureEditorAvailable()` just
+				// succeeded, but fall back to inherit if it does fail.
 				ttyFd = null;
 			}
 		}

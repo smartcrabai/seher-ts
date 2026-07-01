@@ -1,10 +1,10 @@
 import type { SdkKind } from "../types.ts";
 
 /**
- * Claude のエラーメッセージにレート制限 / クォータ系のフレーズが含まれているか判定する。
- * `claude` / `claude-terminal` / `claude-headless` の各 SDK で文字列ベースに
- * 失敗を分類する際に共有する。新しいフレーズが現れたときに 1 箇所で更新できるよう、
- * 共通ヘルパーにまとめてある。
+ * Detect whether a Claude error message contains a rate-limit / quota
+ * phrase. Shared by the `claude` / `claude-terminal` / `claude-headless`
+ * SDKs when classifying failures by string matching. Kept as a single
+ * helper so a newly observed phrase only needs to be added in one place.
  */
 export function isClaudeRateLimitMessage(msg: string): boolean {
 	const lower = msg.toLowerCase();
@@ -65,10 +65,11 @@ export function rethrowAsLimit(
 	throw err;
 }
 
-// セッション id は (1) ファイル名や (2) 子プロセスの引数として渡るため、
-// CLI 層の validation だけでなく SDK 層でも防御する。CLI を介さず SeherSDK
-// を直接呼ぶライブラリ利用者から `../../etc/passwd` や `--dangerous-flag` のような
-// 値が来ても、`run()` / `stream()` に到達する前にここで弾く。
+// Session ids get passed as (1) a file name and (2) a child-process argument,
+// so we defend at the SDK layer too, not just via CLI-layer validation. If a
+// library consumer calls SeherSDK directly (bypassing the CLI) with a value
+// like `../../etc/passwd` or `--dangerous-flag`, this rejects it here before
+// it reaches `run()` / `stream()`.
 const SDK_RESUME_PATTERN = /^[A-Za-z0-9_-]+$/;
 const SDK_RESUME_MAX_LEN = 128;
 

@@ -57,8 +57,8 @@ export interface ClaudeSDKConfig {
 	baseURL?: string;
 	defaultModel?: string;
 	/**
-	 * `Options.effort` のデフォルト値。モデル ID の `:level` サフィックス
-	 * (例: `claude-opus-4-5:high`) が指定されていればそちらが優先される。
+	 * Default value for `Options.effort`. A `:level` suffix on the model ID
+	 * (e.g. `claude-opus-4-5:high`) takes precedence over this if specified.
 	 */
 	effortLevel?: EffortLevel;
 	/** Permission mode for the Claude agent. `"auto"` uses a model classifier. */
@@ -131,9 +131,9 @@ export class ClaudeSDK implements SeherSDKInstance {
 		const rawModel = opts.model ?? this.config.defaultModel;
 		let suffixEffort: EffortLevel | undefined;
 		if (rawModel !== undefined) {
-			// モデル ID 末尾の `:level` サフィックス (例: `claude-opus-4-5:high`) は
-			// `Options.effort` にマップする。認識できない `:free` のような
-			// サフィックスは strip せず base に残す。
+			// A trailing `:level` suffix on the model ID (e.g. `claude-opus-4-5:high`)
+			// is mapped to `Options.effort`. An unrecognized suffix like `:free`
+			// is left in the base instead of being stripped.
 			const { base, effort } = splitEffortSuffix(rawModel);
 			options.model = base;
 			suffixEffort = effort;
@@ -144,10 +144,12 @@ export class ClaudeSDK implements SeherSDKInstance {
 			options.systemPrompt = opts.systemPrompt;
 		}
 		if (this.config.cwd !== undefined) options.cwd = this.config.cwd;
-		// 既存セッションの継続。Claude Agent SDK は `Options.resume` を直接サポート
-		// する。`session: <id>` で表示した id を次回そのまま渡せるよう、CLI / 上位
-		// SDK の `--resume` をここまで通す経路を確保する。SDK 直接呼び出しでの不正な
-		// id (path traversal / フラグ偽装) を防ぐため、SDK 層でも validate する。
+		// Resuming an existing session. The Claude Agent SDK directly supports
+		// `Options.resume`. To let the id shown via `session: <id>` be passed
+		// through unchanged next time, we thread the CLI / upper-layer SDK's
+		// `--resume` down to here. We also validate at the SDK layer to guard
+		// against a malicious id (path traversal / flag injection) on direct
+		// SDK calls.
 		if (opts.resume !== undefined) {
 			assertValidResumeId(opts.resume);
 			options.resume = opts.resume;
@@ -169,9 +171,10 @@ export class ClaudeSDK implements SeherSDKInstance {
 
 	async run(opts: SeherRunOptions): Promise<SeherRunResult> {
 		const timeoutMs = opts.timeoutMs ?? this.config.timeoutMs;
-		// 前回の run/stream で残った id を `lastSessionId()` が誤って晒さないよう、
-		// 開始時に必ずリセットする。run 中に session_id が観測されればその場で
-		// 上書きされ、観測されなければ undefined のまま終わる。
+		// Always reset at the start so `lastSessionId()` doesn't mistakenly
+		// expose an id left over from a previous run/stream. It's overwritten
+		// on the spot if a session_id is observed during the run, and stays
+		// undefined if none is observed.
 		this._lastSessionId = undefined;
 		const work = (async (): Promise<SeherRunResult> => {
 			const q = query({
@@ -184,9 +187,10 @@ export class ClaudeSDK implements SeherSDKInstance {
 			for await (const message of q) {
 				const limit = tryLimitFromMessage(message);
 				if (limit !== null) throw limit;
-				// session_id は assistant/system/result どのメッセージにも乗ってくる。
-				// 最終 result までに少なくとも 1 度は assistant でも観測できるが、
-				// `result.session_id` が最も権威があるため、result の値で上書きする。
+				// session_id rides along on assistant/system/result messages alike.
+				// It can be observed at least once via assistant before the final
+				// result, but `result.session_id` is the most authoritative, so we
+				// overwrite with the result's value.
 				const candidate = (message as { session_id?: unknown }).session_id;
 				if (typeof candidate === "string" && candidate.length > 0) {
 					sessionId = candidate;
@@ -212,7 +216,7 @@ export class ClaudeSDK implements SeherSDKInstance {
 		const timeoutMs = opts.timeoutMs ?? self.config.timeoutMs;
 		const source: AsyncIterable<SeherStreamChunk> = {
 			async *[Symbol.asyncIterator]() {
-				// run() と同様、開始時に直前の id をクリアする。
+				// As with run(), clear the previous id at the start.
 				self._lastSessionId = undefined;
 				const q = query({
 					prompt: opts.prompt,
@@ -221,9 +225,9 @@ export class ClaudeSDK implements SeherSDKInstance {
 				for await (const message of q) {
 					const limit = tryLimitFromMessage(message);
 					if (limit !== null) throw limit;
-					// session_id を全 message 種別から拾う (assistant/system/result/...)。
-					// stream() 自体は session id を chunk に乗せないので、SDK 側に状態として
-					// 保持し、`lastSessionId()` 経由で取り出せるようにする。
+					// Pick up session_id from every message type (assistant/system/result/...).
+					// stream() itself doesn't carry the session id on chunks, so we keep
+					// it as SDK-side state, retrievable via `lastSessionId()`.
 					const candidate = (message as { session_id?: unknown }).session_id;
 					if (typeof candidate === "string" && candidate.length > 0) {
 						self._lastSessionId = candidate;

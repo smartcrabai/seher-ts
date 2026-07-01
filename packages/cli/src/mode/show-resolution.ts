@@ -13,16 +13,16 @@ import {
 import type { Logger } from "../util/logger.ts";
 
 export interface ShowResolutionOptions {
-	/** mode key (例: "plan", "build", "low" ...)。 */
+	/** mode key (e.g. "plan", "build", "low", ...). */
 	mode: string;
-	/** `-p` で指定された provider key。 */
+	/** provider key specified via `-p`. */
 	provider?: string;
-	/** `-c` で指定された YAML パス。 */
+	/** YAML path specified via `-c`. */
 	configPath?: string;
 	logger: Logger;
 	stderr: (text: string) => void;
 	stdout: (text: string) => void;
-	/** テスト用 override。 */
+	/** Override for tests. */
 	loadConfig?: typeof loadConfigImpl;
 	checkLimit?: typeof checkLimitImpl;
 	resolveAgent?: typeof resolveAgentImpl;
@@ -33,8 +33,8 @@ export interface ShowResolutionResult {
 }
 
 /**
- * `Intl.DateTimeFormat` を使って `YYYY-MM-DD HH:MM TZ` 形式で整形する。
- * Rust 側の `chrono::Local.format("%Y-%m-%d %H:%M %Z")` と揃える。
+ * Formats as `YYYY-MM-DD HH:MM TZ` using `Intl.DateTimeFormat`.
+ * This matches the Rust side's `chrono::Local.format("%Y-%m-%d %H:%M %Z")`.
  */
 function formatResetTime(date: Date): string {
 	const dtf = new Intl.DateTimeFormat("en-CA", {
@@ -55,7 +55,7 @@ function formatResetTime(date: Date): string {
 	const month = get("month");
 	const day = get("day");
 	let hour = get("hour");
-	if (hour === "24") hour = "00"; // hour12: false で 24 が出る環境への保険
+	if (hour === "24") hour = "00"; // safeguard for environments where hour12: false yields 24
 	const minute = get("minute");
 	const tz = get("timeZoneName");
 	return `${year}-${month}-${day} ${hour}:${minute} ${tz}`;
@@ -80,8 +80,9 @@ async function probeLimitTag(
 		}
 		return { tag: "" };
 	} catch {
-		// Rust 側と同様、probe で発生したあらゆるエラー (codexbar 不在、JSON 不正、
-		// プロセス起動失敗など) は `[probe error]` として表示する。
+		// As on the Rust side, any error during the probe (codexbar
+		// missing, malformed JSON, process spawn failure, etc.) is
+		// displayed as `[probe error]`.
 		return { tag: " [probe error]" };
 	}
 }
@@ -110,7 +111,7 @@ export async function runShowResolutionMode(
 		opts.stderr(`No candidates for mode key '${opts.mode}'\n`);
 	} else {
 		opts.stderr(`Candidates (mode=${opts.mode}):\n`);
-		// 候補ごとの limit 状態を並列で probe する。
+		// Probe each candidate's limit status in parallel.
 		const tags = await Promise.all(
 			candidates.map((c) => probeLimitTag(c, checkLimit)),
 		);
@@ -127,8 +128,9 @@ export async function runShowResolutionMode(
 		opts.stderr("\n");
 	}
 
-	// winner 解決。候補ゼロでも NoMatchingAgentError を捕まえるために呼ぶ。
-	// 既に loadConfig を呼んだ結果を渡すので configPath は不要。
+	// Resolve the winner. Called even with zero candidates so we can catch
+	// NoMatchingAgentError. configPath is unnecessary since we pass the
+	// already-loaded config.
 	try {
 		const agent = await resolveAgent({
 			modeKey: opts.mode,

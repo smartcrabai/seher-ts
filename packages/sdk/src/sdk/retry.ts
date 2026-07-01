@@ -1,19 +1,19 @@
 /**
- * 一時的なプロバイダ API エラーに対する指数バックオフ再試行ヘルパ。
+ * Exponential backoff retry helpers for transient provider API errors.
  *
- * Rust 実装 (`seher::sdk::config::RetryConfig` および
- * `seher::sdk::errors`) を TypeScript に移植したもの。SDK 内部の
- * `seherSdk.ts` と CLI の retry hook の双方から利用する。
+ * Ported from the Rust implementation (`seher::sdk::config::RetryConfig`
+ * and `seher::sdk::errors`) to TypeScript. Used by both the SDK's
+ * internal `seherSdk.ts` and the CLI's retry hook.
  */
 
 import type { ResolvedRetryConfig } from "../types.ts";
 
 /**
- * 文字列に `HTTP <status>` が含まれており、かつ直後が数字でない
- * (= 文字列終端または非数字) ことを確認する。
+ * Checks that the string contains `HTTP <status>` and that the character
+ * right after it is not a digit (i.e. end of string or a non-digit).
  *
- * `HTTP 5002` のような誤検知を防ぐためのヘルパで、Rust 側の
- * `contains_http_status` と等価。
+ * This guards against false positives like `HTTP 5002` and is equivalent
+ * to `contains_http_status` on the Rust side.
  */
 function containsHttpStatus(message: string, status: number): boolean {
 	const needle = `HTTP ${status}`;
@@ -22,17 +22,19 @@ function containsHttpStatus(message: string, status: number): boolean {
 		const idx = message.indexOf(needle, from);
 		if (idx < 0) return false;
 		const next = message.charAt(idx + needle.length);
-		// 文字列終端、または直後が ASCII 数字でなければ採用。
+		// Match only if we're at the end of the string, or the next
+		// character is not an ASCII digit.
 		if (next === "" || next < "0" || next > "9") return true;
 		from = idx + needle.length;
 	}
 }
 
 /**
- * 常に再試行すべき一時的な HTTP エラーかを判定する。
+ * Determines whether this is a transient HTTP error that should always be
+ * retried.
  *
- * 対応ステータス: 429 / 500 / 502 / 503 / 504。`HTTP 5002` のような
- * 誤検知を避けるため、フル状態コードのみマッチさせる。
+ * Supported statuses: 429 / 500 / 502 / 503 / 504. Only full status codes
+ * are matched to avoid false positives like `HTTP 5002`.
  */
 export function isTransientHttpError(message: string): boolean {
 	return (
@@ -45,18 +47,19 @@ export function isTransientHttpError(message: string): boolean {
 }
 
 /**
- * 明示的にオプトインした場合のみ再試行する HTTP クライアントエラーか判定。
+ * Determines whether this is an HTTP client error that should only be
+ * retried when explicitly opted in.
  *
- * Kimi のような一部プロバイダは過渡的に 401/404 を返すことがあるが、
- * 通常これらは認証/ルーティング失敗を示すため `retryClientErrors` が
- * true のときだけリトライする。
+ * Some providers (e.g. Kimi) transiently return 401/404, but these
+ * normally indicate an auth/routing failure, so we only retry them when
+ * `retryClientErrors` is true.
  */
 export function isClientErrorRetryable(message: string): boolean {
 	return containsHttpStatus(message, 401) || containsHttpStatus(message, 404);
 }
 
 /**
- * このリトライポリシー下で `message` が再試行対象かを判定。
+ * Determines whether `message` is retryable under this retry policy.
  */
 export function isRetryableMessage(
 	message: string,
@@ -69,25 +72,26 @@ export function isRetryableMessage(
 }
 
 /**
- * ユーザーがバリデーションを迂回して `maxAttempts: 0` を指定した場合でも
- * 安全な値を返す (最小 1)。
+ * Returns a safe value (minimum 1) even if a user bypasses validation and
+ * sets `maxAttempts: 0`.
  */
 export function effectiveMaxAttempts(retry: ResolvedRetryConfig): number {
 	return Math.max(1, retry.maxAttempts);
 }
 
 /**
- * `multiplier < 1` だと遅延が減衰してしまうので 1.0 にクランプする。
+ * Clamps to 1.0 because a `multiplier < 1` would cause the delay to decay.
  */
 export function effectiveMultiplier(retry: ResolvedRetryConfig): number {
 	return Math.max(1.0, retry.multiplier);
 }
 
 /**
- * 1 始まりの試行番号に対する待機ミリ秒を計算する。
+ * Computes the wait time in milliseconds for a 1-based attempt number.
  *
- * `min(maxDelaySecs, initialDelaySecs * multiplier^(attempt-1))` を
- * 秒単位で切り捨て、ミリ秒へ変換して返す (Rust 版と同じ離散化)。
+ * Returns `min(maxDelaySecs, initialDelaySecs * multiplier^(attempt-1))`,
+ * floored to whole seconds and converted to milliseconds (matching the
+ * same discretization as the Rust version).
  */
 export function delayForAttempt(
 	attempt: number,

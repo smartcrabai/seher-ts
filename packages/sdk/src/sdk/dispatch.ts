@@ -1,12 +1,14 @@
 /**
- * `dispatch` API: 解決済み {@link ResolvedAgent} 向けの低レベル実行ヘルパー。
+ * `dispatch` API: low-level execution helpers for an already-resolved
+ * {@link ResolvedAgent}.
  *
- * SeherSDK は YAML の解決から実行まで一気通貫で扱う高レベル API なのに対し、
- * dispatch API は CodexBar / `resolveAgent` を呼んで既に `ResolvedAgent` を
- * 手元に持っているコードのための薄いルーティング層。
+ * `SeherSDK` is the high-level API that handles everything from YAML
+ * resolution through execution in one go, whereas the dispatch API is a
+ * thin routing layer for code that has already called `resolveAgent` and
+ * holds a `ResolvedAgent` on hand.
  *
- * Rust 側の `seher-sdk` の `dispatch::stream_for_resolved` /
- * `dispatch::run_for_resolved` に対応する。
+ * This mirrors `dispatch::stream_for_resolved` /
+ * `dispatch::run_for_resolved` on the Rust side of `seher-sdk`.
  */
 
 import type { ResolvedAgent } from "../types.ts";
@@ -24,37 +26,39 @@ import type {
 } from "./types.ts";
 
 /**
- * Rust 側の `RunAgentOptions` 相当のオプション。
+ * Options equivalent to `RunAgentOptions` on the Rust side.
  *
- * `kind` を指定しない `SeherSDK` 経由ではなく `ResolvedAgent` を直接持っている
- * 呼び出し元向け。tool 非対応の SDK kind に対して非空の `tools` を渡すと
- * `runForResolved` / `streamForResolved` のいずれもエラーを throw する。
+ * Intended for callers that already hold a `ResolvedAgent` directly, rather
+ * than going through `SeherSDK` with a `kind`. Passing non-empty `tools` for
+ * an SDK kind that doesn't support tools makes both `runForResolved` and
+ * `streamForResolved` throw.
  */
 export interface RunForResolvedOptions {
-	/** 実行するプロンプト本文。 */
+	/** The prompt text to run. */
 	prompt: string;
-	/** 追加で付与するシステムプロンプト。 */
+	/** Additional system prompt to attach. */
 	systemPrompt?: string;
-	/** 関数呼び出し用に登録するツール群。tool 非対応 kind では throw する。 */
+	/** Tools to register for function calling. Throws for tool-unsupported kinds. */
 	tools?: SeherTool[];
-	/** ランナーの実行タイムアウト(ms)。 */
+	/** Execution timeout for the runner, in ms. */
 	timeoutMs?: number;
-	/** `ResolvedAgent.api.key` を上書きする API key。 */
+	/** API key that overrides `ResolvedAgent.api.key`. */
 	apiKey?: string;
-	/** `ResolvedAgent.api.endpoint` を上書きする base URL。 */
+	/** Base URL that overrides `ResolvedAgent.api.endpoint`. */
 	baseURL?: string;
-	/** 実行時の cwd。 */
+	/** Working directory to run in. */
 	cwd?: string;
-	/** マルチターン継続用の session id。 */
+	/** Session id used to resume a multi-turn conversation. */
 	resume?: string;
-	/** SDK に渡す追加環境変数。 */
+	/** Extra environment variables to pass to the SDK. */
 	env?: Record<string, string>;
 }
 
 /**
- * tool 非対応 kind に tools を渡したことを伝えるエラー。
+ * Error indicating that `tools` was passed for a kind that doesn't support
+ * them.
  *
- * Rust 側の `DispatchError::ToolsNotSupported` 相当。
+ * Equivalent to `DispatchError::ToolsNotSupported` on the Rust side.
  */
 export class DispatchToolsNotSupportedError extends Error {
 	readonly kind: string;
@@ -75,9 +79,10 @@ function ensureToolsSupported(
 }
 
 function buildBaseConfig(opts: RunForResolvedOptions): SeherSDKConfig {
-	// `systemPrompt` は SDK インスタンス毎の設定ではなく per-call の
-	// `SeherRunOptions` で渡すため、ここでは扱わない (Rust 側の
-	// `RunAgentOptions.system_prompt` がランナー設定に積まれるのと等価)。
+	// `systemPrompt` is not handled here since it's passed per-call via
+	// `SeherRunOptions` rather than as part of the SDK instance config
+	// (equivalent to how `RunAgentOptions.system_prompt` gets folded into the
+	// runner config on the Rust side).
 	const base: SeherSDKConfig = {};
 	if (opts.tools !== undefined) base.tools = opts.tools;
 	if (opts.timeoutMs !== undefined) base.timeoutMs = opts.timeoutMs;
@@ -102,14 +107,17 @@ function buildRunOptions(
 }
 
 /**
- * 解決済み {@link ResolvedAgent} に対してプロンプトを実行し、最終結果を返す。
+ * Runs a prompt against an already-resolved {@link ResolvedAgent} and
+ * returns the final result.
  *
- * Rust 側の `dispatch::run_for_resolved` 相当の低レベル API。`SeherSDK` の
- * `resolveAgent` を済ませている呼び出し元が、解決ロジックを再走させずに
- * 同じ `ResolvedAgent` で複数回 run/stream を実行したい場合に使う。
+ * This is the low-level API equivalent to `dispatch::run_for_resolved` on
+ * the Rust side. Use it when a caller has already gone through `SeherSDK`'s
+ * `resolveAgent` and wants to run/stream multiple times against the same
+ * `ResolvedAgent` without re-running the resolution logic.
  *
- * tool 非対応 SDK kind (`pi` / `claude` / `copilot` / `kimi` 以外) に対して
- * 非空の `tools` を渡した場合は {@link DispatchToolsNotSupportedError} を throw する。
+ * Throws {@link DispatchToolsNotSupportedError} if non-empty `tools` is
+ * passed for an SDK kind that doesn't support tools (anything other than
+ * `pi` / `claude` / `copilot` / `kimi`).
  */
 export async function runForResolved(
 	agent: ResolvedAgent,
@@ -119,18 +127,20 @@ export async function runForResolved(
 	const merged = applyResolvedAgent(agent.kind, buildBaseConfig(opts), agent);
 	const instance = buildInstance(agent.kind, merged);
 	const runOpts = buildRunOptions(agent, opts);
-	// 注: `opts.resume` は Rust 側の API シグネチャに合わせて受け取っているが、
-	// 現状の `SeherSDKInstance` は単発実行のみで multi-turn セッション再開を
-	// 持たないため、今は forward 先がなく無視される。
+	// Note: `opts.resume` is accepted here to match the Rust-side API
+	// signature, but the current `SeherSDKInstance` only supports single-shot
+	// execution and has no multi-turn session resumption, so there's nowhere
+	// to forward it to and it's ignored for now.
 	return instance.run(runOpts);
 }
 
 /**
- * 解決済み {@link ResolvedAgent} に対してプロンプトをストリーミング実行する。
+ * Streams a prompt against an already-resolved {@link ResolvedAgent}.
  *
- * Rust 側の `dispatch::stream_for_resolved` 相当の低レベル API。tool 非対応
- * SDK kind に非空の `tools` を渡した場合は AsyncIterable の最初の `next()` で
- * {@link DispatchToolsNotSupportedError} を throw する。
+ * This is the low-level API equivalent to `dispatch::stream_for_resolved` on
+ * the Rust side. If non-empty `tools` is passed for an SDK kind that doesn't
+ * support tools, {@link DispatchToolsNotSupportedError} is thrown on the
+ * first `next()` call of the AsyncIterable.
  */
 export function streamForResolved(
 	agent: ResolvedAgent,

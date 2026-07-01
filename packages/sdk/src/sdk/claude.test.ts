@@ -128,7 +128,7 @@ describe("ClaudeSDK", () => {
 		expect(lastCall().options.model).toBeUndefined();
 	});
 
-	test("認識可能な `:thinking` サフィックスは strip して base のみを options.model に渡す", async () => {
+	test("a recognized `:thinking` suffix is stripped, passing only the base to options.model", async () => {
 		queryMessages = [successResult("ok")];
 		const sdk = new ClaudeSDK();
 		await sdk.run({ prompt: "p", model: "claude-opus-4-5:high" });
@@ -136,7 +136,7 @@ describe("ClaudeSDK", () => {
 		expect(lastCall().options.model).toBe("claude-opus-4-5");
 	});
 
-	test("`:free` のような未認識サフィックスは原文のまま options.model に渡す", async () => {
+	test("an unrecognized suffix like `:free` is passed to options.model unchanged", async () => {
 		queryMessages = [successResult("ok")];
 		const sdk = new ClaudeSDK();
 		await sdk.run({
@@ -149,7 +149,7 @@ describe("ClaudeSDK", () => {
 		);
 	});
 
-	test("defaultModel に `:thinking` サフィックスが付いていても strip される", async () => {
+	test("a `:thinking` suffix on defaultModel is also stripped", async () => {
 		queryMessages = [successResult("ok")];
 		const sdk = new ClaudeSDK({
 			defaultModel: "anthropic/claude-opus-4-5:medium",
@@ -321,7 +321,7 @@ describe("ClaudeSDK effort level", () => {
 		queryMessages = [];
 	});
 
-	test("認識可能な `:high` サフィックスは base を strip し options.effort に渡す", async () => {
+	test("a recognized `:high` suffix strips the base and passes it to options.effort", async () => {
 		queryMessages = [successResult("ok")];
 		const sdk = new ClaudeSDK();
 		await sdk.run({ prompt: "p", model: "claude-opus-4-5:high" });
@@ -331,7 +331,7 @@ describe("ClaudeSDK effort level", () => {
 		expect(opts.effort).toBe("high");
 	});
 
-	test("認識可能な `:max` サフィックスは options.effort に渡す", async () => {
+	test("a recognized `:max` suffix is passed to options.effort", async () => {
 		queryMessages = [successResult("ok")];
 		const sdk = new ClaudeSDK();
 		await sdk.run({ prompt: "p", model: "claude-opus-4-5:max" });
@@ -339,7 +339,7 @@ describe("ClaudeSDK effort level", () => {
 		expect(lastCall().options.effort).toBe("max");
 	});
 
-	test("config.effortLevel はモデル ID にサフィックスが無ければそのまま使われる", async () => {
+	test("config.effortLevel is used as-is when the model ID has no suffix", async () => {
 		queryMessages = [successResult("ok")];
 		const sdk = new ClaudeSDK({ effortLevel: "medium" });
 		await sdk.run({ prompt: "p", model: "claude-opus-4-5" });
@@ -347,7 +347,7 @@ describe("ClaudeSDK effort level", () => {
 		expect(lastCall().options.effort).toBe("medium");
 	});
 
-	test("モデル ID の `:level` サフィックスは config.effortLevel より優先される", async () => {
+	test("a `:level` suffix on the model ID takes precedence over config.effortLevel", async () => {
 		queryMessages = [successResult("ok")];
 		const sdk = new ClaudeSDK({ effortLevel: "medium" });
 		await sdk.run({ prompt: "p", model: "claude-opus-4-5:high" });
@@ -355,7 +355,7 @@ describe("ClaudeSDK effort level", () => {
 		expect(lastCall().options.effort).toBe("high");
 	});
 
-	test("config.effortLevel はモデル指定が一切無くても適用される", async () => {
+	test("config.effortLevel applies even with no model specified at all", async () => {
 		queryMessages = [successResult("ok")];
 		const sdk = new ClaudeSDK({ effortLevel: "low" });
 		await sdk.run({ prompt: "p" });
@@ -363,7 +363,7 @@ describe("ClaudeSDK effort level", () => {
 		expect(lastCall().options.effort).toBe("low");
 	});
 
-	test("effortLevel もサフィックスも無ければ options.effort は未設定", async () => {
+	test("options.effort is left unset when neither effortLevel nor a suffix is present", async () => {
 		queryMessages = [successResult("ok")];
 		const sdk = new ClaudeSDK();
 		await sdk.run({ prompt: "p" });
@@ -371,7 +371,7 @@ describe("ClaudeSDK effort level", () => {
 		expect(lastCall().options.effort).toBeUndefined();
 	});
 
-	test("`:free` のような未認識サフィックスは effort に影響せず model も原文のまま", async () => {
+	test("an unrecognized suffix like `:free` does not affect effort and leaves model unchanged", async () => {
 		queryMessages = [successResult("ok")];
 		const sdk = new ClaudeSDK();
 		await sdk.run({

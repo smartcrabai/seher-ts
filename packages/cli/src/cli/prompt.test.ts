@@ -91,28 +91,30 @@ describe("resolvePrompt", () => {
 });
 
 describe("ensureEditorAvailable", () => {
-	// 環境依存 (制御端末の有無) のため Ok/Err どちらでも panic しないことだけ確認する。
+	// This is environment-dependent (whether a controlling terminal exists),
+	// so we only verify that neither Ok nor Err path panics.
 	test("is callable without crashing (smoke)", () => {
 		let threw = false;
 		try {
 			ensureEditorAvailable();
 		} catch (err) {
 			threw = true;
-			// 失敗時は Rust 版と検索性を揃えるためのメッセージを含むこと。
+			// On failure, the message should match the Rust version for greppability.
 			expect(err).toBeInstanceOf(Error);
 			expect((err as Error).message).toContain(
 				"seher is not running in the foreground terminal",
 			);
 		}
-		// throw したかどうかは環境次第なのでアサートしない。
+		// Whether it throws depends on the environment, so don't assert on it.
 		expect(typeof threw).toBe("boolean");
 	});
 });
 
 describe("editPromptInEditor", () => {
-	// 制御端末が無い環境 (CI など) では `/dev/tty` を開けないため、エディタ
-	// 子プロセスの stdio に渡せず必ず失敗する。Rust 版テストと同じく
-	// 「TTY がある時だけ走らせる smoke テスト」とする。
+	// In environments without a controlling terminal (e.g. CI), `/dev/tty`
+	// can't be opened, so it can't be passed to the editor child process's
+	// stdio and always fails. As with the Rust version's tests, this is a
+	// "smoke test that only runs when a TTY is present".
 	test.skipIf(!hasControllingTty())(
 		"launches $EDITOR (smoke via /bin/cat)",
 		async () => {
@@ -130,7 +132,7 @@ describe("editPromptInEditor", () => {
 		},
 	);
 
-	// 制御端末が無い場合は `ensureEditorAvailable()` で即エラーになるはず。
+	// Without a controlling terminal, `ensureEditorAvailable()` should error immediately.
 	test.skipIf(hasControllingTty())(
 		"throws foreground-terminal error when no controlling tty",
 		async () => {
@@ -140,7 +142,8 @@ describe("editPromptInEditor", () => {
 		},
 	);
 
-	// 制御端末がある環境では、エディタが非ゼロ終了した時にエラーになることを確認する。
+	// In environments with a controlling terminal, verify that it errors when
+	// the editor exits with a non-zero code.
 	test.skipIf(!hasControllingTty())(
 		"errors when editor exits non-zero",
 		async () => {

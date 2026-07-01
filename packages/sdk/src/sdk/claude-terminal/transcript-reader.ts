@@ -140,9 +140,10 @@ export class FileSystemTranscriptReader implements ClaudeTranscriptReader {
 		options: WaitForAssistantResponseOptions,
 	): Promise<ClaudeTerminalResponse> {
 		const deadline = this.now() + options.timeoutMs;
-		// resume 時、既存ファイルには直前ターンの `assistantMessages` と `result` が
-		// 残っている。新規ターンの応答だけを待つために、ベースラインを超えるまで
-		// 終端判定を保留する。fresh ターンでは 0 のままなので従来通り 1 つでも来れば返る。
+		// On resume, the existing file still holds the prior turn's `assistantMessages`
+		// and `result`. To wait only for the new turn's response, hold off on the
+		// end-of-turn check until the count exceeds the baseline. On a fresh turn the
+		// baseline stays 0, so as before, returning after just one message works.
 		const minAssistantCount = options.minAssistantCount ?? 0;
 		while (true) {
 			let raw = "";

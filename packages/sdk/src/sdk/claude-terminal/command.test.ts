@@ -96,7 +96,7 @@ describe("buildClaudeCommand", () => {
 		]);
 	});
 
-	test("認識可能な effort サフィックスは strip して `--model` に base のみを渡し `--effort` として転送する", () => {
+	test("strips a recognized effort suffix, passes only the base to `--model`, and forwards it as `--effort`", () => {
 		expect(
 			buildClaudeCommand({
 				claudeBin: "claude",
@@ -114,7 +114,7 @@ describe("buildClaudeCommand", () => {
 		]);
 	});
 
-	test("認識できないサフィックス(`:free` 等)は原文のまま `--model` に渡す", () => {
+	test("passes an unrecognized suffix (e.g. `:free`) through to `--model` verbatim", () => {
 		expect(
 			buildClaudeCommand({
 				claudeBin: "claude",
@@ -130,7 +130,7 @@ describe("buildClaudeCommand", () => {
 		]);
 	});
 
-	test("model に effort サフィックスがなければ effortLevel を `--effort` として転送する", () => {
+	test("forwards effortLevel as `--effort` when model has no effort suffix", () => {
 		expect(
 			buildClaudeCommand({
 				claudeBin: "claude",
@@ -149,7 +149,7 @@ describe("buildClaudeCommand", () => {
 		]);
 	});
 
-	test("model の effort サフィックスが effortLevel より優先される", () => {
+	test("model effort suffix takes precedence over effortLevel", () => {
 		expect(
 			buildClaudeCommand({
 				claudeBin: "claude",
