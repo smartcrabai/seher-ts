@@ -106,6 +106,8 @@ export async function runSeher(
 			if (args.timeoutMs !== undefined) planOpts.timeoutMs = args.timeoutMs;
 			if (args.cwd !== undefined) planOpts.cwd = args.cwd;
 			if (args.resume !== undefined) planOpts.resume = args.resume;
+			if (args.effortLevel !== undefined)
+				planOpts.effortLevel = args.effortLevel;
 			const result = await deps.runPlanMode(planOpts);
 			emitSessionIdIfFresh(args, result.sessionId, deps);
 			return result.exitCode;
@@ -121,6 +123,8 @@ export async function runSeher(
 		if (args.timeoutMs !== undefined) buildOpts.timeoutMs = args.timeoutMs;
 		if (args.cwd !== undefined) buildOpts.cwd = args.cwd;
 		if (args.resume !== undefined) buildOpts.resume = args.resume;
+		if (args.effortLevel !== undefined)
+			buildOpts.effortLevel = args.effortLevel;
 		const result = await deps.runBuildMode(buildOpts);
 		emitSessionIdIfFresh(args, result.sessionId, deps);
 		return result.exitCode;

@@ -105,6 +105,95 @@ describe("buildClaudeArgs", () => {
 			"default",
 		]);
 	});
+
+	test("model with recognized :level effort suffix strips it from --model and adds --effort", () => {
+		expect(
+			buildClaudeArgs({
+				prompt: "hello",
+				model: "claude-opus-4-5:high",
+				permissionMode: "bypassPermissions",
+			}),
+		).toEqual([
+			"-p",
+			"hello",
+			"--model",
+			"claude-opus-4-5",
+			"--effort",
+			"high",
+			"--permission-mode",
+			"bypassPermissions",
+		]);
+	});
+
+	test("effortLevel is used when model has no recognized suffix", () => {
+		const args = buildClaudeArgs({
+			prompt: "hello",
+			model: "claude-opus-4-5",
+			effortLevel: "medium",
+			permissionMode: "bypassPermissions",
+		});
+		expect(args).toContain("--effort");
+		expect(args).toEqual([
+			"-p",
+			"hello",
+			"--model",
+			"claude-opus-4-5",
+			"--effort",
+			"medium",
+			"--permission-mode",
+			"bypassPermissions",
+		]);
+	});
+
+	test("model :level suffix takes priority over effortLevel config", () => {
+		const args = buildClaudeArgs({
+			prompt: "hello",
+			model: "claude-opus-4-5:high",
+			effortLevel: "medium",
+			permissionMode: "bypassPermissions",
+		});
+		expect(args).toEqual([
+			"-p",
+			"hello",
+			"--model",
+			"claude-opus-4-5",
+			"--effort",
+			"high",
+			"--permission-mode",
+			"bypassPermissions",
+		]);
+	});
+
+	test("unrecognized :suffix (e.g. OpenRouter :free) passes through --model verbatim and adds no --effort", () => {
+		const args = buildClaudeArgs({
+			prompt: "hello",
+			model: "openrouter/x:free",
+			permissionMode: "bypassPermissions",
+		});
+		expect(args).toEqual([
+			"-p",
+			"hello",
+			"--model",
+			"openrouter/x:free",
+			"--permission-mode",
+			"bypassPermissions",
+		]);
+		expect(args).not.toContain("--effort");
+	});
+
+	test("no model and no effortLevel produces no --effort flag", () => {
+		const args = buildClaudeArgs({
+			prompt: "hello",
+			permissionMode: "bypassPermissions",
+		});
+		expect(args).toEqual([
+			"-p",
+			"hello",
+			"--permission-mode",
+			"bypassPermissions",
+		]);
+		expect(args).not.toContain("--effort");
+	});
 });
 
 describe("isClaudeRateLimitMessage", () => {

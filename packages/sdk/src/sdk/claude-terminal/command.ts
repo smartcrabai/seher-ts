@@ -1,5 +1,5 @@
 import type { PermissionMode } from "@anthropic-ai/claude-agent-sdk";
-import { splitThinkingSuffix } from "../model.ts";
+import { type EffortLevel, splitEffortSuffix } from "../model.ts";
 
 export interface BuildClaudeCommandOptions {
 	claudeBin: string;
@@ -12,16 +12,24 @@ export interface BuildClaudeCommandOptions {
 	 * same project (cwd) directory.
 	 */
 	resume?: string;
+	/** Reasoning effort fallback when `model` carries no recognized `:level` suffix. */
+	effortLevel?: EffortLevel;
 }
 
 export function buildClaudeCommand(opts: BuildClaudeCommandOptions): string[] {
 	const args: string[] = [opts.claudeBin];
+	let suffixEffort: EffortLevel | undefined;
 	if (opts.model !== undefined) {
 		// claude-terminal は thinking 非対応のため、認識したサフィックスは
-		// strip して base のみを `--model` に渡す。`:free` のような未認識
-		// サフィックスは原文を維持する。
-		const { base } = splitThinkingSuffix(opts.model);
+		// effort として解釈し、strip して base のみを `--model` に渡す。
+		// `:free` のような未認識サフィックスは原文を維持する。
+		const { base, effort } = splitEffortSuffix(opts.model);
 		args.push("--model", base);
+		suffixEffort = effort;
+	}
+	const effectiveEffort = suffixEffort ?? opts.effortLevel;
+	if (effectiveEffort !== undefined) {
+		args.push("--effort", effectiveEffort);
 	}
 	if (opts.systemPrompt !== undefined) {
 		args.push("--append-system-prompt", opts.systemPrompt);

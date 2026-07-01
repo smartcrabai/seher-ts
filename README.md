@@ -86,6 +86,7 @@ seher [plan|build] [options] [prompt...]
 | `-m, --model <key>` | Use this model key (e.g. `low`) instead of the default plan/build key. Only providers that define the key are eligible. |
 | `-c, --config <path>` | Path to YAML config (defaults to `$SEHER_CONFIG` or `~/.config/seher/config.yaml`). |
 | `-t, --timeout <ms>` | Per-run timeout in milliseconds. Default is the SDK default — usually none, except Copilot (60_000). On timeout the CLI exits 1 with a `TimeoutError` message; in-flight provider work is **not** aborted. |
+| `--effort <level>` | Reasoning effort level (`low`/`medium`/`high`/`xhigh`/`max`) forwarded to Claude-family SDKs (`claude`, `claude-headless`, `claude-terminal`). Ignored by other SDKs. A `:level` suffix on the resolved model id takes precedence over this flag. |
 | `--cwd <dir>` | Working directory for the agent. Canonicalized on receipt (must exist); multi-turn sessions are bound to it so the same `--cwd` must be passed when resuming. |
 | `-r, --resume <id>` | Resume a prior session by id (printed as `session: <id>` on a previous run). Pass the same `--cwd` used to create it. |
 | `-q, --quiet` | Suppress informational output. |
@@ -239,13 +240,15 @@ providers:
 
 ### Model entries
 
-A `models` value is either a bare model-id string or an object `{ model, priority }`:
+A `models` value is either a bare model-id string or an object
+`{ model, priority, effort }`:
 
 ```yaml
 models:
   build: anthropic/claude-sonnet-4-5          # bare string
   plan: { model: anthropic/claude-opus-4-5, priority: 10 }   # full form
-  high: anthropic/claude-opus-4-5:high        # with a thinking level
+  high: anthropic/claude-opus-4-5:high        # with a thinking/effort level suffix
+  low: { model: anthropic/claude-haiku-4-5, effort: low }    # explicit effort (claude SDKs only)
 ```
 
 The **model id** uses a `provider/model` shape. The segment before the
@@ -253,16 +256,28 @@ first `/` is passed to the SDK as the provider (e.g. `anthropic`,
 `openai`); the rest is the model name. A model id without a `/` is
 passed through with no explicit provider.
 
-A trailing `:` suffix on the model name selects pi's **thinking level**:
-`model:thinking` (e.g. `anthropic/claude-opus-4-5:high`,
-`opus-4.7:medium`). Recognized levels are `off`, `minimal`, `low`,
-`medium`, `high`, and `xhigh` (plus the aliases pi accepts: `none` /
-`0`, `min`, `1`, `med` / `2`, `3`, `4`). A suffix that is not a
-recognized level stays part of the model name, so OpenRouter-style
-variants like `openrouter/meta-llama/llama-3.1-8b-instruct:free` keep
-working. The level only applies to pi execution -- with the `claude`
-and `claude-terminal` SDKs a recognized suffix is stripped and ignored.
-Without a suffix, the SDK's own default (no extended thinking) is used.
+A trailing `:` suffix on the model name selects a reasoning-intensity
+level, interpreted differently depending on the resolved SDK:
+
+- **pi**: selects pi's **thinking level** -- `model:thinking` (e.g.
+  `anthropic/claude-opus-4-5:high`, `opus-4.7:medium`). Recognized
+  levels are `off`, `minimal`, `low`, `medium`, `high`, and `xhigh`
+  (plus the aliases pi accepts: `none` / `0`, `min`, `1`, `med` / `2`,
+  `3`, `4`).
+- **claude / claude-headless / claude-terminal**: selects the
+  **effort level** -- `model:effort` (e.g. `anthropic/claude-opus-4-5:high`).
+  Recognized levels are exactly `low`, `medium`, `high`, `xhigh`, and
+  `max` (no aliases -- the same vocabulary as the `--effort` CLI flag
+  and `models.<mode>.effort` in the YAML config), forwarded to the
+  `claude` CLI as `--effort <level>` / to the Claude Agent SDK as
+  `Options.effort`.
+
+A suffix that is not a recognized level for the resolved SDK stays
+part of the model name, so OpenRouter-style variants like
+`openrouter/meta-llama/llama-3.1-8b-instruct:free` keep working.
+Without a suffix, `models.<mode>.effort` (if set) is used as the
+default for Claude-family SDKs; otherwise the SDK's own default is
+used.
 
 ### Selection logic
 

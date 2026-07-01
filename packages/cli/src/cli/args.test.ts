@@ -134,6 +134,32 @@ describe("parseArgs", () => {
 		expect(result.output ?? "").toContain("--timeout");
 	});
 
+	test("--effort accepts a recognized level", () => {
+		const result = parseArgs(["--effort", "high", "hi"]);
+		expect(result.effortLevel).toBe("high");
+	});
+
+	test("--effort is case-insensitive", () => {
+		const result = parseArgs(["--effort", "HIGH", "hi"]);
+		expect(result.effortLevel).toBe("high");
+	});
+
+	test("--effort omitted leaves effortLevel undefined", () => {
+		const result = parseArgs(["hi"]);
+		expect(result.effortLevel).toBeUndefined();
+	});
+
+	test("--effort rejects an unrecognized level", () => {
+		expect(() => parseArgs(["--effort", "ultra", "hi"])).toThrow(
+			/Invalid --effort/,
+		);
+	});
+
+	test("help includes --effort", () => {
+		const result = parseArgs(["--help"]);
+		expect(result.output ?? "").toContain("--effort");
+	});
+
 	// --- --cwd ---
 	test("--cwd canonicalizes the path (resolves symlinks)", () => {
 		// macOS の `/tmp` は `/private/tmp` への symlink。canonicalize 後は

@@ -1,3 +1,5 @@
+import type { EffortLevel } from "@anthropic-ai/claude-agent-sdk";
+
 /**
  * Shared type definitions for seher-ts (provider/mode/YAML spec).
  */
@@ -22,6 +24,13 @@ export type SdkKind = (typeof ALL_SDK_KINDS)[number];
 export interface ModelEntry {
 	model: string;
 	priority?: number;
+	/**
+	 * Reasoning effort to forward to Claude-family SDKs (`claude` /
+	 * `claude-headless` / `claude-terminal`) as `--effort` / `Options.effort`.
+	 * Ignored by other SDK kinds. A `:level` suffix on `model` (e.g.
+	 * `anthropic/claude-opus-4-5:high`) takes precedence over this field.
+	 */
+	effort?: EffortLevel;
 }
 
 /** Provider-level API config (forwarded to the underlying SDK). */
@@ -158,4 +167,6 @@ export interface ResolvedAgent {
 	skills: ResolvedSkillsConfig;
 	/** Resolved retry policy (per-provider > root > defaults)。 */
 	retry: ResolvedRetryConfig;
+	/** Reasoning effort resolved from `models.<mode>.effort`, if set. */
+	effort?: EffortLevel;
 }

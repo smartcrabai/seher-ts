@@ -1,4 +1,4 @@
-import { SeherSDK } from "@seher-ts/sdk";
+import { type EffortLevel, SeherSDK } from "@seher-ts/sdk";
 import { editPromptInEditor, ensureEditorAvailable } from "../cli/prompt.ts";
 import type { WriteFn } from "../cli/stream.ts";
 import type { Logger } from "../util/logger.ts";
@@ -35,6 +35,7 @@ export interface PlanModeOptions {
 	provider?: string;
 	configPath?: string;
 	timeoutMs?: number;
+	effortLevel?: EffortLevel;
 	quiet?: boolean;
 	/** Canonicalized working directory; forwarded to both plan and build SDKs. */
 	cwd?: string;
@@ -92,6 +93,8 @@ export async function runPlanMode(
 	if (opts.configPath !== undefined) planSdkOpts.configPath = opts.configPath;
 	if (opts.timeoutMs !== undefined) planSdkOpts.timeoutMs = opts.timeoutMs;
 	if (opts.cwd !== undefined) planSdkOpts.cwd = opts.cwd;
+	if (opts.effortLevel !== undefined)
+		planSdkOpts.effortLevel = opts.effortLevel;
 	applyRetryHooks(planSdkOpts, opts.logger);
 	const planSdk = createSdk(planSdkOpts);
 
@@ -131,6 +134,8 @@ export async function runPlanMode(
 	if (opts.configPath !== undefined) buildSdkOpts.configPath = opts.configPath;
 	if (opts.timeoutMs !== undefined) buildSdkOpts.timeoutMs = opts.timeoutMs;
 	if (opts.cwd !== undefined) buildSdkOpts.cwd = opts.cwd;
+	if (opts.effortLevel !== undefined)
+		buildSdkOpts.effortLevel = opts.effortLevel;
 	applyRetryHooks(buildSdkOpts, opts.logger);
 	const buildSdk = createSdk(buildSdkOpts);
 

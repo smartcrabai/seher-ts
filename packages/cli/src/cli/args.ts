@@ -1,4 +1,5 @@
 import { realpathSync, statSync } from "node:fs";
+import { EFFORT_LEVELS, type EffortLevel } from "@seher-ts/sdk";
 import { Command, CommanderError } from "commander";
 import packageJson from "../../package.json" with { type: "json" };
 
@@ -12,6 +13,8 @@ export interface ParsedArgs {
 	model?: string;
 	config?: string;
 	timeoutMs?: number;
+	/** Reasoning effort level, if `--effort` was given. */
+	effortLevel?: EffortLevel;
 	/** Canonicalized absolute working directory, if `--cwd` was given. */
 	cwd?: string;
 	/** Session id to resume, if `-r/--resume` was given. */
@@ -44,6 +47,7 @@ interface CommonOpts {
 	model?: string;
 	config?: string;
 	timeout?: string;
+	effort?: string;
 	cwd?: string;
 	resume?: string;
 	quiet?: boolean;
@@ -61,6 +65,10 @@ function configureCommonOptions(cmd: Command): Command {
 		.option(
 			"-t, --timeout <ms>",
 			"Per-run timeout in milliseconds (default: SDK default — usually none, Copilot 60_000)",
+		)
+		.option(
+			"--effort <level>",
+			`Reasoning effort level (${EFFORT_LEVELS.join("/")})`,
 		)
 		.option(
 			"--cwd <dir>",
@@ -87,6 +95,18 @@ function parseTimeoutMs(raw: string): number {
 		);
 	}
 	return n;
+}
+
+function parseEffortLevel(raw: string): EffortLevel {
+	const normalized = raw.trim().toLowerCase();
+	if (!EFFORT_LEVELS.includes(normalized as EffortLevel)) {
+		throw new CommanderError(
+			1,
+			"seher.invalidEffort",
+			`Invalid --effort value '${raw}': expected one of ${EFFORT_LEVELS.join(", ")}`,
+		);
+	}
+	return normalized as EffortLevel;
 }
 
 /**
@@ -210,6 +230,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
 	if (opts.config !== undefined) result.config = opts.config;
 	if (opts.timeout !== undefined)
 		result.timeoutMs = parseTimeoutMs(opts.timeout);
+	if (opts.effort !== undefined)
+		result.effortLevel = parseEffortLevel(opts.effort);
 	// `--help` / `--version` は早期 return できるよう、cwd / resume の検証はスキップ。
 	// 例: `seher --cwd /tmp --resume id --help` のように help 確認したいケースで
 	// 値検証で弾くと help テキストを返せなくなる。

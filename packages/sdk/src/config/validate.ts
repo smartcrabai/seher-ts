@@ -1,3 +1,4 @@
+import { EFFORT_LEVELS, type EffortLevel } from "../sdk/model.ts";
 import type {
 	Config,
 	ModelEntry,
@@ -228,6 +229,15 @@ function parseModelEntry(raw: unknown, label: string): ModelEntry {
 			fail(`${label}.priority must be a finite number`);
 		}
 		out.priority = raw.priority;
+	}
+	if ("effort" in raw && raw.effort !== undefined) {
+		if (
+			typeof raw.effort !== "string" ||
+			!EFFORT_LEVELS.includes(raw.effort as EffortLevel)
+		) {
+			fail(`${label}.effort must be one of ${EFFORT_LEVELS.join(", ")}`);
+		}
+		out.effort = raw.effort as EffortLevel;
 	}
 	return out;
 }

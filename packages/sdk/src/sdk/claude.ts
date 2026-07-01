@@ -1,5 +1,6 @@
 import {
 	createSdkMcpServer,
+	type EffortLevel,
 	type Options,
 	type PermissionMode,
 	query,
@@ -8,7 +9,7 @@ import {
 import type { z } from "zod";
 
 import { assertValidResumeId, LimitError } from "./errors.ts";
-import { splitThinkingSuffix } from "./model.ts";
+import { splitEffortSuffix } from "./model.ts";
 import { extractTextBlocks } from "./text.ts";
 import { withStreamTimeout, withTimeout } from "./timeout.ts";
 import type { SeherTool } from "./tools.ts";
@@ -55,6 +56,11 @@ export interface ClaudeSDKConfig {
 	apiKey?: string;
 	baseURL?: string;
 	defaultModel?: string;
+	/**
+	 * `Options.effort` のデフォルト値。モデル ID の `:level` サフィックス
+	 * (例: `claude-opus-4-5:high`) が指定されていればそちらが優先される。
+	 */
+	effortLevel?: EffortLevel;
 	/** Permission mode for the Claude agent. `"auto"` uses a model classifier. */
 	permissionMode?: PermissionMode;
 	cwd?: string;
@@ -123,12 +129,17 @@ export class ClaudeSDK implements SeherSDKInstance {
 			options.allowDangerouslySkipPermissions = true;
 		}
 		const rawModel = opts.model ?? this.config.defaultModel;
+		let suffixEffort: EffortLevel | undefined;
 		if (rawModel !== undefined) {
-			// `:thinking` サフィックスは claude SDK では非対応。認識した
-			// サフィックスは strip して base のみを渡し、:free のような未
-			// 認識サフィックスは原文を維持する。
-			options.model = splitThinkingSuffix(rawModel).base;
+			// モデル ID 末尾の `:level` サフィックス (例: `claude-opus-4-5:high`) は
+			// `Options.effort` にマップする。認識できない `:free` のような
+			// サフィックスは strip せず base に残す。
+			const { base, effort } = splitEffortSuffix(rawModel);
+			options.model = base;
+			suffixEffort = effort;
 		}
+		const effectiveEffort = suffixEffort ?? this.config.effortLevel;
+		if (effectiveEffort !== undefined) options.effort = effectiveEffort;
 		if (opts.systemPrompt !== undefined) {
 			options.systemPrompt = opts.systemPrompt;
 		}
