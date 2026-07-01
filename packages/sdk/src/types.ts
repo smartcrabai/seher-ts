@@ -58,28 +58,29 @@ export interface ResolvedSkillsConfig {
 }
 
 /**
- * 一時的なプロバイダ API エラーに対する指数バックオフ再試行ポリシー。
+ * Exponential backoff retry policy for transient provider API errors.
  *
- * プロバイダ単位の設定はルート単位の設定をブロックごと完全に上書きする
- * (Rust 実装 `seher::sdk::config::Config::resolve_retry` と同じ挙動)。
- * 未指定のフィールドは {@link DEFAULT_RETRY_CONFIG} の値にフォールバック。
+ * A provider-level setting completely overrides the root-level block
+ * (same behavior as the Rust implementation's
+ * `seher::sdk::config::Config::resolve_retry`).
+ * Unspecified fields fall back to the values in {@link DEFAULT_RETRY_CONFIG}.
  */
 export interface RetryConfig {
-	/** リトライを有効化するか。デフォルト `true`。 */
+	/** Whether to enable retries. Defaults to `true`. */
 	enabled?: boolean;
-	/** 諦めるまでの最大試行回数。デフォルト `5`、最低 `1`。 */
+	/** Maximum number of attempts before giving up. Defaults to `5`, minimum `1`. */
 	maxAttempts?: number;
-	/** 最初のリトライまでの遅延 (秒)。デフォルト `2`。 */
+	/** Delay before the first retry (seconds). Defaults to `2`. */
 	initialDelaySecs?: number;
-	/** リトライ間の最大遅延 (秒)。デフォルト `60`。 */
+	/** Maximum delay between retries (seconds). Defaults to `60`. */
 	maxDelaySecs?: number;
-	/** 遅延に毎回乗算する倍率。デフォルト `2.0`、最低 `1.0`。 */
+	/** Multiplier applied to the delay on each retry. Defaults to `2.0`, minimum `1.0`. */
 	multiplier?: number;
-	/** HTTP 401/404 もリトライ対象にする (true でオプトイン)。デフォルト `false`。 */
+	/** Whether to also retry HTTP 401/404 (opt-in via `true`). Defaults to `false`. */
 	retryClientErrors?: boolean;
 }
 
-/** 全フィールドが具体値に解決済みのリトライ設定。 */
+/** Retry config with all fields resolved to concrete values. */
 export interface ResolvedRetryConfig {
 	enabled: boolean;
 	maxAttempts: number;
@@ -89,7 +90,7 @@ export interface ResolvedRetryConfig {
 	retryClientErrors: boolean;
 }
 
-/** `RetryConfig` のデフォルト値 (Rust 側の `RetryConfig::default` と一致)。 */
+/** Default values for `RetryConfig` (matches the Rust side's `RetryConfig::default`). */
 export const DEFAULT_RETRY_CONFIG: ResolvedRetryConfig = {
 	enabled: true,
 	maxAttempts: 5,
@@ -120,8 +121,8 @@ export interface ProviderEntry {
 	/** Per-provider skill discovery overrides (takes precedence over root). */
 	skills?: SkillsConfig;
 	/**
-	 * Per-provider retry policy override。定義されている場合は root を置換
-	 * (フィールド単位のマージはしない)。
+	 * Per-provider retry policy override. When defined, it replaces the
+	 * root setting entirely (no per-field merging).
 	 */
 	retry?: RetryConfig;
 	/** Mode -> model entry. Keys include `plan`, `build`, plus user-defined keys. */
@@ -134,8 +135,8 @@ export interface Config {
 	/** Root-level skill discovery defaults (overridden by per-provider). */
 	skills?: SkillsConfig;
 	/**
-	 * ルートのリトライポリシー。provider の `retry` が定義されている場合は
-	 * 丸ごと無視される (フィールド単位のマージはしない)。
+	 * Root-level retry policy. Ignored entirely when a provider's `retry`
+	 * is defined (no per-field merging).
 	 */
 	retry?: RetryConfig;
 }
@@ -165,7 +166,7 @@ export interface ResolvedAgent {
 	env: Record<string, string>;
 	/** Skill discovery flags resolved from per-provider > root > defaults. */
 	skills: ResolvedSkillsConfig;
-	/** Resolved retry policy (per-provider > root > defaults)。 */
+	/** Resolved retry policy (per-provider > root > defaults). */
 	retry: ResolvedRetryConfig;
 	/** Reasoning effort resolved from `models.<mode>.effort`, if set. */
 	effort?: EffortLevel;

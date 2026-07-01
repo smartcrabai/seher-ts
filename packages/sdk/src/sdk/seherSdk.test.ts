@@ -636,8 +636,8 @@ describe("SeherSDK class", () => {
 		const { kind, agent } = await sdk.resolved();
 		expect(kind).toBe("claude-terminal");
 		expect(agent?.effort).toBe("low");
-		// applyResolvedAgent は claude-terminal にも effortLevel 設定の case を持つ
-		// (apiKey/baseURL のような config フィールドが無いため effort 専用)。
+		// applyResolvedAgent also has an effortLevel-setting case for
+		// claude-terminal (effort-only, since it has no apiKey/baseURL config fields).
 		if (agent !== null) {
 			const merged = applyResolvedAgent(kind, {}, agent);
 			expect(merged.effortLevel).toBe("low");
@@ -1034,7 +1034,7 @@ describe("SeherSDK class", () => {
 		expect(result.kind).toBe("pi");
 	});
 
-	test("transient HTTP error: 1 回失敗してから同じ provider で再試行し成功する", async () => {
+	test("transient HTTP error: fails once, then retries the same provider and succeeds", async () => {
 		const config = mkConfig({
 			key: "claude",
 			order: 0,
@@ -1062,7 +1062,7 @@ describe("SeherSDK class", () => {
 		const result = await sdk.run({ prompt: "hi" });
 		expect(result.kind).toBe("claude");
 		expect(result.text).toBe("claude reply");
-		// 2 回呼ばれている (1 回目: 500、2 回目: success)。
+		// Called twice (1st: 500, 2nd: success).
 		expect(claudeQueryCalls.length).toBe(2);
 		expect(onTransientRetry).toHaveBeenCalledTimes(1);
 		const info = onTransientRetry.mock.calls[0]?.[0] as {
@@ -1079,7 +1079,7 @@ describe("SeherSDK class", () => {
 		expect(info.delayMs).toBe(0);
 	});
 
-	test("transient HTTP error: stream() でも同じ provider で再試行できる", async () => {
+	test("transient HTTP error: stream() can also retry the same provider", async () => {
 		const config = mkConfig({
 			key: "claude",
 			order: 0,
@@ -1110,7 +1110,7 @@ describe("SeherSDK class", () => {
 		expect(claudeQueryCalls.length).toBe(2);
 	});
 
-	test("transient HTTP error: maxAttempts 回失敗後はエラーを rethrow する", async () => {
+	test("transient HTTP error: rethrows the error after failing maxAttempts times", async () => {
 		const config = mkConfig({
 			key: "claude",
 			order: 0,
@@ -1132,11 +1132,11 @@ describe("SeherSDK class", () => {
 			resolveOverrides: { config, checkLimit },
 		});
 		await expect(sdk.run({ prompt: "hi" })).rejects.toThrow(/HTTP 500/);
-		// maxAttempts=2 → 試行 1 失敗 + 試行 2 失敗 で計 2 回 query 呼ばれる。
+		// maxAttempts=2 -> attempt 1 fails + attempt 2 fails, so query is called twice total.
 		expect(claudeQueryCalls.length).toBe(2);
 	});
 
-	test("transient HTTP error: retry.enabled=false なら再試行しない", async () => {
+	test("transient HTTP error: does not retry when retry.enabled=false", async () => {
 		const config = mkConfig({
 			key: "claude",
 			order: 0,
@@ -1155,7 +1155,7 @@ describe("SeherSDK class", () => {
 		expect(claudeQueryCalls.length).toBe(1);
 	});
 
-	test("transient retry 中に LimitError を受けたら provider 切替経路へ抜ける", async () => {
+	test("falls through to the provider-switch path when a LimitError occurs during transient retry", async () => {
 		const config = mkConfig(
 			{
 				key: "claude",
@@ -1194,7 +1194,7 @@ describe("SeherSDK class", () => {
 		const result = await sdk.run({ prompt: "hi" });
 		expect(result.kind).toBe("codex");
 		expect(onLimitRetry).toHaveBeenCalledTimes(1);
-		// transient retry hook は呼ばれない (LimitError は別経路)。
+		// The transient retry hook is not called (LimitError takes a different path).
 		expect(onTransientRetry).not.toHaveBeenCalled();
 	});
 

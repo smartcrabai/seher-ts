@@ -20,9 +20,9 @@ export function buildClaudeCommand(opts: BuildClaudeCommandOptions): string[] {
 	const args: string[] = [opts.claudeBin];
 	let suffixEffort: EffortLevel | undefined;
 	if (opts.model !== undefined) {
-		// claude-terminal は thinking 非対応のため、認識したサフィックスは
-		// effort として解釈し、strip して base のみを `--model` に渡す。
-		// `:free` のような未認識サフィックスは原文を維持する。
+		// claude-terminal does not support thinking, so a recognized suffix is
+		// interpreted as effort, stripped, and only the base is passed to `--model`.
+		// An unrecognized suffix (e.g. `:free`) is kept verbatim.
 		const { base, effort } = splitEffortSuffix(opts.model);
 		args.push("--model", base);
 		suffixEffort = effort;

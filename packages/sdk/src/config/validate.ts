@@ -93,8 +93,8 @@ function _parseRetry(raw: unknown, label: string): RetryConfig {
 		out.enabled = raw.enabled;
 	}
 	if ("maxAttempts" in raw && raw.maxAttempts !== undefined) {
-		// 0 以下のときは `effectiveMaxAttempts` がランタイムで 1 にクランプ
-		// する (Rust と同じ) ので、ここでは整数であることだけ要求する。
+		// Values <= 0 are clamped to 1 by `effectiveMaxAttempts` at runtime
+		// (same as Rust), so here we only require it to be an integer.
 		if (
 			typeof raw.maxAttempts !== "number" ||
 			!Number.isInteger(raw.maxAttempts)
@@ -124,9 +124,9 @@ function _parseRetry(raw: unknown, label: string): RetryConfig {
 		out.maxDelaySecs = raw.maxDelaySecs;
 	}
 	if ("multiplier" in raw && raw.multiplier !== undefined) {
-		// 1.0 未満は decay 防止のため `effectiveMultiplier` がランタイムで
-		// 1.0 にクランプする (Rust 実装と同じ semantics) ので、ここでは
-		// 有限数であることだけ確認する。
+		// Values below 1.0 are clamped to 1.0 by `effectiveMultiplier` at
+		// runtime to prevent decay (same semantics as the Rust implementation),
+		// so here we only confirm it's a finite number.
 		if (
 			typeof raw.multiplier !== "number" ||
 			!Number.isFinite(raw.multiplier)

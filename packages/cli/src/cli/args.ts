@@ -23,8 +23,8 @@ export interface ParsedArgs {
 	help: boolean;
 	version: boolean;
 	/**
-	 * `--show-resolution`: prompt 解決をスキップして、選ばれる
-	 * provider/model/SDK を表示するだけのドライランモード。
+	 * `--show-resolution`: a dry-run mode that skips prompt resolution and
+	 * only displays the selected provider/model/SDK.
 	 */
 	showResolution: boolean;
 	/**
@@ -38,8 +38,9 @@ export interface ParsedArgs {
 const DESCRIPTION =
 	"Seher: pick the highest-priority coding agent and run a plan/build prompt";
 
-// セッション id はファイル名や transcript 検索キーに使われるため、`/` や `..` の
-// ような path 区切り / 特殊文字を許さない厳格な英数 + `-`, `_` のみを許可する。
+// Session ids are used as file names and transcript search keys, so we only
+// allow strict alphanumerics plus `-`/`_`, disallowing path separators /
+// special characters such as `/` or `..`.
 const RESUME_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 interface CommonOpts {
@@ -110,15 +111,16 @@ function parseEffortLevel(raw: string): EffortLevel {
 }
 
 /**
- * `--cwd` を canonicalize し、ディレクトリであることを確認する。
- * Rust 版 `args.rs::normalize` の挙動と一致させ、
- * `session id` ↔ `cwd` の紐付けが symlink/相対パス越しでも安定するようにする。
+ * Canonicalizes `--cwd` and verifies it is a directory.
+ * This matches the behavior of the Rust `args.rs::normalize`, so the
+ * `session id` <-> `cwd` binding stays stable across symlinks/relative paths.
  */
 function normalizeCwd(raw: string): string {
 	let resolved: string;
 	try {
-		// `realpathSync.native` は OS の native realpath(3) を使い、symlink を解決した
-		// 絶対パスを返す。存在しない場合は ENOENT で throw する。
+		// `realpathSync.native` uses the OS's native realpath(3) and returns
+		// the absolute path with symlinks resolved. It throws ENOENT if the
+		// path does not exist.
 		resolved = realpathSync.native(raw);
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
@@ -232,9 +234,10 @@ export function parseArgs(argv: string[]): ParsedArgs {
 		result.timeoutMs = parseTimeoutMs(opts.timeout);
 	if (opts.effort !== undefined)
 		result.effortLevel = parseEffortLevel(opts.effort);
-	// `--help` / `--version` は早期 return できるよう、cwd / resume の検証はスキップ。
-	// 例: `seher --cwd /tmp --resume id --help` のように help 確認したいケースで
-	// 値検証で弾くと help テキストを返せなくなる。
+	// Skip cwd / resume validation so `--help` / `--version` can return early.
+	// e.g. for a case like `seher --cwd /tmp --resume id --help` where the
+	// user just wants to see help text, rejecting on value validation would
+	// prevent the help text from being returned.
 	if (!help && !version) {
 		if (opts.cwd !== undefined) result.cwd = normalizeCwd(opts.cwd);
 		if (opts.resume !== undefined) result.resume = normalizeResume(opts.resume);

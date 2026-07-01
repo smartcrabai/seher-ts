@@ -30,8 +30,8 @@ export function applyRetryHooks(
 		if (attempt === 1 || attempt % 10 !== 0) return;
 		logger.info(`Still limited (attempt ${attempt})...`);
 	};
-	// transient HTTP エラー (`HTTP 429/5xx` 等) を同一プロバイダで再試行する
-	// 直前に Rust 版 CLI と同じ書式で warn を出す。
+	// Emit a warn in the same format as the Rust CLI right before retrying
+	// a transient HTTP error (e.g. `HTTP 429/5xx`) on the same provider.
 	opts.onTransientRetry = (info) => {
 		const delaySecs = Math.max(0, Math.round(info.delayMs / 1000));
 		logger.warn(

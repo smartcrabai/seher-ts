@@ -1,13 +1,16 @@
 /**
- * `dispatch` API (低レベル ResolvedAgent ベースの実行) のユニットテスト。
+ * Unit tests for the `dispatch` API (low-level ResolvedAgent-based
+ * execution).
  *
- * 高レベル SeherSDK 経由のフローは `seherSdk.test.ts` でカバーされているため、
- * ここでは以下に絞る:
- *   - 与えられた `ResolvedAgent.kind` から正しい provider SDK インスタンスが
- *     構築されること
- *   - `applyResolvedAgent` 相当の API key / endpoint 投影が走ること
- *   - tool 非対応 kind に非空 tools を渡すと `DispatchToolsNotSupportedError`
- *     で throw されること (Rust 側の `DispatchError::ToolsNotSupported` 相当)
+ * High-level flows via `SeherSDK` are covered in `seherSdk.test.ts`, so this
+ * file focuses on:
+ *   - the correct provider SDK instance being built from a given
+ *     `ResolvedAgent.kind`
+ *   - the `applyResolvedAgent`-equivalent API key / endpoint projection
+ *     running
+ *   - passing non-empty tools for a tool-unsupported kind throwing
+ *     `DispatchToolsNotSupportedError` (equivalent to
+ *     `DispatchError::ToolsNotSupported` on the Rust side)
  */
 import { describe, expect, mock, test } from "bun:test";
 import type { ResolvedAgent, SdkKind } from "../types.ts";
@@ -18,9 +21,10 @@ import {
 } from "./__test__/mockProviderTools.ts";
 import type { SeherTool } from "./tools.ts";
 
-// 下記の provider SDK モックは seherSdk.test.ts 由来のものを最小化したコピー。
-// dispatch.ts は内部で buildInstance() を呼ぶため、これらが揃っていないと
-// "claude-agent-sdk" などのモジュール解決でテストが落ちる。
+// The provider SDK mocks below are a minimized copy of the ones from
+// seherSdk.test.ts. dispatch.ts calls buildInstance() internally, so
+// without these in place the tests fail on module resolution errors for
+// things like "claude-agent-sdk".
 
 const claudeQueryCalls: Array<{ prompt: unknown; options: unknown }> = [];
 mock.module("@anthropic-ai/claude-agent-sdk", () => {
@@ -273,8 +277,8 @@ function makeResolvedAgent(
 }
 
 function dummyTool(): SeherTool {
-	// 実テストでは tool 検証ではなく "存在判定" だけを使うため、
-	// `parameters` は cast して zod 実体への依存を避ける。
+	// These tests only check tool "presence", not actual tool validation, so
+	// `parameters` is cast to avoid depending on a real zod instance.
 	return {
 		name: "dummy",
 		description: "dummy",
@@ -284,35 +288,35 @@ function dummyTool(): SeherTool {
 }
 
 describe("dispatch.runForResolved", () => {
-	test("kind=claude を解決すると ClaudeSDK が選ばれて claude reply を返す", async () => {
+	test("resolving kind=claude selects ClaudeSDK and returns claude reply", async () => {
 		const agent = makeResolvedAgent("claude");
 		const result = await runForResolved(agent, { prompt: "hi" });
 		expect(result.kind).toBe("claude");
 		expect(result.text).toBe("claude reply");
-		// ResolvedAgent.modelId が SeherRunOptions.model に伝搬していること
+		// ResolvedAgent.modelId should propagate to SeherRunOptions.model
 		expect(claudeQueryCalls.length).toBeGreaterThan(0);
 	});
 
-	test("kind=codex を解決すると CodexSDK が選ばれる", async () => {
+	test("resolving kind=codex selects CodexSDK", async () => {
 		const agent = makeResolvedAgent("codex");
 		const result = await runForResolved(agent, { prompt: "hi" });
 		expect(result.kind).toBe("codex");
 		expect(result.text).toBe("codex reply");
 	});
 
-	test("api.key / api.endpoint が SDK config に投影される (claude)", async () => {
+	test("api.key / api.endpoint are projected onto the SDK config (codex)", async () => {
 		codexConstructorOpts.length = 0;
 		const agent = makeResolvedAgent("codex", {
 			api: { key: "sk-from-agent", endpoint: "https://example.test" },
 		});
 		await runForResolved(agent, { prompt: "hi" });
-		// codex は apiKey のみ受け取る
+		// codex only accepts apiKey
 		const ctor = codexConstructorOpts[0];
 		expect(ctor).toBeDefined();
 		expect(ctor?.apiKey).toBe("sk-from-agent");
 	});
 
-	test("opts.apiKey は ResolvedAgent.api.key を上書きする", async () => {
+	test("opts.apiKey overrides ResolvedAgent.api.key", async () => {
 		codexConstructorOpts.length = 0;
 		const agent = makeResolvedAgent("codex", {
 			api: { key: "sk-from-agent" },
@@ -322,20 +326,20 @@ describe("dispatch.runForResolved", () => {
 		expect(ctor?.apiKey).toBe("sk-from-opts");
 	});
 
-	test("tool 非対応 kind に tools を渡すと throw する (codex)", async () => {
+	test("passing tools for a tool-unsupported kind throws (codex)", async () => {
 		const agent = makeResolvedAgent("codex");
 		await expect(
 			runForResolved(agent, { prompt: "hi", tools: [dummyTool()] }),
 		).rejects.toBeInstanceOf(DispatchToolsNotSupportedError);
 	});
 
-	test("tool 非対応 kind でも tools が空配列なら通る", async () => {
+	test("an empty tools array is fine even for a tool-unsupported kind", async () => {
 		const agent = makeResolvedAgent("codex");
 		const result = await runForResolved(agent, { prompt: "hi", tools: [] });
 		expect(result.kind).toBe("codex");
 	});
 
-	test("tool 対応 kind (claude) に tools を渡しても throw しない", async () => {
+	test("passing tools for a tool-supported kind (claude) does not throw", async () => {
 		const agent = makeResolvedAgent("claude");
 		const result = await runForResolved(agent, {
 			prompt: "hi",
@@ -346,7 +350,7 @@ describe("dispatch.runForResolved", () => {
 });
 
 describe("dispatch.streamForResolved", () => {
-	test("kind=claude のストリーム消費が claude チャンクを返す", async () => {
+	test("consuming the kind=claude stream returns claude chunks", async () => {
 		const agent = makeResolvedAgent("claude");
 		const chunks: string[] = [];
 		for await (const chunk of streamForResolved(agent, { prompt: "hi" })) {
@@ -356,7 +360,7 @@ describe("dispatch.streamForResolved", () => {
 		expect(chunks.every((k) => k === "claude")).toBe(true);
 	});
 
-	test("tool 非対応 kind に tools を渡すと iterate 時点で throw する", async () => {
+	test("passing tools for a tool-unsupported kind throws at iteration time", async () => {
 		const agent = makeResolvedAgent("codex");
 		const iter = streamForResolved(agent, {
 			prompt: "hi",

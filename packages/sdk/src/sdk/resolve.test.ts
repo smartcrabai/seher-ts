@@ -789,8 +789,8 @@ describe("resolveRetry", () => {
 	});
 
 	test("maxAttempts < 1 is clamped to 1", () => {
-		// validate.ts では 1 未満を拒否するが、direct API 利用や
-		// 不正な YAML を bypass された場合のセーフガード。
+		// validate.ts rejects values below 1, but this is a safeguard for
+		// direct API usage or cases where invalid YAML bypasses validation.
 		expect(resolveRetry({ maxAttempts: 0 }, undefined).maxAttempts).toBe(1);
 		expect(resolveRetry({ maxAttempts: -5 }, undefined).maxAttempts).toBe(1);
 	});
@@ -843,7 +843,7 @@ describe("resolveAgent retry integration", () => {
 		const agent = await resolveAgent({ config, checkLimit });
 		expect(agent.retry.enabled).toBe(false);
 		expect(agent.retry.maxAttempts).toBe(2);
-		// 未指定フィールドは defaults。
+		// Unspecified fields fall back to defaults.
 		expect(agent.retry.multiplier).toBe(2.0);
 	});
 
@@ -860,7 +860,7 @@ describe("resolveAgent retry integration", () => {
 			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
 		);
 		const agent = await resolveAgent({ config, checkLimit });
-		// provider が root を丸ごと置換するので maxAttempts は default に戻る。
+		// Provider replaces root entirely, so maxAttempts reverts to the default.
 		expect(agent.retry).toEqual({
 			enabled: true,
 			maxAttempts: 5,

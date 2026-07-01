@@ -16,7 +16,7 @@ function makeRetry(
 }
 
 describe("isTransientHttpError", () => {
-	test("429 と 5xx (500/502/503/504) を検出する", () => {
+	test("detects 429 and 5xx (500/502/503/504)", () => {
 		expect(
 			isTransientHttpError("Anthropic API error (HTTP 429): rate limited"),
 		).toBe(true);
@@ -34,7 +34,7 @@ describe("isTransientHttpError", () => {
 		).toBe(true);
 	});
 
-	test("4xx および誤誘導される部分一致を拒否する", () => {
+	test("rejects 4xx and misleading partial matches", () => {
 		expect(
 			isTransientHttpError("Anthropic API error (HTTP 401): auth_error"),
 		).toBe(false);
@@ -61,7 +61,7 @@ describe("isTransientHttpError", () => {
 		).toBe(false);
 	});
 
-	test("空文字や needle 部分一致でも false", () => {
+	test("returns false for an empty string or a partial needle match", () => {
 		expect(isTransientHttpError("")).toBe(false);
 		expect(isTransientHttpError("HTTP")).toBe(false);
 		expect(isTransientHttpError("HTTP 5")).toBe(false);
@@ -69,7 +69,7 @@ describe("isTransientHttpError", () => {
 });
 
 describe("isClientErrorRetryable", () => {
-	test("401 と 404 を検出する", () => {
+	test("detects 401 and 404", () => {
 		expect(
 			isClientErrorRetryable("Anthropic API error (HTTP 401): auth_error"),
 		).toBe(true);
@@ -78,7 +78,7 @@ describe("isClientErrorRetryable", () => {
 		).toBe(true);
 	});
 
-	test("それ以外のステータスや誤誘導部分一致を拒否する", () => {
+	test("rejects other statuses and misleading partial matches", () => {
 		expect(
 			isClientErrorRetryable("Anthropic API error (HTTP 403): forbidden"),
 		).toBe(false);
@@ -96,7 +96,7 @@ describe("isClientErrorRetryable", () => {
 });
 
 describe("isRetryableMessage", () => {
-	test("transient HTTP エラーは retryClientErrors の値に依らず true", () => {
+	test("transient HTTP errors are true regardless of retryClientErrors", () => {
 		const off = makeRetry({ retryClientErrors: false });
 		const on = makeRetry({ retryClientErrors: true });
 		const msg = "Anthropic API error (HTTP 503): unavailable";
@@ -104,7 +104,7 @@ describe("isRetryableMessage", () => {
 		expect(isRetryableMessage(msg, on)).toBe(true);
 	});
 
-	test("クライアントエラーは retryClientErrors=true のときだけ true", () => {
+	test("client errors are true only when retryClientErrors=true", () => {
 		const off = makeRetry({ retryClientErrors: false });
 		const on = makeRetry({ retryClientErrors: true });
 		const msg = "Anthropic API error (HTTP 401): auth_error";
@@ -112,7 +112,7 @@ describe("isRetryableMessage", () => {
 		expect(isRetryableMessage(msg, on)).toBe(true);
 	});
 
-	test("リトライ不能なメッセージはどの設定でも false", () => {
+	test("non-retryable messages are false under any config", () => {
 		const r = makeRetry({ retryClientErrors: true });
 		expect(isRetryableMessage("connection refused", r)).toBe(false);
 		expect(
@@ -122,12 +122,12 @@ describe("isRetryableMessage", () => {
 });
 
 describe("effectiveMaxAttempts / effectiveMultiplier", () => {
-	test("maxAttempts は最低 1 にクランプ", () => {
+	test("maxAttempts is clamped to a minimum of 1", () => {
 		expect(effectiveMaxAttempts(makeRetry({ maxAttempts: 0 }))).toBe(1);
 		expect(effectiveMaxAttempts(makeRetry({ maxAttempts: 5 }))).toBe(5);
 	});
 
-	test("multiplier は 1.0 未満を 1.0 にクランプ (decay 防止)", () => {
+	test("multiplier below 1.0 is clamped to 1.0 (prevents decay)", () => {
 		expect(effectiveMultiplier(makeRetry({ multiplier: 0.5 }))).toBe(1.0);
 		expect(effectiveMultiplier(makeRetry({ multiplier: 1.0 }))).toBe(1.0);
 		expect(effectiveMultiplier(makeRetry({ multiplier: 2.5 }))).toBe(2.5);
@@ -135,14 +135,14 @@ describe("effectiveMaxAttempts / effectiveMultiplier", () => {
 });
 
 describe("delayForAttempt", () => {
-	test("デフォルト (2s, ×2.0) で 1/2/3 回目は 2s / 4s / 8s", () => {
+	test("with defaults (2s, x2.0), attempts 1/2/3 are 2s / 4s / 8s", () => {
 		const r = makeRetry();
 		expect(delayForAttempt(1, r)).toBe(2_000);
 		expect(delayForAttempt(2, r)).toBe(4_000);
 		expect(delayForAttempt(3, r)).toBe(8_000);
 	});
 
-	test("maxDelaySecs でキャップされる", () => {
+	test("is capped by maxDelaySecs", () => {
 		const r = makeRetry({
 			initialDelaySecs: 2,
 			multiplier: 2.0,
@@ -155,19 +155,19 @@ describe("delayForAttempt", () => {
 		expect(delayForAttempt(10, r)).toBe(10_000);
 	});
 
-	test("multiplier<1 でも遅延が initialDelay 未満に decay しない", () => {
+	test("delay never decays below initialDelay even when multiplier<1", () => {
 		const r = makeRetry({
 			initialDelaySecs: 5,
 			multiplier: 0.1,
 			maxDelaySecs: 60,
 		});
-		// effectiveMultiplier は 1.0 に持ち上がるので、毎回 5s。
+		// effectiveMultiplier is raised to 1.0, so every attempt is 5s.
 		expect(delayForAttempt(1, r)).toBe(5_000);
 		expect(delayForAttempt(2, r)).toBe(5_000);
 		expect(delayForAttempt(5, r)).toBe(5_000);
 	});
 
-	test("attempt が 0 や負でも例外を出さず initialDelay 相当を返す", () => {
+	test("returns the initialDelay for attempt 0 or negative without throwing", () => {
 		const r = makeRetry({ initialDelaySecs: 3, maxDelaySecs: 100 });
 		expect(delayForAttempt(0, r)).toBe(3_000);
 		expect(delayForAttempt(-5, r)).toBe(3_000);

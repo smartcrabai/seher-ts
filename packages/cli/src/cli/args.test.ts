@@ -162,8 +162,8 @@ describe("parseArgs", () => {
 
 	// --- --cwd ---
 	test("--cwd canonicalizes the path (resolves symlinks)", () => {
-		// macOS の `/tmp` は `/private/tmp` への symlink。canonicalize 後は
-		// `/private/tmp` になることを確認する。
+		// On macOS, `/tmp` is a symlink to `/private/tmp`. Verify that after
+		// canonicalization it becomes `/private/tmp`.
 		const result = parseArgs(["--cwd", "/tmp", "hi"]);
 		const expected = realpathSync.native("/tmp");
 		expect(result.cwd).toBe(expected);
@@ -176,8 +176,8 @@ describe("parseArgs", () => {
 	});
 
 	test("--cwd rejects a regular file", () => {
-		// 任意のファイルパスを使う: __filename 相当が無いので process.argv[1] 経由で
-		// 確実に存在するファイルを使う。
+		// Use an arbitrary file path: since there's no `__filename` equivalent,
+		// use process.argv[1] to reliably get a file that exists.
 		const filePath = process.argv[1] ?? "/etc/hosts";
 		expect(() => parseArgs(["--cwd", filePath, "hi"])).toThrow(/Invalid --cwd/);
 	});
@@ -228,7 +228,7 @@ describe("parseArgs", () => {
 		]);
 		expect(result.help).toBe(true);
 		expect(result.output ?? "").toContain("--cwd");
-		// 値検証を skip しているので throw しない / cwd / resume はセットされない。
+		// Value validation is skipped, so it doesn't throw / cwd / resume are not set.
 		expect(result.cwd).toBeUndefined();
 		expect(result.resume).toBeUndefined();
 	});
@@ -237,7 +237,7 @@ describe("parseArgs", () => {
 	test("--show-resolution sets showResolution=true", () => {
 		const result = parseArgs(["--show-resolution"]);
 		expect(result.showResolution).toBe(true);
-		// prompt 不要のフラグなので trailing は空のまま。
+		// This flag doesn't need a prompt, so trailing stays empty.
 		expect(result.trailing).toEqual([]);
 	});
 

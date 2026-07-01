@@ -25,6 +25,7 @@ let emittedEvents: Array<Record<string, unknown>> = [];
 let promptShouldThrow: Error | null = null;
 let modelFindShouldReturnUndefined = false;
 let modelRegistryErrorMessage: string | undefined;
+let disposeImpl: () => unknown = () => Promise.resolve();
 
 const listeners: Array<(event: unknown) => void> = [];
 
@@ -54,8 +55,9 @@ mock.module("@earendil-works/pi-coding-agent", () => ({
 						return sessionMessages;
 					},
 				},
-				dispose: async () => {
+				dispose: () => {
 					disposeCalls.push({});
+					return disposeImpl();
 				},
 			},
 		};
@@ -129,6 +131,7 @@ describe("PiSDK", () => {
 		promptShouldThrow = null;
 		modelFindShouldReturnUndefined = false;
 		modelRegistryErrorMessage = undefined;
+		disposeImpl = () => Promise.resolve();
 	});
 
 	test("run invokes createAgentSession and returns text from agent_end messages", async () => {
@@ -234,7 +237,7 @@ describe("PiSDK", () => {
 		);
 	});
 
-	test("model not found エラーに models.json のロードエラーを併記する", async () => {
+	test("model not found error includes the models.json load error alongside it", async () => {
 		modelFindShouldReturnUndefined = true;
 		modelRegistryErrorMessage = "Invalid models.json schema: ...";
 		const sdk = new PiSDK({ defaultModel: "anthropic/claude-sonnet-4-5" });
@@ -339,7 +342,7 @@ describe("PiSDK", () => {
 		});
 	});
 
-	test("apiKey 未指定でも agentDir 配下の auth.json / models.json を使って認証解決できる (pi 本体のデフォルトと同じ)", async () => {
+	test("auth resolves via auth.json / models.json under agentDir even without apiKey (same as pi's own default)", async () => {
 		emittedEvents = [
 			{
 				type: "agent_end",
@@ -356,7 +359,7 @@ describe("PiSDK", () => {
 		expect(modelRegistryCreateCalls[0]?.modelsJsonPath).toBe(
 			"/tmp/mock-agent-dir/models.json",
 		);
-		// apiKey を渡していないので runtime override は設定されない。
+		// No apiKey was passed, so no runtime override is set.
 		expect(setApiKeyCalls.length).toBe(0);
 	});
 
@@ -406,6 +409,28 @@ describe("PiSDK", () => {
 		expect(disposeCalls.length).toBe(1);
 	});
 
+	test("run: preserves prompt's original error even when dispose() returns a non-Promise (#134)", async () => {
+		const err = new Error("connection refused");
+		promptShouldThrow = err;
+		disposeImpl = () => undefined;
+		const sdk = new PiSDK({ defaultModel: "anthropic/claude-sonnet-4-5" });
+
+		await expect(sdk.run({ prompt: "p" })).rejects.toBe(err);
+		expect(disposeCalls.length).toBe(1);
+	});
+
+	test("run: preserves prompt's original error even when dispose() throws synchronously (#134)", async () => {
+		const err = new Error("connection refused");
+		promptShouldThrow = err;
+		disposeImpl = () => {
+			throw new Error("dispose failed");
+		};
+		const sdk = new PiSDK({ defaultModel: "anthropic/claude-sonnet-4-5" });
+
+		await expect(sdk.run({ prompt: "p" })).rejects.toBe(err);
+		expect(disposeCalls.length).toBe(1);
+	});
+
 	test("[Symbol.asyncDispose] calls close", async () => {
 		emittedEvents = [
 			{
@@ -433,6 +458,23 @@ describe("PiSDK", () => {
 				}
 			})(),
 		).rejects.toBeInstanceOf(LimitError);
+	});
+
+	test("stream: preserves prompt's original error even when dispose() returns a non-Promise (#134)", async () => {
+		const err = new Error("connection refused");
+		promptShouldThrow = err;
+		disposeImpl = () => undefined;
+		const sdk = new PiSDK({ defaultModel: "anthropic/claude-sonnet-4-5" });
+		const chunks: Array<{ kind: string; delta: string }> = [];
+
+		await expect(
+			(async () => {
+				for await (const chunk of sdk.stream({ prompt: "p" })) {
+					chunks.push({ kind: chunk.kind, delta: chunk.delta });
+				}
+			})(),
+		).rejects.toBe(err);
+		expect(disposeCalls.length).toBe(1);
 	});
 
 	test("creates session lazily, reuses across multiple runs", async () => {
@@ -473,7 +515,7 @@ describe("PiSDK", () => {
 		expect(opts?.agentDir).toBe("/tmp/mock-agent-dir");
 		const paths = opts?.additionalSkillPaths as string[];
 		expect(paths).toHaveLength(3);
-		// ~/.agents/skills が常に先頭に来る (Rust seher と同じ並び)。
+		// ~/.agents/skills always comes first (same order as Rust seher).
 		expect(paths[0]).toMatch(/\.agents\/skills$/);
 		expect(paths[1]).toMatch(/\.claude\/skills$/);
 		expect(paths[1]).not.toBe("/proj/.claude/skills");
@@ -506,7 +548,7 @@ describe("PiSDK", () => {
 		const paths = opts?.additionalSkillPaths as string[];
 		expect(paths).toHaveLength(1);
 		expect(paths[0]).toMatch(/\.agents\/skills$/);
-		// `.claude/skills` は含まれない。
+		// `.claude/skills` is not included.
 		for (const p of paths) {
 			expect(p).not.toMatch(/\.claude\/skills$/);
 		}
@@ -588,9 +630,10 @@ describe("PiSDK :thinking suffix", () => {
 		promptShouldThrow = null;
 		modelFindShouldReturnUndefined = false;
 		modelRegistryErrorMessage = undefined;
+		disposeImpl = () => Promise.resolve();
 	});
 
-	test("`:thinking` サフィックスは strip してから provider/model を分解し、thinkingLevel を session に渡す", async () => {
+	test("strips the `:thinking` suffix before splitting provider/model, and passes thinkingLevel to the session", async () => {
 		emittedEvents = [
 			{
 				type: "agent_end",
@@ -611,7 +654,7 @@ describe("PiSDK :thinking suffix", () => {
 		expect(sessionOpts?.thinkingLevel).toBe("high");
 	});
 
-	test("alias サフィックス(`med`)も medium に正規化されて渡る", async () => {
+	test("alias suffix (`med`) is also normalized to medium before being passed through", async () => {
 		emittedEvents = [
 			{
 				type: "agent_end",
@@ -633,7 +676,7 @@ describe("PiSDK :thinking suffix", () => {
 		expect(sessionOpts?.thinkingLevel).toBe("medium");
 	});
 
-	test("認識できないサフィックス(`:free`)はモデル名の一部として透過", async () => {
+	test("an unrecognized suffix (`:free`) passes through as part of the model name", async () => {
 		emittedEvents = [
 			{
 				type: "agent_end",
@@ -656,7 +699,7 @@ describe("PiSDK :thinking suffix", () => {
 		expect(sessionOpts?.thinkingLevel).toBeUndefined();
 	});
 
-	test("サフィックスの thinkingLevel は config.thinkingLevel より優先される", async () => {
+	test("the suffix's thinkingLevel takes priority over config.thinkingLevel", async () => {
 		emittedEvents = [
 			{
 				type: "agent_end",
@@ -675,7 +718,7 @@ describe("PiSDK :thinking suffix", () => {
 		expect(sessionOpts?.thinkingLevel).toBe("xhigh");
 	});
 
-	test("サフィックス無しなら config.thinkingLevel が使われる", async () => {
+	test("config.thinkingLevel is used when there's no suffix", async () => {
 		emittedEvents = [
 			{
 				type: "agent_end",

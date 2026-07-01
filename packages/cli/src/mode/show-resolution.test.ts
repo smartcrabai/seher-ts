@@ -10,9 +10,9 @@ import { createLogger } from "../util/logger.ts";
 import { runShowResolutionMode } from "./show-resolution.ts";
 
 /**
- * テスト用の最小限の `Config` を組み立てるヘルパー。
- * SDK の `mkConfig` は test ユーティリティ扱いで export されていないので、
- * ここでローカルに再実装する。
+ * Helper to build a minimal `Config` for tests.
+ * The SDK's `mkConfig` is treated as a test utility and isn't exported,
+ * so we reimplement it locally here.
  */
 function mkConfig(
 	...providers: Array<
@@ -53,7 +53,7 @@ function newHarness(): Harness & {
 }
 
 describe("runShowResolutionMode", () => {
-	test("勝者を stdout に JSON で出力し、候補一覧を stderr に出す", async () => {
+	test("prints the winner as JSON to stdout and the candidate list to stderr", async () => {
 		const config: Config = mkConfig(
 			{
 				key: "codex",
@@ -110,11 +110,11 @@ describe("runShowResolutionMode", () => {
 			sdk: "codex",
 			mode: "build",
 		});
-		// stdout の末尾は改行であること。
+		// stdout should end with a newline.
 		expect(stdout.endsWith("\n")).toBe(true);
 	});
 
-	test("effort が設定された候補/winner には effort=<level> が表示される", async () => {
+	test("candidates/winner with effort set display effort=<level>", async () => {
 		const config: Config = mkConfig({
 			key: "claude",
 			order: 0,
@@ -165,7 +165,7 @@ describe("runShowResolutionMode", () => {
 		});
 	});
 
-	test("limited な候補には [LIMITED until ...] タグが付く", async () => {
+	test("limited candidates get a [LIMITED until ...] tag", async () => {
 		const config: Config = mkConfig({
 			key: "codex",
 			order: 0,
@@ -177,7 +177,7 @@ describe("runShowResolutionMode", () => {
 		const checkLimit = mock(
 			async (): Promise<AgentLimit> => ({ kind: "limited", resetTime }),
 		);
-		// limited なので resolveAgent は AllAgentsLimitedError を投げる想定。
+		// Since it's limited, resolveAgent is expected to throw AllAgentsLimitedError.
 		const resolveAgent = mock(async (): Promise<ResolvedAgent> => {
 			throw new AllAgentsLimitedError(resetTime);
 		});
@@ -196,15 +196,15 @@ describe("runShowResolutionMode", () => {
 		expect(result.exitCode).toBe(1);
 		const stderr = h.stderr.join("");
 		expect(stderr).toContain("[LIMITED until ");
-		// 末尾の "]" まで含まれていること。
+		// It should include the trailing "]".
 		expect(stderr).toMatch(/\[LIMITED until [^\]]+\]/);
-		// AllAgentsLimitedError のメッセージが stderr に出ること。
+		// The AllAgentsLimitedError message should be printed to stderr.
 		expect(stderr).toContain("rate-limited");
-		// 勝者は出ない。
+		// No winner is printed.
 		expect(h.stdout.join("")).toBe("");
 	});
 
-	test("probe error が起きたら [probe error] タグが付くが winner は出る", async () => {
+	test("a probe error adds a [probe error] tag but the winner is still printed", async () => {
 		const config: Config = mkConfig({
 			key: "codex",
 			order: 0,
@@ -241,7 +241,7 @@ describe("runShowResolutionMode", () => {
 		expect(h.stderr.join("")).toContain("[probe error]");
 	});
 
-	test("候補ゼロのとき警告だけ出して NoMatchingAgentError で exit 1", async () => {
+	test("with zero candidates, only prints a warning and exits 1 via NoMatchingAgentError", async () => {
 		const config: Config = { providers: [] };
 		const h = newHarness();
 		const checkLimit = mock(
@@ -268,7 +268,7 @@ describe("runShowResolutionMode", () => {
 		expect(stderr).toContain("No providers define models.build");
 	});
 
-	test("--provider フィルタは provider オプションとして渡される", async () => {
+	test("the --provider filter is passed as the provider option", async () => {
 		const config: Config = mkConfig(
 			{
 				key: "codex",
@@ -312,13 +312,13 @@ describe("runShowResolutionMode", () => {
 		});
 
 		expect(result.exitCode).toBe(0);
-		// candidates の絞り込みで codex は除外され、claude のみ残る。
+		// The candidates filter excludes codex, leaving only claude.
 		const stderr = h.stderr.join("");
 		expect(stderr).toContain(
 			"0. claude (sdk=claude, model=sonnet, priority=3)",
 		);
 		expect(stderr).not.toContain("codex");
-		// resolveAgent には provider=claude が渡る。
+		// resolveAgent receives provider=claude.
 		const callArgs = resolveAgent.mock.calls[0] as unknown as [
 			{ provider?: string },
 		];

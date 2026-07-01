@@ -19,39 +19,40 @@ const DEFAULT_PERMISSION_MODE: PermissionMode = "bypassPermissions";
 export interface ClaudeHeadlessSDKConfig {
 	/** Path to the `claude` CLI binary. Defaults to `"claude"` (resolved via $PATH). */
 	claudeBin?: string;
-	/** モデル ID。`SeherRunOptions.model` の方が優先される。 */
+	/** Model ID. `SeherRunOptions.model` takes precedence over this. */
 	model?: string;
 	/**
-	 * `claude --effort <level>` に渡すデフォルトの reasoning effort。
-	 * モデル ID の `:level` サフィックス (例: `claude-opus-4-5:high`) が
-	 * あればそちらが優先される。
+	 * Default reasoning effort passed to `claude --effort <level>`.
+	 * A `:level` suffix on the model ID (e.g. `claude-opus-4-5:high`) takes
+	 * precedence over this if present.
 	 */
 	effortLevel?: EffortLevel;
 	/**
-	 * `--permission-mode <mode>` に渡す値。`claude-headless` は対話 UI を持たない
-	 * ため、デフォルトは `"bypassPermissions"`。
+	 * Value passed to `--permission-mode <mode>`. `claude-headless` has no
+	 * interactive UI, so the default is `"bypassPermissions"`.
 	 */
 	permissionMode?: PermissionMode;
-	/** 子プロセスの作業ディレクトリ。 */
+	/** Working directory for the child process. */
 	cwd?: string;
-	/** デフォルトの実行タイムアウト (ms)。`SeherRunOptions.timeoutMs` で上書き可。 */
+	/** Default run timeout (ms). Overridable via `SeherRunOptions.timeoutMs`. */
 	timeoutMs?: number;
 	/**
-	 * `process.env` に重ねて渡す追加環境変数。`apiKey` / `baseURL` から導出した
-	 * `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` よりも、ここで指定したキーが優先される。
+	 * Extra environment variables layered on top of `process.env`. Keys
+	 * specified here take precedence over the `ANTHROPIC_API_KEY` /
+	 * `ANTHROPIC_BASE_URL` derived from `apiKey` / `baseURL`.
 	 */
 	env?: Record<string, string>;
-	/** `ANTHROPIC_API_KEY` として子プロセスに渡す。 */
+	/** Passed to the child process as `ANTHROPIC_API_KEY`. */
 	apiKey?: string;
-	/** `ANTHROPIC_BASE_URL` として子プロセスに渡す。 */
+	/** Passed to the child process as `ANTHROPIC_BASE_URL`. */
 	baseURL?: string;
-	/** `claude --resume <id>` の対象セッション ID (任意)。 */
+	/** Target session ID for `claude --resume <id>` (optional). */
 	resumeSessionId?: string;
 }
 
 /**
- * `buildClaudeArgs` の入力。Rust 側 `ClaudeHeadlessRunner::build_args` と同等。
- * 引数順は `[--resume <id>?] -p <prompt> [--model <m>] [--effort <level>?] [--append-system-prompt <s>] --permission-mode <mode>`。
+ * Input to `buildClaudeArgs`. Mirrors `ClaudeHeadlessRunner::build_args` on the Rust side.
+ * Argument order is `[--resume <id>?] -p <prompt> [--model <m>] [--effort <level>?] [--append-system-prompt <s>] --permission-mode <mode>`.
  */
 export interface BuildClaudeHeadlessArgsOptions {
 	prompt: string;
@@ -120,8 +121,9 @@ interface RunResult {
 }
 
 /**
- * `claude -p` をサブプロセスとして起動し、stdout 全体を 1 回で返す軽量 SDK。
- * `claude-terminal` のように tmux / トランスクリプト監視は行わない。
+ * Lightweight SDK that spawns `claude -p` as a subprocess and returns the
+ * entire stdout in one shot. Unlike `claude-terminal`, it does not do
+ * tmux / transcript monitoring.
  */
 export class ClaudeHeadlessSDK implements SeherSDKInstance {
 	readonly kind: SdkKind = "claude-headless";
@@ -149,9 +151,9 @@ export class ClaudeHeadlessSDK implements SeherSDKInstance {
 	}
 
 	private buildEnv(): NodeJS.ProcessEnv {
-		// 優先順位: process.env (ベース) < config.env < apiKey/baseURL 由来。
-		// `ClaudeSDK` と同様に、`apiKey`/`baseURL` を明示指定したら
-		// `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` を最終的に上書きする。
+		// Precedence: process.env (base) < config.env < apiKey/baseURL derived.
+		// As with `ClaudeSDK`, explicitly specifying `apiKey`/`baseURL` overrides
+		// `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` last.
 		const env: NodeJS.ProcessEnv = { ...process.env };
 		if (this.config.env !== undefined) {
 			for (const [k, v] of Object.entries(this.config.env)) {
@@ -209,7 +211,7 @@ export class ClaudeHeadlessSDK implements SeherSDKInstance {
 			let stderr = "";
 			let settled = false;
 
-			// タイムアウトのタイマー。発火時は kill して reject する。
+			// Timeout timer. On firing, kill the child and reject.
 			const timer = setTimeout(() => {
 				if (settled) return;
 				settled = true;
@@ -221,8 +223,8 @@ export class ClaudeHeadlessSDK implements SeherSDKInstance {
 				reject(new ClaudeHeadlessTimeoutError(timeoutMs));
 			}, timeoutMs);
 
-			// stdout / stderr を独立した listener で並列読み (パイプ満杯による
-			// デッドロックを避ける)。
+			// Read stdout / stderr concurrently with independent listeners
+			// (avoids a deadlock from a full pipe buffer).
 			child.stdout?.setEncoding("utf8");
 			child.stdout?.on("data", (chunk: string) => {
 				stdout += chunk;
@@ -252,7 +254,7 @@ export class ClaudeHeadlessSDK implements SeherSDKInstance {
 					resolve({ stdout });
 					return;
 				}
-				// 非ゼロ終了は stderr の内容から rate-limit を判定。
+				// A non-zero exit is checked against stderr content to detect a rate limit.
 				if (isClaudeRateLimitMessage(stderr)) {
 					reject(
 						new LimitError("claude-headless", {

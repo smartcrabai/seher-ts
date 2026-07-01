@@ -33,15 +33,17 @@ function isPiLimit(err: unknown): boolean {
 
 export interface PiSDKConfig {
 	/**
-	 * 未指定の場合、pi 本体と同じ認証解決 (`<agentDir>/auth.json` に保存された
-	 * `pi login` の認証情報 → 環境変数 (`ANTHROPIC_API_KEY` 等) の順) に委ねる。
-	 * 明示すると runtime override として最優先で使われる。
+	 * When unspecified, defers to the same auth resolution as pi itself
+	 * (credentials from `pi login` saved in `<agentDir>/auth.json`, then
+	 * environment variables like `ANTHROPIC_API_KEY`). When specified, it is
+	 * used as a runtime override with the highest priority.
 	 */
 	apiKey?: string;
 	/**
-	 * apiKey を併指定しない場合、認証は通常通り apiKey の解決ルールに従う
-	 * (`<agentDir>/auth.json` / 環境変数の既存クレデンシャルがそのまま使われる)。
-	 * 別の宛先に既存の認証情報を送りたくない場合は apiKey も明示すること。
+	 * When apiKey is not also specified, auth follows the normal apiKey
+	 * resolution rules as-is (existing credentials from `<agentDir>/auth.json`
+	 * or environment variables are used unchanged). If you don't want existing
+	 * credentials sent to a different destination, specify apiKey explicitly too.
 	 */
 	baseURL?: string;
 	defaultModel?: string;
@@ -49,9 +51,9 @@ export interface PiSDKConfig {
 	cwd?: string;
 	agentDir?: string;
 	/**
-	 * pi に渡す thinking レベル。`model:thinking` サフィックス (例:
-	 * `anthropic/claude-opus-4-5:high`) で渡された場合は SDK 内部で
-	 * モデル ID から strip され、こちらのフィールドより優先される。
+	 * Thinking level passed to pi. When supplied via the `model:thinking`
+	 * suffix (e.g. `anthropic/claude-opus-4-5:high`), it is stripped from the
+	 * model ID inside the SDK and takes priority over this field.
 	 */
 	thinkingLevel?: ThinkingLevel;
 	/** Default `run()` / `stream()` timeout in ms. Per-call: `SeherRunOptions.timeoutMs`. */
@@ -70,12 +72,15 @@ export interface PiSDKConfig {
 }
 
 /**
- * `additionalSkillPaths` の組み立てロジックを切り出した純粋関数。テストしやすさと
- * 順序保証 (Rust リファレンスと同じ並び) のために独立させている。
+ * Pure function that carves out the `additionalSkillPaths` assembly logic.
+ * Kept separate for testability and to guarantee ordering (matching the
+ * same order as the Rust reference implementation).
  *
- * - `~/.agents/skills` は常に最初に入る (Rust seher のハードコードと同等)。
- * - `~/.claude/skills` と `<cwd>/.claude/skills` は `includeClaudeSkills` が
- *   `false` 以外 (= デフォルト true 扱い) のときだけ追加される。
+ * - `~/.agents/skills` always comes first (matching the hardcoded behavior
+ *   in Rust seher).
+ * - `~/.claude/skills` and `<cwd>/.claude/skills` are only added when
+ *   `includeClaudeSkills` is anything other than `false` (i.e. treated as
+ *   defaulting to true).
  */
 export function buildAdditionalSkillPaths(args: {
 	homeDir: string;
@@ -121,7 +126,27 @@ function extractAssistantText(
 	return "";
 }
 
-type SessionDisposable = { dispose(): Promise<unknown> };
+type SessionDisposable = { dispose(): unknown };
+
+/**
+ * Calls `session.dispose()` on a best-effort basis. At runtime, `dispose()`
+ * is invoked through `SubscribeFn` (`result.session as unknown as
+ * SubscribeFn`), so there's no guarantee it returns a Promise (it may return
+ * a non-Promise value or throw synchronously). Chaining `.catch()` directly
+ * would itself throw when accessing a non-Promise return value, which would
+ * overwrite the primary error (e.g. a failure from `session.prompt()`) in
+ * the caller's `finally` block. So we swallow Promise rejections,
+ * non-Promise return values, and synchronous throws alike.
+ */
+async function disposeSessionSilently(
+	session: SessionDisposable,
+): Promise<void> {
+	try {
+		await Promise.resolve(session.dispose());
+	} catch {
+		// best-effort cleanup; preserve the primary error path
+	}
+}
 
 type SubscribeEvent = {
 	type: string;
@@ -166,9 +191,10 @@ function openPiSessionById(
 	agentDir: string,
 	id: string,
 ): SessionManager {
-	// pi のセッションファイルは `<sessionDir>/<timestamp>_<id>.jsonl` で配置される。
-	// id だけ知っている場合は readdir でサフィックス一致のファイルを探す。
-	// pi の内部実装が変わって `<id>.jsonl` だけになっていても拾えるよう、両形式を見る。
+	// pi's session files are laid out as `<sessionDir>/<timestamp>_<id>.jsonl`.
+	// When only the id is known, search via readdir for a file with a matching
+	// suffix. Check both forms so this still works if pi's internal
+	// implementation changes to just `<id>.jsonl`.
 	const sessionDir = piSessionDir(cwd, agentDir);
 	let entries: string[] = [];
 	try {
@@ -225,9 +251,9 @@ export class PiSDK implements SeherSDKInstance {
 				"no model configured: provide runOpts.model or config.defaultModel",
 			);
 		}
-		// 先に `:thinking` サフィックスを切り出してから provider/model を分解
-		// する。`anthropic/claude-opus-4-5:high` -> base=`anthropic/claude-opus-4-5`,
-		// thinking=`high`。`openrouter/.../llama:free` のような変種は base に残る。
+		// Strip the `:thinking` suffix first, then split into provider/model.
+		// `anthropic/claude-opus-4-5:high` -> base=`anthropic/claude-opus-4-5`,
+		// thinking=`high`. Variants like `openrouter/.../llama:free` remain in base.
 		const { base, thinking } = splitThinkingSuffix(rawModel);
 		const parsed = parseModel(base, fallbackProvider);
 		return thinking !== undefined ? { ...parsed, thinking } : parsed;
@@ -236,25 +262,26 @@ export class PiSDK implements SeherSDKInstance {
 	private async ensureSession(
 		opts: SeherRunOptions,
 	): Promise<CreateAgentSessionResult> {
-		// resume 指定時は SDK 層でも id を validate する (CLI を介さず SeherSDK を
-		// 直接呼ぶケースの防御)。
+		// Validate the id at the SDK layer too when resume is specified (guards
+		// against callers invoking SeherSDK directly without going through the CLI).
 		if (opts.resume !== undefined) assertValidResumeId(opts.resume);
 
-		// セッションキャッシュは同じ resume id に対してのみ再利用する。
-		// `run({resume: "A"})` の後で `run({resume: "B"})` を呼んだ際に前のセッションを
-		// silent に使い回さないよう、id が一致しない場合は dispose して作り直す。
+		// The session cache is only reused for the same resume id. If
+		// `run({resume: "B"})` is called after `run({resume: "A"})`, dispose and
+		// rebuild the session when the ids don't match, rather than silently
+		// reusing the previous one.
 		if (this._sessionResult !== null) {
 			const cached = this._sessionId;
 			const requested = opts.resume;
 			if (requested === undefined || requested === cached) {
 				return this._sessionResult;
 			}
-			// 別の resume id が渡された -> キャッシュを破棄して新しい session を作る。
+			// A different resume id was passed -> discard the cache and build a new session.
 			const prev = this._session;
 			this._session = null;
 			this._sessionResult = null;
 			this._sessionId = null;
-			if (prev !== null) await prev.dispose().catch(() => {});
+			if (prev !== null) await disposeSessionSilently(prev);
 		}
 		if (this._sessionPending !== null) return this._sessionPending;
 
@@ -263,11 +290,12 @@ export class PiSDK implements SeherSDKInstance {
 			const cwd = this.config.cwd ?? process.cwd();
 			const agentDir = this.config.agentDir ?? getAgentDir();
 
-			// pi 本体のデフォルトと同じファイル (`<agentDir>/auth.json` /
-			// `<agentDir>/models.json`) を読む。これにより `pi login` 済みの認証情報や
-			// 環境変数、ユーザー定義の models.json が apiKey 未指定でもそのまま使われる
-			// (Rust seher リファレンスが pi_agent_rust 側のデフォルト解決に委ねているのと
-			// 同じ挙動)。apiKey が明示された場合のみ runtime override で上書きする。
+			// Read the same files pi itself defaults to (`<agentDir>/auth.json` /
+			// `<agentDir>/models.json`). This means credentials from `pi login`,
+			// environment variables, and a user-defined models.json are used as-is
+			// even without an apiKey (matching how the Rust seher reference defers
+			// to pi_agent_rust's own default resolution). Only override at runtime
+			// when apiKey is explicitly provided.
 			const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
 
 			if (this.config.apiKey !== undefined) {
@@ -288,9 +316,10 @@ export class PiSDK implements SeherSDKInstance {
 
 			const model = registry.find(providerID, modelID);
 			if (model === undefined) {
-				// models.json が壊れている場合、ModelRegistry は例外を投げず built-in
-				// モデルのみで継続する。`find()` の不在だけでは原因が分からないため、
-				// registry のロードエラーがあれば原因として併記する。
+				// If models.json is malformed, ModelRegistry doesn't throw and instead
+				// continues with only the built-in models. Since a missing `find()`
+				// result alone doesn't reveal the cause, append the registry's load
+				// error as the likely reason when one exists.
 				const modelsJsonError = registry.getError();
 				throw new Error(
 					`pi: model not found for provider "${providerID}" / model "${modelID}"` +
@@ -307,15 +336,16 @@ export class PiSDK implements SeherSDKInstance {
 				cwd,
 				agentDir,
 			};
-			// モデル ID のサフィックス (`model:high` 等) は config の
-			// thinkingLevel より優先する。どちらも未指定なら pi のデフォルト
-			// (extended thinking なし) を使う。
+			// A model ID suffix (e.g. `model:high`) takes priority over
+			// config's thinkingLevel. If neither is specified, pi's default
+			// (no extended thinking) is used.
 			const effectiveThinking = thinking ?? this.config.thinkingLevel;
 			if (effectiveThinking !== undefined)
 				sessionOpts.thinkingLevel = effectiveThinking;
 
-			// `~/.agents/skills` を常に含めるため、`includeClaudeSkills` の値に関係なく
-			// 必ず resource loader を組み立てる (Rust seher の hardcode と同等の挙動)。
+			// Always build the resource loader regardless of `includeClaudeSkills`
+			// so that `~/.agents/skills` is always included (matching the hardcoded
+			// behavior in Rust seher).
 			const additionalSkillPaths = buildAdditionalSkillPaths({
 				homeDir: homedir(),
 				cwd,
@@ -328,27 +358,29 @@ export class PiSDK implements SeherSDKInstance {
 				settingsManager,
 				additionalSkillPaths,
 			});
-			// `DefaultResourceLoader.reload()` は存在しない skill path を黙ってスキップ
-			// (内部で diagnostics に積むだけ) するが、念のため例外を握り潰して
-			// セッション作成自体が落ちないようにする。
+			// `DefaultResourceLoader.reload()` silently skips skill paths that don't
+			// exist (it just accumulates them in diagnostics internally), but swallow
+			// any exception here just in case, so session creation itself never fails.
 			try {
 				await resourceLoader.reload();
 			} catch (err) {
 				console.info(
-					"[seher-ts/pi] resourceLoader.reload() の呼び出しで例外が発生したため無視します:",
+					"[seher-ts/pi] ignoring exception thrown by resourceLoader.reload():",
 					err,
 				);
 			}
 			sessionOpts.resourceLoader = resourceLoader;
 			sessionOpts.settingsManager = settingsManager;
 
-			// fresh / resume いずれも事前に SessionManager を構築して渡す。
-			// fresh の場合は新規 id が採番され、resume の場合は既存ファイルをロードして
-			// `buildSessionContext()` の messages 非空 → pi が自動継続する。
-			// 事前構築する利点は、`sessionManager.getSessionId()` で id をこちらが
-			// 把握できる点 (これを CLI が `session: <id>` として出力する)。
-			// `agentDir` を渡しているので、`SessionManager.create` の暗黙の
-			// `~/.pi/agent/...` ではなく config の agentDir 配下に session を作る。
+			// Build and pass in the SessionManager up front for both fresh and
+			// resume cases. For fresh, a new id is assigned; for resume, the
+			// existing file is loaded so `buildSessionContext()`'s messages are
+			// non-empty, which makes pi auto-continue. The benefit of building it
+			// up front is that we can obtain the id via
+			// `sessionManager.getSessionId()` (which the CLI prints as
+			// `session: <id>`). We pass `agentDir` explicitly so the session is
+			// created under config's agentDir rather than `SessionManager.create`'s
+			// implicit `~/.pi/agent/...`.
 			const sessionManager =
 				opts.resume !== undefined
 					? openPiSessionById(cwd, agentDir, opts.resume)
@@ -391,7 +423,7 @@ export class PiSDK implements SeherSDKInstance {
 			} finally {
 				unsub();
 				if (errored) {
-					await session.dispose().catch(() => {});
+					await disposeSessionSilently(session);
 					this._sessionResult = null;
 					this._session = null;
 					this._sessionId = null;
@@ -453,7 +485,7 @@ export class PiSDK implements SeherSDKInstance {
 				} finally {
 					unsub();
 					if (errored) {
-						await session.dispose().catch(() => {});
+						await disposeSessionSilently(session);
 						self._sessionResult = null;
 						self._session = null;
 						self._sessionId = null;
@@ -477,7 +509,7 @@ export class PiSDK implements SeherSDKInstance {
 		this._sessionPending = null;
 		this._sessionId = null;
 		if (session !== null) {
-			await session.dispose().catch(() => {});
+			await disposeSessionSilently(session);
 		}
 	}
 

@@ -550,8 +550,9 @@ describe("validateConfig", () => {
 				},
 			},
 		});
-		// validate.ts は読み取りのみ。置換セマンティクスは resolveRetry の責務。
-		// ここでは root と provider が独立に保持されていることを確認する。
+		// validate.ts only reads the values through; replacement semantics
+		// are resolveRetry's responsibility. Here we just confirm that root
+		// and provider retry configs are kept independent.
 		expect(cfg.retry).toEqual({ maxAttempts: 3, multiplier: 4.0 });
 		expect(cfg.providers[0]?.retry).toEqual({ enabled: false });
 	});

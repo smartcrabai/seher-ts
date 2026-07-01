@@ -663,7 +663,7 @@ describe("detectSessionLimit", () => {
 		// fail to match here and return undefined → test fails. (An escape
 		// placed only at the edges would not actually exercise the strip,
 		// since the regex is non-anchored.)
-		const screen = "You've hit[0m your session limit · resets 9am UTC";
+		const screen = "You've hit\x1b[0m your session limit · resets 9am UTC";
 		const result = detectSessionLimit(screen);
 		expect(result?.resetInfo).toBe("9am UTC");
 	});
@@ -751,16 +751,16 @@ describe("ClaudeTerminalSDK session limit detection", () => {
 		});
 		expect(result.text).toBe("next-turn");
 		expect(result.sessionId).toBe("abc-123");
-		// `--resume <id>` がコマンドに追加されている
+		// `--resume <id>` is included in the command
 		const cmd = rb.startCalls[0]?.options.command ?? [];
 		expect(cmd).toContain("--resume");
 		expect(cmd[cmd.indexOf("--resume") + 1]).toBe("abc-123");
-		// findSession は呼ばれず、resume の id から transcript path を組む
+		// findSession is not called; the transcript path is built from the resume id
 		expect(findCalls).toHaveLength(0);
 		expect(waitCalls).toHaveLength(1);
 		expect(waitCalls[0]?.session.transcriptPath).toContain("abc-123.jsonl");
-		expect(waitCalls[0]?.session.transcriptPath).toContain("-repo"); // encodeProjectDir("/repo") は "-repo"
-		// baseline count が渡されている (= prior turn の result が誤って返るのを防ぐ)
+		expect(waitCalls[0]?.session.transcriptPath).toContain("-repo"); // encodeProjectDir("/repo") is "-repo"
+		// baseline count is passed (prevents the prior turn's result from being returned incorrectly)
 		expect(waitCalls[0]?.options.minAssistantCount).toBe(3);
 		expect(countedPath).toContain("abc-123.jsonl");
 	});
