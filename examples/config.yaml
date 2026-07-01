@@ -53,11 +53,9 @@ providers:
 
   # Use `sdk: pi` with any provider key to drive the pi.dev agent.
   # There is no default provider mapping — `sdk: pi` is required.
+  # `api` is optional: without it, pi resolves auth from its own config.
   my-pi:
     sdk: pi
-    api:
-      key: sk-xxxxxxxxxxxxx
-      endpoint: https://api.example.com
     models:
       build: anthropic/claude-sonnet-4-5
 

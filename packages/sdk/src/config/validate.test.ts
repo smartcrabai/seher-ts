@@ -42,7 +42,7 @@ describe("validateConfig", () => {
 		expect(codex?.models.build).toEqual({ model: "gpt-5.5", priority: 4 });
 	});
 
-	test("non-builtin provider requires sdk and api", () => {
+	test("non-builtin non-pi provider requires sdk and api", () => {
 		expect(() =>
 			validateConfig({
 				providers: { zai: { models: { build: "glm-5.1" } } },
@@ -283,20 +283,21 @@ describe("validateConfig", () => {
 		).toThrow(/sdk is required/);
 	});
 
-	test("pi: explicit sdk: pi passes validation (api required for non-builtin)", () => {
+	test("pi: explicit sdk: pi passes validation without api for non-builtin provider", () => {
 		const cfg = validateConfig({
 			providers: {
-				pi: {
+				openrouter: {
 					sdk: "pi",
-					api: { key: "sk-test" },
-					models: { build: "anthropic/claude-sonnet-4-5" },
+					models: { build: "openrouter/xiaomi/mimo-v2.5-pro" },
 				},
 			},
 		});
 		expect(cfg.providers).toHaveLength(1);
 		const entry = cfg.providers[0];
-		expect(entry?.key).toBe("pi");
+		expect(entry?.key).toBe("openrouter");
+		expect(entry?.provider).toBe("openrouter");
 		expect(entry?.sdk).toBe("pi");
+		expect(entry?.api).toBeUndefined();
 	});
 
 	test("pi: explicit sdk: pi with full api config passes", () => {
@@ -319,7 +320,7 @@ describe("validateConfig", () => {
 		});
 	});
 
-	test("pi: custom map key with sdk: pi and api works", () => {
+	test("pi: custom map key with sdk: pi and api still works", () => {
 		const cfg = validateConfig({
 			providers: {
 				mypi: {
