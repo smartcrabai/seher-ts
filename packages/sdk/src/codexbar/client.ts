@@ -80,7 +80,16 @@ export async function runCodexBarUsage(
 		args.push("--account-index", String(opts.accountIndex));
 	}
 
-	const proc = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+	// CodexBarCLI probes agent CLIs through an internal pty and, when it shares
+	// the caller's session, leaves the terminal's foreground process group
+	// pointing at its own (already exited) group. After that the terminal's
+	// Ctrl+C signals a dead group and the host process becomes uninterruptible.
+	// `detached` runs it in a new session with no controlling terminal, so it
+	// cannot touch ours.
+	const proc = spawn(bin, args, {
+		stdio: ["ignore", "pipe", "pipe"],
+		detached: process.platform !== "win32",
+	});
 
 	const exited = new Promise<{
 		code: number;
@@ -116,7 +125,22 @@ export async function runCodexBarUsage(
 	const timeoutPromise = new Promise<{ kind: "timeout" }>((resolve) => {
 		timeoutHandle = setTimeout(() => {
 			try {
-				proc.kill("SIGKILL");
+				// Skip when the child already exited: unlike proc.kill(), a raw
+				// group signal has no liveness guard, and a reaped pid could in
+				// principle be recycled by an unrelated process group.
+				const alreadyExited =
+					proc.exitCode !== null || proc.signalCode !== null;
+				if (
+					process.platform !== "win32" &&
+					proc.pid !== undefined &&
+					!alreadyExited
+				) {
+					// detached ⇒ codexbar leads its own process group; signal the
+					// whole group so helpers it spawned into it go down too.
+					process.kill(-proc.pid, "SIGKILL");
+				} else if (!alreadyExited) {
+					proc.kill("SIGKILL");
+				}
 			} catch {
 				// best effort
 			}

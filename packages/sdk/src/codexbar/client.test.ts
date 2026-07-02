@@ -149,4 +149,24 @@ describe("runCodexBarUsage", () => {
 			runCodexBarUsage("codex", { binPath: missing }),
 		).rejects.toBeInstanceOf(CodexBarNotFoundError);
 	});
+
+	// CodexBarCLI manipulates the controlling terminal; sharing our session
+	// lets it steal the terminal's foreground process group and make the host
+	// process uninterruptible via Ctrl+C. Detached spawning gives it a fresh
+	// session, observable as the child leading its own process group.
+	test.skipIf(process.platform === "win32")(
+		"runs the binary in its own session (POSIX)",
+		async () => {
+			const bin = writeScript(
+				"pgid.sh",
+				[
+					`pgid=$(ps -o pgid= -p $$ | tr -d " ")`,
+					`leader=$([ "$pgid" = "$$" ] && echo true || echo false)`,
+					`printf '[{"provider":"codex","usage":{"ownGroupLeader":%s}}]' "$leader"`,
+				].join("\n"),
+			);
+			const result = await runCodexBarUsage("codex", { binPath: bin });
+			expect(result.usage).toEqual({ ownGroupLeader: true });
+		},
+	);
 });
