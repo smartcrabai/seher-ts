@@ -1,0 +1,4 @@
+# Publishing is handled by GitHub Actions (OIDC trusted publishing) on v* tag
+# push -- see .github/workflows/release.yml and RELEASING.md. The `release`
+# CLI only bumps, commits, tags, and pushes here.
+publish = false
