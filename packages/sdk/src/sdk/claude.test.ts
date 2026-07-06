@@ -277,6 +277,27 @@ describe("ClaudeSDK", () => {
 		}
 	});
 
+	test("rate_limit_event resetsAt in unix seconds is converted to ms", async () => {
+		const resetSeconds = 1783196396; // 2026-07-04T20:19:56Z
+		queryMessages = [
+			{
+				type: "rate_limit_event",
+				rate_limit_info: { status: "rejected", resetsAt: resetSeconds },
+				uuid: "u",
+				session_id: "s",
+			},
+		];
+		const sdk = new ClaudeSDK();
+		try {
+			await sdk.run({ prompt: "p" });
+			throw new Error("expected LimitError");
+		} catch (err) {
+			expect(err).toBeInstanceOf(LimitError);
+			const le = err as InstanceType<typeof LimitError>;
+			expect(le.resetAt?.getTime()).toBe(resetSeconds * 1000);
+		}
+	});
+
 	test("rate_limit_event with status=allowed does not throw", async () => {
 		queryMessages = [
 			{
