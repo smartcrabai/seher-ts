@@ -79,7 +79,7 @@ jobs:
           done
 
       - name: Publish @seher-ts/sdk
-        run: npm publish "$(ls artifacts/seher-ts-sdk-*.tgz)" --provenance --access public
+        run: npm publish "./$(ls artifacts/seher-ts-sdk-*.tgz)" --provenance --access public
 
       - name: Publish @seher-ts/cli
-        run: npm publish "$(ls artifacts/seher-ts-cli-*.tgz)" --provenance --access public
+        run: npm publish "./$(ls artifacts/seher-ts-cli-*.tgz)" --provenance --access public
