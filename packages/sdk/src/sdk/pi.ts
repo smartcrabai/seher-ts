@@ -111,12 +111,20 @@ function parseModel(
 	return { providerID: fallbackProvider, modelID: model };
 }
 
-function extractAssistantText(
-	messages: Array<{
-		role: string;
-		content: Array<{ type: string; text: string }>;
-	}>,
-): string {
+/**
+ * Minimal shape of a pi session message that this adapter cares about.
+ * `stopReason` / `errorMessage` mirror `AssistantMessage` from
+ * `@earendil-works/pi-ai` -- present on assistant messages only, but kept
+ * optional here since this type is also used for non-assistant messages.
+ */
+type PiMessage = {
+	role: string;
+	content: Array<{ type: string; text: string }>;
+	stopReason?: string;
+	errorMessage?: string;
+};
+
+function extractAssistantText(messages: PiMessage[]): string {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const msg = messages[i];
 		if (msg?.role === "assistant") {
@@ -124,6 +132,37 @@ function extractAssistantText(
 		}
 	}
 	return "";
+}
+
+/**
+ * pi's provider errors (e.g. a 429 from the upstream API) don't throw from
+ * `session.prompt()` -- pi records them as a normal assistant message with
+ * `stopReason: "error"` and `errorMessage` set, and `prompt()` resolves as
+ * usual. Left unchecked, this looks like a successful empty-text response
+ * to callers, so the `rethrowAsLimit` / provider-failover machinery never
+ * triggers (observed in production: a gqlrs loop kept using opencode-go
+ * after it hit its weekly usage limit instead of failing over, producing a
+ * flood of downstream "Agent used unexpected branch" failures).
+ *
+ * Throws a plain `Error` (message taken from `errorMessage` when present)
+ * when the *last* assistant message in `messages` ended with
+ * `stopReason === "error"`. Callers are expected to route the thrown error
+ * back through `rethrowAsLimit` so limit-shaped messages become
+ * `LimitError`. Only the last assistant message is inspected, so an earlier
+ * mid-run error that was superseded by a later successful turn (e.g. an
+ * internal retry) is still treated as success.
+ */
+function assertNoTrailingAssistantError(messages: PiMessage[]): void {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const msg = messages[i];
+		if (msg?.role !== "assistant") continue;
+		if (msg.stopReason === "error") {
+			throw new Error(
+				msg.errorMessage ?? "pi: assistant turn ended with stopReason error",
+			);
+		}
+		break;
+	}
 }
 
 type SessionDisposable = { dispose(): unknown };
@@ -159,10 +198,7 @@ type SubscribeFn = {
 	subscribe: (listener: (event: SubscribeEvent) => void) => () => void;
 	prompt: (text: string) => Promise<unknown>;
 	state: {
-		readonly messages: Array<{
-			role: string;
-			content: Array<{ type: string; text: string }>;
-		}>;
+		readonly messages: PiMessage[];
 	};
 } & SessionDisposable;
 
@@ -417,6 +453,12 @@ export class PiSDK implements SeherSDKInstance {
 			let errored = false;
 			try {
 				await session.prompt(promptText);
+				// pi swallows provider errors (e.g. 429) instead of throwing --
+				// they surface as a trailing assistant message with
+				// `stopReason: "error"`. Detect that here so it flows through the
+				// same `rethrowAsLimit` / dispose path as a thrown error below,
+				// rather than being returned as an empty-text success.
+				assertNoTrailingAssistantError(session.state.messages);
 			} catch (err) {
 				errored = true;
 				rethrowAsLimit("pi", err, isPiLimit);
@@ -435,13 +477,9 @@ export class PiSDK implements SeherSDKInstance {
 
 			if (text === "") {
 				const agentEnd = events.find((e) => e.type === "agent_end");
-				const eventMessages: Array<{
-					role: string;
-					content: Array<{ type: string; text: string }>;
-				}> = ((agentEnd?.messages as Array<unknown>) ?? []) as Array<{
-					role: string;
-					content: Array<{ type: string; text: string }>;
-				}>;
+				const eventMessages: PiMessage[] = ((agentEnd?.messages as
+					| Array<unknown>
+					| undefined) ?? []) as PiMessage[];
 				text = extractAssistantText(eventMessages);
 			}
 
@@ -479,6 +517,11 @@ export class PiSDK implements SeherSDKInstance {
 				let errored = false;
 				try {
 					await session.prompt(promptText);
+					// Same trailing-error detection as run(): pi records provider
+					// errors as a normal assistant message instead of throwing, so
+					// check once the underlying prompt iteration has fully settled
+					// (and before any chunk is yielded downstream).
+					assertNoTrailingAssistantError(session.state.messages);
 				} catch (err) {
 					errored = true;
 					rethrowAsLimit("pi", err, isPiLimit);
