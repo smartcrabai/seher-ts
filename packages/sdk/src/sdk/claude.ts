@@ -48,7 +48,11 @@ function tryLimitFromMessage(message: unknown): LimitError | null {
 		provider: "claude",
 	};
 	const reset = info.resetsAt ?? info.overageResetsAt;
-	if (typeof reset === "number") opts.resetAt = new Date(reset);
+	if (typeof reset === "number") {
+		// resetsAt is unix epoch seconds; Date expects milliseconds. Values
+		// above 1e12 are already milliseconds (defensive: ~33658 CE as seconds).
+		opts.resetAt = new Date(reset < 1e12 ? reset * 1000 : reset);
+	}
 	return new LimitError("claude", opts);
 }
 
