@@ -20,6 +20,8 @@ const modelRegistryCreateCalls: Array<{
 let sessionMessages: Array<{
 	role: string;
 	content: Array<{ type: string; text: string }>;
+	stopReason?: string;
+	errorMessage?: string;
 }> = [];
 let emittedEvents: Array<Record<string, unknown>> = [];
 let promptShouldThrow: Error | null = null;
@@ -298,6 +300,58 @@ describe("PiSDK", () => {
 		await expect(sdk.run({ prompt: "p" })).rejects.toBe(err);
 	});
 
+	test("run throws LimitError when the last assistant message ends with stopReason=error and a limit-shaped errorMessage", async () => {
+		// pi doesn't throw on provider errors (e.g. 429) -- it records the
+		// failure as a normal assistant message with stopReason "error" and
+		// resolves session.prompt() as usual.
+		sessionMessages = [
+			{ role: "user", content: [{ type: "text", text: "hi" }] },
+			{
+				role: "assistant",
+				content: [],
+				stopReason: "error",
+				errorMessage:
+					"429 Weekly usage limit reached. Resets in 1 day. Upgrade your plan for higher limits.",
+			},
+		];
+		const sdk = new PiSDK({ defaultModel: "anthropic/claude-sonnet-4-5" });
+		await expect(sdk.run({ prompt: "p" })).rejects.toBeInstanceOf(LimitError);
+	});
+
+	test("run throws a plain Error (not LimitError) when the last assistant message ends with stopReason=error but errorMessage isn't limit-shaped", async () => {
+		sessionMessages = [
+			{
+				role: "assistant",
+				content: [],
+				stopReason: "error",
+				errorMessage: "500 internal server error",
+			},
+		];
+		const sdk = new PiSDK({ defaultModel: "anthropic/claude-sonnet-4-5" });
+		const pending = sdk.run({ prompt: "p" });
+		await expect(pending).rejects.toThrow("500 internal server error");
+		await expect(pending).rejects.not.toBeInstanceOf(LimitError);
+	});
+
+	test("run succeeds when an earlier assistant message errored but the last one completed normally", async () => {
+		sessionMessages = [
+			{
+				role: "assistant",
+				content: [],
+				stopReason: "error",
+				errorMessage: "429 usage limit reached",
+			},
+			{
+				role: "assistant",
+				content: [{ type: "text", text: "recovered reply" }],
+				stopReason: "stop",
+			},
+		];
+		const sdk = new PiSDK({ defaultModel: "anthropic/claude-sonnet-4-5" });
+		const result = await sdk.run({ prompt: "p" });
+		expect(result.text).toBe("recovered reply");
+	});
+
 	test("close disposes the session", async () => {
 		emittedEvents = [
 			{
@@ -458,6 +512,31 @@ describe("PiSDK", () => {
 				}
 			})(),
 		).rejects.toBeInstanceOf(LimitError);
+	});
+
+	test("stream rethrows as LimitError when prompt resolves normally but the last assistant message ends with stopReason=error (limit-shaped)", async () => {
+		// Mirrors run()'s equivalent case: pi resolves session.prompt()
+		// normally even for provider errors, so stream() must inspect
+		// session.state.messages after the prompt settles, not rely on a
+		// thrown error.
+		sessionMessages = [
+			{
+				role: "assistant",
+				content: [],
+				stopReason: "error",
+				errorMessage: "429 Weekly usage limit reached. Resets in 1 day.",
+			},
+		];
+		const sdk = new PiSDK({ defaultModel: "anthropic/claude-sonnet-4-5" });
+		const chunks: Array<{ kind: string; delta: string }> = [];
+		await expect(
+			(async () => {
+				for await (const chunk of sdk.stream({ prompt: "p" })) {
+					chunks.push({ kind: chunk.kind, delta: chunk.delta });
+				}
+			})(),
+		).rejects.toBeInstanceOf(LimitError);
+		expect(chunks).toEqual([]);
 	});
 
 	test("stream: preserves prompt's original error even when dispose() returns a non-Promise (#134)", async () => {
