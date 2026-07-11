@@ -79,6 +79,7 @@ export async function runSeher(
 		};
 		if (args.provider !== undefined) showOpts.provider = args.provider;
 		if (args.config !== undefined) showOpts.configPath = args.config;
+		if (args.effortLevel !== undefined) showOpts.effortLevel = args.effortLevel;
 		const result = await deps.runShowResolutionMode(showOpts);
 		return result.exitCode;
 	}

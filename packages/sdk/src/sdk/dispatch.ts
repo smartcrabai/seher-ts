@@ -12,6 +12,7 @@
  */
 
 import type { ResolvedAgent } from "../types.ts";
+import type { EffortLevel } from "./model.ts";
 import { TOOL_SUPPORTING_KINDS } from "./resolve.ts";
 import {
 	applyResolvedAgent,
@@ -52,6 +53,12 @@ export interface RunForResolvedOptions {
 	resume?: string;
 	/** Extra environment variables to pass to the SDK. */
 	env?: Record<string, string>;
+	/**
+	 * Reasoning effort. Takes precedence over `agent.effort` (the effort
+	 * resolved from `config.yaml`) and over a `:level` suffix on the model id
+	 * (equivalent to the Rust side's `RunAgentOptions.effort`).
+	 */
+	effort?: EffortLevel;
 }
 
 /**
@@ -90,6 +97,9 @@ function buildBaseConfig(opts: RunForResolvedOptions): SeherSDKConfig {
 	if (opts.baseURL !== undefined) base.baseURL = opts.baseURL;
 	if (opts.cwd !== undefined) base.cwd = opts.cwd;
 	if (opts.env !== undefined) base.env = { ...opts.env };
+	// Set before `applyResolvedAgent` runs so its `out.effortLevel === undefined`
+	// guard treats this as caller-supplied, taking precedence over `agent.effort`.
+	if (opts.effort !== undefined) base.effortLevel = opts.effort;
 	return base;
 }
 

@@ -66,12 +66,14 @@ mock.module("@anthropic-ai/claude-agent-sdk", () => {
 });
 
 const codexConstructorOpts: Array<Record<string, unknown>> = [];
+const codexStartThreadOpts: Array<Record<string, unknown>> = [];
 mock.module("@openai/codex-sdk", () => {
 	class MockCodex {
 		constructor(opts: Record<string, unknown> = {}) {
 			codexConstructorOpts.push(opts);
 		}
-		startThread() {
+		startThread(opts: Record<string, unknown> = {}) {
+			codexStartThreadOpts.push(opts);
 			return {
 				run: async (_input: unknown) => ({
 					finalResponse: "codex reply",
@@ -273,6 +275,7 @@ function makeResolvedAgent(
 	if (overrides.env !== undefined) base.env = overrides.env;
 	if (overrides.skills !== undefined) base.skills = overrides.skills;
 	if (overrides.modeKey !== undefined) base.modeKey = overrides.modeKey;
+	if (overrides.effort !== undefined) base.effort = overrides.effort;
 	return base;
 }
 
@@ -346,6 +349,27 @@ describe("dispatch.runForResolved", () => {
 			tools: [dummyTool()],
 		});
 		expect(result.kind).toBe("claude");
+	});
+
+	test("opts.effort is forwarded to the underlying SDK (codex modelReasoningEffort)", async () => {
+		codexStartThreadOpts.length = 0;
+		const agent = makeResolvedAgent("codex");
+		await runForResolved(agent, { prompt: "hi", effort: "high" });
+		expect(codexStartThreadOpts[0]?.modelReasoningEffort).toBe("high");
+	});
+
+	test("opts.effort takes precedence over ResolvedAgent.effort", async () => {
+		codexStartThreadOpts.length = 0;
+		const agent = makeResolvedAgent("codex", { effort: "low" });
+		await runForResolved(agent, { prompt: "hi", effort: "high" });
+		expect(codexStartThreadOpts[0]?.modelReasoningEffort).toBe("high");
+	});
+
+	test("ResolvedAgent.effort is used when opts.effort is unset", async () => {
+		codexStartThreadOpts.length = 0;
+		const agent = makeResolvedAgent("codex", { effort: "medium" });
+		await runForResolved(agent, { prompt: "hi" });
+		expect(codexStartThreadOpts[0]?.modelReasoningEffort).toBe("medium");
 	});
 });
 

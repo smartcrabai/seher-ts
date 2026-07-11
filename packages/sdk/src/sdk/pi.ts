@@ -13,7 +13,12 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 import { assertValidResumeId, rethrowAsLimit } from "./errors.ts";
-import { splitThinkingSuffix, type ThinkingLevel } from "./model.ts";
+import {
+	type EffortLevel,
+	effortToThinking,
+	splitThinkingSuffix,
+	type ThinkingLevel,
+} from "./model.ts";
 import { extractTextBlocks, joinSystemPrompt } from "./text.ts";
 import { withStreamTimeout, withTimeout } from "./timeout.ts";
 import type {
@@ -51,11 +56,18 @@ export interface PiSDKConfig {
 	cwd?: string;
 	agentDir?: string;
 	/**
-	 * Thinking level passed to pi. When supplied via the `model:thinking`
-	 * suffix (e.g. `anthropic/claude-opus-4-5:high`), it is stripped from the
-	 * model ID inside the SDK and takes priority over this field.
+	 * Thinking level passed to pi. Priority (highest first): `effortLevel`
+	 * (mapped via `effortToThinking`), then a `model:thinking` suffix on the
+	 * model ID (e.g. `anthropic/claude-opus-4-5:high`, stripped from the model
+	 * ID inside the SDK), then this field as the final fallback.
 	 */
 	thinkingLevel?: ThinkingLevel;
+	/**
+	 * Reasoning effort. Takes precedence over a `model:thinking` suffix on the
+	 * model ID and over `thinkingLevel` -- mapped to pi's thinking level via
+	 * `effortToThinking` (`max` rounds down to pi's highest tier, `xhigh`).
+	 */
+	effortLevel?: EffortLevel;
 	/** Default `run()` / `stream()` timeout in ms. Per-call: `SeherRunOptions.timeoutMs`. */
 	timeoutMs?: number;
 	/**
@@ -69,6 +81,75 @@ export interface PiSDKConfig {
 	 * shared with other agent runners works without any configuration.
 	 */
 	includeClaudeSkills?: boolean;
+	/**
+	 * Extra environment variables applied for the duration of `run()` /
+	 * `stream()`. Since pi runs in-process (unlike the other subprocess-based
+	 * backends), these are applied via direct `process.env` mutation --
+	 * see `withPiEnvGuard` for the save/restore + cross-instance
+	 * serialization that makes this safe.
+	 */
+	env?: Record<string, string>;
+}
+
+/** Matches an env key containing `=` or a NUL byte (see `withPiEnvGuard`). */
+const INVALID_PI_ENV_KEY_PATTERN = /[=\0]/;
+
+/**
+ * Serializes every `process.env` mutation made on behalf of `env` across all
+ * `PiSDK` instances in this process (pi runs in-process, so one run's env
+ * mutation must never interleave with another concurrent run's).
+ */
+let piEnvLock: Promise<void> = Promise.resolve();
+
+/**
+ * When `env` is non-empty: validates its keys (throwing *before* touching
+ * `process.env` or the serialization lock on a bad key), waits its turn on
+ * the module-level `piEnvLock`, applies `env` on top of `process.env`, runs
+ * `fn`, then restores every modified key to its prior value -- deleting keys
+ * that were previously unset -- regardless of whether `fn` throws.
+ *
+ * When `env` is empty/undefined, runs `fn` directly with no locking or
+ * mutation (mirrors the Rust `PiEnvGuard`, which is a no-op when there's
+ * nothing to guard).
+ */
+async function withPiEnvGuard<T>(
+	env: Record<string, string> | undefined,
+	fn: () => Promise<T>,
+): Promise<T> {
+	if (env === undefined || Object.keys(env).length === 0) {
+		return fn();
+	}
+	for (const key of Object.keys(env)) {
+		if (INVALID_PI_ENV_KEY_PATTERN.test(key)) {
+			throw new Error(
+				`pi: invalid env key '${key}' (must not contain '=' or NUL)`,
+			);
+		}
+	}
+	const previous = piEnvLock;
+	let release: () => void = () => {};
+	piEnvLock = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	await previous;
+	const saved: Array<[string, string | undefined]> = Object.keys(env).map(
+		(key) => [key, process.env[key]],
+	);
+	try {
+		for (const [key, value] of Object.entries(env)) {
+			process.env[key] = value;
+		}
+		return await fn();
+	} finally {
+		for (const [key, priorValue] of saved) {
+			if (priorValue === undefined) {
+				delete process.env[key];
+			} else {
+				process.env[key] = priorValue;
+			}
+		}
+		release();
+	}
 }
 
 /**
@@ -277,7 +358,7 @@ export class PiSDK implements SeherSDKInstance {
 	private buildModel(opts: SeherRunOptions): {
 		providerID: string;
 		modelID: string;
-		thinking?: ThinkingLevel;
+		thinking?: ThinkingLevel | "max";
 	} {
 		const fallbackProvider =
 			this.config.defaultProviderID ?? DEFAULT_PROVIDER_ID;
@@ -372,10 +453,21 @@ export class PiSDK implements SeherSDKInstance {
 				cwd,
 				agentDir,
 			};
-			// A model ID suffix (e.g. `model:high`) takes priority over
-			// config's thinkingLevel. If neither is specified, pi's default
-			// (no extended thinking) is used.
-			const effectiveThinking = thinking ?? this.config.thinkingLevel;
+			// Priority (highest first): config.effortLevel (explicit /
+			// config-resolved, mapped via effortToThinking), then a model ID
+			// suffix (e.g. `model:high`), then config.thinkingLevel as the final
+			// fallback. If none are specified, pi's default (no extended
+			// thinking) is used. `thinking` may be the literal string `"max"`
+			// (a valid EffortLevel with no ThinkingLevel equivalent) when the
+			// model id carried a `:max` suffix and no effort took precedence --
+			// left unmapped here so pi's own validation surfaces a clear error
+			// rather than silently reinterpreting it.
+			const effortThinking =
+				this.config.effortLevel !== undefined
+					? effortToThinking(this.config.effortLevel)
+					: undefined;
+			const effectiveThinking =
+				effortThinking ?? thinking ?? this.config.thinkingLevel;
 			if (effectiveThinking !== undefined)
 				sessionOpts.thinkingLevel = effectiveThinking;
 
@@ -439,88 +531,27 @@ export class PiSDK implements SeherSDKInstance {
 
 	async run(opts: SeherRunOptions): Promise<SeherRunResult> {
 		const timeoutMs = opts.timeoutMs ?? this.config.timeoutMs;
-		const work = (async (): Promise<SeherRunResult> => {
-			const result = await this.ensureSession(opts);
-			const session = result.session as unknown as SubscribeFn;
-			this._session = session;
-			const promptText = joinSystemPrompt(opts);
-
-			const events: SubscribeEvent[] = [];
-			const unsub = session.subscribe((event: SubscribeEvent) => {
-				if (event.type === "agent_end") events.push(event);
-			});
-
-			let errored = false;
-			try {
-				await session.prompt(promptText);
-				// pi swallows provider errors (e.g. 429) instead of throwing --
-				// they surface as a trailing assistant message with
-				// `stopReason: "error"`. Detect that here so it flows through the
-				// same `rethrowAsLimit` / dispose path as a thrown error below,
-				// rather than being returned as an empty-text success.
-				assertNoTrailingAssistantError(session.state.messages);
-			} catch (err) {
-				errored = true;
-				rethrowAsLimit("pi", err, isPiLimit);
-			} finally {
-				unsub();
-				if (errored) {
-					await disposeSessionSilently(session);
-					this._sessionResult = null;
-					this._session = null;
-					this._sessionId = null;
-				}
-			}
-
-			const stateMessages = session.state.messages;
-			let text = extractAssistantText(stateMessages);
-
-			if (text === "") {
-				const agentEnd = events.find((e) => e.type === "agent_end");
-				const eventMessages: PiMessage[] = ((agentEnd?.messages as
-					| Array<unknown>
-					| undefined) ?? []) as PiMessage[];
-				text = extractAssistantText(eventMessages);
-			}
-
-			const out: SeherRunResult = {
-				text,
-				kind: this.kind,
-				raw: session.state.messages,
-			};
-			if (this._sessionId !== null) out.sessionId = this._sessionId;
-			return out;
-		})();
-		return withTimeout(work, timeoutMs, this.kind);
-	}
-
-	stream(opts: SeherRunOptions): AsyncIterable<SeherStreamChunk> {
-		const self = this;
-		const timeoutMs = opts.timeoutMs ?? self.config.timeoutMs;
-		const source: AsyncIterable<SeherStreamChunk> = {
-			async *[Symbol.asyncIterator]() {
-				const result = await self.ensureSession(opts);
+		const work = withPiEnvGuard(
+			this.config.env,
+			async (): Promise<SeherRunResult> => {
+				const result = await this.ensureSession(opts);
 				const session = result.session as unknown as SubscribeFn;
-				self._session = session;
+				this._session = session;
 				const promptText = joinSystemPrompt(opts);
 
-				const chunks: Array<{ delta: string; raw: unknown }> = [];
+				const events: SubscribeEvent[] = [];
 				const unsub = session.subscribe((event: SubscribeEvent) => {
-					if (event.type === "message_update") {
-						const ame = event.assistantMessageEvent;
-						if (ame?.type === "text_delta" && typeof ame.delta === "string") {
-							chunks.push({ delta: ame.delta, raw: event });
-						}
-					}
+					if (event.type === "agent_end") events.push(event);
 				});
 
 				let errored = false;
 				try {
 					await session.prompt(promptText);
-					// Same trailing-error detection as run(): pi records provider
-					// errors as a normal assistant message instead of throwing, so
-					// check once the underlying prompt iteration has fully settled
-					// (and before any chunk is yielded downstream).
+					// pi swallows provider errors (e.g. 429) instead of throwing --
+					// they surface as a trailing assistant message with
+					// `stopReason: "error"`. Detect that here so it flows through the
+					// same `rethrowAsLimit` / dispose path as a thrown error below,
+					// rather than being returned as an empty-text success.
 					assertNoTrailingAssistantError(session.state.messages);
 				} catch (err) {
 					errored = true;
@@ -529,11 +560,88 @@ export class PiSDK implements SeherSDKInstance {
 					unsub();
 					if (errored) {
 						await disposeSessionSilently(session);
-						self._sessionResult = null;
-						self._session = null;
-						self._sessionId = null;
+						this._sessionResult = null;
+						this._session = null;
+						this._sessionId = null;
 					}
 				}
+
+				const stateMessages = session.state.messages;
+				let text = extractAssistantText(stateMessages);
+
+				if (text === "") {
+					const agentEnd = events.find((e) => e.type === "agent_end");
+					const eventMessages: PiMessage[] = ((agentEnd?.messages as
+						| Array<unknown>
+						| undefined) ?? []) as PiMessage[];
+					text = extractAssistantText(eventMessages);
+				}
+
+				const out: SeherRunResult = {
+					text,
+					kind: this.kind,
+					raw: session.state.messages,
+				};
+				if (this._sessionId !== null) out.sessionId = this._sessionId;
+				return out;
+			},
+		);
+		return withTimeout(work, timeoutMs, this.kind);
+	}
+
+	stream(opts: SeherRunOptions): AsyncIterable<SeherStreamChunk> {
+		const self = this;
+		const timeoutMs = opts.timeoutMs ?? self.config.timeoutMs;
+		const source: AsyncIterable<SeherStreamChunk> = {
+			async *[Symbol.asyncIterator]() {
+				// The env guard only needs to cover the actual pi interaction
+				// (session setup through prompt()); the collected chunks are
+				// replayed below, outside the guarded region.
+				const chunks = await withPiEnvGuard(
+					self.config.env,
+					async (): Promise<Array<{ delta: string; raw: unknown }>> => {
+						const result = await self.ensureSession(opts);
+						const session = result.session as unknown as SubscribeFn;
+						self._session = session;
+						const promptText = joinSystemPrompt(opts);
+
+						const collected: Array<{ delta: string; raw: unknown }> = [];
+						const unsub = session.subscribe((event: SubscribeEvent) => {
+							if (event.type === "message_update") {
+								const ame = event.assistantMessageEvent;
+								if (
+									ame?.type === "text_delta" &&
+									typeof ame.delta === "string"
+								) {
+									collected.push({ delta: ame.delta, raw: event });
+								}
+							}
+						});
+
+						let errored = false;
+						try {
+							await session.prompt(promptText);
+							// Same trailing-error detection as run(): pi records provider
+							// errors as a normal assistant message instead of throwing, so
+							// check once the underlying prompt iteration has fully settled
+							// (and before any chunk is yielded downstream).
+							assertNoTrailingAssistantError(session.state.messages);
+						} catch (err) {
+							errored = true;
+							rethrowAsLimit("pi", err, isPiLimit);
+						} finally {
+							unsub();
+							if (errored) {
+								await disposeSessionSilently(session);
+								self._sessionResult = null;
+								self._session = null;
+								self._sessionId = null;
+							}
+						}
+
+						return collected;
+					},
+				);
 
 				for (const chunk of chunks) {
 					yield { kind: self.kind, delta: chunk.delta, raw: chunk.raw };

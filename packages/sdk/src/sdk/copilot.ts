@@ -1,6 +1,7 @@
 import { approveAll, CopilotClient, defineTool } from "@github/copilot-sdk";
 import type { z } from "zod";
 import { LimitError } from "./errors.ts";
+import type { EffortLevel } from "./model.ts";
 import type { SeherTool } from "./tools.ts";
 import type {
 	SdkKind,
@@ -41,6 +42,23 @@ export interface CopilotSDKConfig {
 	cliPath?: string;
 	cliUrl?: string;
 	defaultModel?: string;
+	/**
+	 * Reasoning effort forwarded to `SessionConfig.reasoningEffort`. Only
+	 * effective for models where `capabilities.supports.reasoningEffort` is
+	 * true (per the copilot-sdk docs); the runtime behavior for unsupported
+	 * models is unverified. `max` has no native Copilot tier and is rounded
+	 * down to `xhigh`.
+	 */
+	effortLevel?: EffortLevel;
+	/**
+	 * Extra environment variables forwarded to the spawned Copilot runtime
+	 * process. Per `CopilotClientOptions.env`'s own docs, when unset the
+	 * runtime inherits `process.env`; to make that explicit (rather than
+	 * relying on the SDK's default), this is always merged as
+	 * `{...process.env, ...env}` before being passed to the `CopilotClient`
+	 * constructor.
+	 */
+	env?: Record<string, string>;
 	/** Default timeout (ms) forwarded to `sendAndWait`. Unset → upstream default 60_000. Per-call: `SeherRunOptions.timeoutMs`. */
 	timeoutMs?: number;
 	/**
@@ -48,6 +66,29 @@ export interface CopilotSDKConfig {
 	 * to the Copilot CLI.
 	 */
 	tools?: SeherTool<z.ZodObject<z.ZodRawShape>>[];
+}
+
+/**
+ * Maps `EffortLevel` to copilot-sdk's native `ReasoningEffort` string union
+ * (`"low" | "medium" | "high" | "xhigh"`, not publicly exported by the SDK's
+ * type definitions, so expressed as a literal union here instead of imported).
+ * `max` has no direct equivalent and is rounded down to `xhigh`.
+ */
+function effortToReasoningEffort(
+	effort: EffortLevel,
+): "low" | "medium" | "high" | "xhigh" {
+	switch (effort) {
+		case "low":
+			return "low";
+		case "medium":
+			return "medium";
+		case "high":
+			return "high";
+		case "xhigh":
+			return "xhigh";
+		case "max":
+			return "xhigh";
+	}
 }
 
 function toCopilotTool(t: SeherTool<z.ZodObject<z.ZodRawShape>>) {
@@ -113,6 +154,12 @@ export class CopilotSDK implements SeherSDKInstance {
 				opts.gitHubToken = this.config.gitHubToken;
 			if (this.config.cliPath !== undefined) opts.cliPath = this.config.cliPath;
 			if (this.config.cliUrl !== undefined) opts.cliUrl = this.config.cliUrl;
+			if (
+				this.config.env !== undefined &&
+				Object.keys(this.config.env).length > 0
+			) {
+				opts.env = { ...process.env, ...this.config.env };
+			}
 			const client = new CopilotClient(opts) as unknown as ClientLike;
 			await client.start();
 			this._client = client;
@@ -138,6 +185,11 @@ export class CopilotSDK implements SeherSDKInstance {
 		if (streaming) sessionConfig.streaming = true;
 		if (opts.systemPrompt !== undefined) {
 			sessionConfig.systemMessage = { append: opts.systemPrompt };
+		}
+		if (this.config.effortLevel !== undefined) {
+			sessionConfig.reasoningEffort = effortToReasoningEffort(
+				this.config.effortLevel,
+			);
 		}
 		if (this.tools !== undefined) sessionConfig.tools = this.tools;
 		return client.createSession(sessionConfig);

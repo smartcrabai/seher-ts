@@ -18,6 +18,7 @@ import {
 	type SdkKind,
 	type SkillsConfig,
 } from "../types.ts";
+import type { EffortLevel } from "./model.ts";
 
 function resolveSkills(
 	providerSkills: SkillsConfig | undefined,
@@ -36,6 +37,33 @@ function resolveSkills(
  * neither is defined, defaults are returned. Values outside safe bounds
  * (`maxAttempts < 1`, `multiplier < 1.0`) are clamped.
  */
+/**
+ * Resolves the effective reasoning effort for a model entry: the model's own
+ * `effort` wins when set, then the provider-level default, then the
+ * root-level default. `undefined` when none of the three specify one (same
+ * precedence as the Rust side's `Config::resolve_effort`).
+ */
+export function resolveEffort(
+	modelEffort: EffortLevel | undefined,
+	providerEffort: EffortLevel | undefined,
+	rootEffort: EffortLevel | undefined,
+): EffortLevel | undefined {
+	return modelEffort ?? providerEffort ?? rootEffort;
+}
+
+/**
+ * Merges provider-level env vars over root-level env vars, keyed by name
+ * (the provider wins on a per-key basis; this is a per-field merge, unlike
+ * `resolveRetry`'s wholesale replacement). Matches the Rust side's
+ * `Config::resolve_env`.
+ */
+export function resolveEnv(
+	providerEnv: Record<string, string> | undefined,
+	rootEnv: Record<string, string> | undefined,
+): Record<string, string> {
+	return { ...(rootEnv ?? {}), ...(providerEnv ?? {}) };
+}
+
 export function resolveRetry(
 	providerRetry: RetryConfig | undefined,
 	rootRetry: RetryConfig | undefined,
@@ -194,12 +222,13 @@ export function buildCandidates(
 			kind: entry.sdk,
 			modelId: model.model,
 			modeKey,
-			env: {},
+			env: resolveEnv(entry.env, config.env),
 			skills: resolveSkills(entry.skills, config.skills),
 			retry: resolveRetry(entry.retry, config.retry),
 		};
 		if (entry.api !== undefined) resolved.api = entry.api;
-		if (model.effort !== undefined) resolved.effort = model.effort;
+		const effort = resolveEffort(model.effort, entry.effort, config.effort);
+		if (effort !== undefined) resolved.effort = effort;
 		list.push({
 			provider: entry.provider,
 			priority,

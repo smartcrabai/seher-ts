@@ -165,6 +165,89 @@ describe("runShowResolutionMode", () => {
 		});
 	});
 
+	test("opts.effortLevel takes precedence over the resolved agent's effort in the displayed winner", async () => {
+		const config: Config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			priority: 3,
+			models: { build: { model: "sonnet", effort: "high" } },
+		});
+		const h = newHarness();
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const loadConfig = mock(async (): Promise<Config> => config);
+		const resolveAgent = mock(
+			async (): Promise<ResolvedAgent> => ({
+				provider: "claude",
+				kind: "claude",
+				modelId: "sonnet",
+				modeKey: "build",
+				env: {},
+				skills: { includeClaude: true },
+				effort: "high",
+			}),
+		);
+
+		const result = await runShowResolutionMode({
+			mode: "build",
+			effortLevel: "low",
+			logger: h.logger,
+			stderr: h.push.stderr,
+			stdout: h.push.stdout,
+			loadConfig,
+			checkLimit,
+			resolveAgent,
+		});
+
+		expect(result.exitCode).toBe(0);
+		const stdout = h.stdout.join("");
+		const parsed = JSON.parse(stdout) as Record<string, string>;
+		expect(parsed.effort).toBe("low");
+	});
+
+	test("opts.effortLevel is displayed even when the resolved agent has no effort", async () => {
+		const config: Config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			priority: 3,
+			models: { build: { model: "sonnet" } },
+		});
+		const h = newHarness();
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const loadConfig = mock(async (): Promise<Config> => config);
+		const resolveAgent = mock(
+			async (): Promise<ResolvedAgent> => ({
+				provider: "claude",
+				kind: "claude",
+				modelId: "sonnet",
+				modeKey: "build",
+				env: {},
+				skills: { includeClaude: true },
+			}),
+		);
+
+		const result = await runShowResolutionMode({
+			mode: "build",
+			effortLevel: "medium",
+			logger: h.logger,
+			stderr: h.push.stderr,
+			stdout: h.push.stdout,
+			loadConfig,
+			checkLimit,
+			resolveAgent,
+		});
+
+		expect(result.exitCode).toBe(0);
+		const stdout = h.stdout.join("");
+		const parsed = JSON.parse(stdout) as Record<string, string>;
+		expect(parsed.effort).toBe("medium");
+	});
+
 	test("limited candidates get a [LIMITED until ...] tag", async () => {
 		const config: Config = mkConfig({
 			key: "codex",

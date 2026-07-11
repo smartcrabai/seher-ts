@@ -41,14 +41,29 @@ const NO_TOOL_SUPPORT: ReadonlySet<SdkKind> = new Set<SdkKind>(
 	ALL_SDK_KINDS.filter((k) => !TOOL_SUPPORTING_KINDS.has(k)),
 );
 
-/** SDKs whose underlying lib does not accept env passthrough. */
+/**
+ * SDKs whose underlying lib does not accept env passthrough. `cursor`'s
+ * local-mode agent has no env injection point in the SDK, and `opencode`'s
+ * server-spawn options don't accept one either; every other kind now wires
+ * `ResolvedAgent.env` through to its constructor (see `applyResolvedAgent`).
+ */
 const NO_ENV_SUPPORT: ReadonlySet<SdkKind> = new Set<SdkKind>([
-	"claude-terminal",
-	"codex",
-	"copilot",
 	"cursor",
 	"opencode",
-	"pi",
+]);
+
+/**
+ * SDKs with no reliable native reasoning-effort hook: `kimi` only exposes a
+ * boolean `thinking` toggle (no 5-tier equivalent), and neither `cursor`'s
+ * nor `opencode`'s SDK expose one at all. `applyResolvedAgent` never sets
+ * `effortLevel` for these kinds, so an `effort` resolved from config (or
+ * passed explicitly) would otherwise be dropped with no signal to the
+ * caller -- warn and strip it here instead, mirroring `NO_ENV_SUPPORT`.
+ */
+const NO_EFFORT_SUPPORT: ReadonlySet<SdkKind> = new Set<SdkKind>([
+	"kimi",
+	"cursor",
+	"opencode",
 ]);
 
 function hasTools(config: SeherSDKConfig): boolean {
@@ -75,6 +90,11 @@ function stripTools(config: SeherSDKConfig): SeherSDKConfig {
 
 function stripEnv(config: SeherSDKConfig): SeherSDKConfig {
 	const { env: _env, ...rest } = config;
+	return rest;
+}
+
+function stripEffort(config: SeherSDKConfig): SeherSDKConfig {
+	const { effortLevel: _effortLevel, ...rest } = config;
 	return rest;
 }
 
@@ -193,11 +213,19 @@ export function applyResolvedAgent(
 			if (apiEndpoint !== undefined && out.baseURL === undefined) {
 				out.baseURL = apiEndpoint;
 			}
+			if (agent.effort !== undefined && out.effortLevel === undefined) {
+				out.effortLevel = agent.effort;
+			}
 			if (out.includeClaudeSkills === undefined) {
 				out.includeClaudeSkills = agent.skills.includeClaude;
 			}
 			break;
 		case "codex":
+			if (apiKey !== undefined && out.apiKey === undefined) out.apiKey = apiKey;
+			if (agent.effort !== undefined && out.effortLevel === undefined) {
+				out.effortLevel = agent.effort;
+			}
+			break;
 		case "cursor":
 			if (apiKey !== undefined && out.apiKey === undefined) out.apiKey = apiKey;
 			break;
@@ -207,6 +235,9 @@ export function applyResolvedAgent(
 			}
 			if (apiEndpoint !== undefined && out.cliUrl === undefined) {
 				out.cliUrl = apiEndpoint;
+			}
+			if (agent.effort !== undefined && out.effortLevel === undefined) {
+				out.effortLevel = agent.effort;
 			}
 			break;
 		case "kimi":
@@ -274,6 +305,12 @@ export function buildInstance(
 			);
 			effective = stripEnv(effective);
 		}
+	}
+	if (NO_EFFORT_SUPPORT.has(kind) && effective.effortLevel !== undefined) {
+		console.warn(
+			`[SeherSDK] reasoning effort is not supported by '${kind}'; effort '${effective.effortLevel}' will be ignored.`,
+		);
+		effective = stripEffort(effective);
 	}
 	switch (kind) {
 		case "claude":

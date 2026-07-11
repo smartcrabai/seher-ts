@@ -18,6 +18,15 @@
 			"$ref": "#/definitions/retryConfig",
 			"description": "Top-level retry policy defaults. Can be overridden per-provider via the `retry` block. When a provider-level setting is defined, it replaces the entire root block; fields are not merged individually."
 		},
+		"effort": {
+			"$ref": "#/definitions/effortLevel",
+			"description": "Top-level reasoning effort default, used as the final fallback when neither the provider nor the model entry specifies one (see the `effort` field on `providerEntry` and `modelEntry`)."
+		},
+		"env": {
+			"type": "object",
+			"description": "Top-level extra environment variables injected for every provider. Provider-level `env` keys override these on a per-key basis (see `env` on `providerEntry`). Not supported for `cursor` (local mode) / `opencode`, which strip and warn.",
+			"additionalProperties": { "type": "string" }
+		},
 		"providers": {
 			"type": "object",
 			"description": "Map of provider key → provider entry. Insertion order in the YAML is preserved as the tiebreaker for equal priority. The map key is used as both the provider label and the default provider name.",
@@ -25,6 +34,11 @@
 		}
 	},
 	"definitions": {
+		"effortLevel": {
+			"type": "string",
+			"description": "Reasoning effort level forwarded to backends that support it (`claude` / `claude-headless` / `claude-terminal` via `--effort`; `pi` via a mapped thinking level; `codex` / `copilot` via their native reasoning-effort fields). `max` has no native equivalent on `pi`/`codex`/`copilot` and is rounded down to their highest tier (`xhigh`). Not wired for `kimi` / `cursor` / `opencode`.",
+			"enum": ["low", "medium", "high", "xhigh", "max"]
+		},
 		"sdkKind": {
 			"type": "string",
 			"description": "The execution engine type. `pi` / `claude` / `claude-headless` / `claude-terminal` are available at runtime depending on tool support. The others (`codex` / `copilot` / `cursor` / `kimi` / `opencode`) are additional backends specific to seher-ts.",
@@ -93,11 +107,11 @@
 			}
 		},
 		"modelEntry": {
-			"description": "A bare model id (string), or an object in `{ model, priority }` form. The model id is in `provider/model` format; a trailing `:level` suffix selects the thinking level when running via pi.",
+			"description": "A bare model id (string), or an object in `{ model, priority, effort }` form. The model id is in `provider/model` format. Reasoning effort is resolved with `model > provider > root` precedence (see `effort` below and on `providerEntry`/the root), falling back further to a trailing `:level` suffix on the model id (recognized for every `sdk`, not just `pi`) when none of the three specify one.",
 			"oneOf": [
 				{
 					"type": "string",
-					"description": "A bare model id. Priority is inherited from the provider level.",
+					"description": "A bare model id. Priority and effort are inherited from the provider/root level.",
 					"minLength": 1
 				},
 				{
@@ -113,6 +127,10 @@
 						"priority": {
 							"type": "number",
 							"description": "Model-level priority. If specified, it takes precedence over the provider-level `priority`."
+						},
+						"effort": {
+							"$ref": "#/definitions/effortLevel",
+							"description": "Model-level reasoning effort. Takes precedence over the provider-level and root-level `effort`, and over a `:level` suffix on `model`."
 						}
 					}
 				}
@@ -158,6 +176,15 @@
 				"retry": {
 					"$ref": "#/definitions/retryConfig",
 					"description": "Per-provider override of the top-level `retry`. The entire block is replaced rather than merged field by field."
+				},
+				"effort": {
+					"$ref": "#/definitions/effortLevel",
+					"description": "Provider-level reasoning effort default. Overridden by a model entry's own `effort`. Falls back to the top-level `effort` when unset."
+				},
+				"env": {
+					"type": "object",
+					"description": "Extra environment variables injected when this provider executes. Merged with the top-level `env` on a per-key basis, with these values taking precedence. For `pi` (in-process), applied by temporarily mutating `process.env` for the duration of the run. Not supported for `cursor` (local mode) / `opencode`, which strip and warn.",
+					"additionalProperties": { "type": "string" }
 				},
 				"models": {
 					"type": "object",

@@ -124,6 +124,34 @@ describe("runSeher", () => {
 		expect(callArgs[0].effortLevel).toBe("high");
 	});
 
+	test("--show-resolution --effort forwards effortLevel to runShowResolutionMode", async () => {
+		const runShowResolutionMode = mock(async () => ({ exitCode: 0 }));
+		const { deps } = buildDeps({
+			parsed: { showResolution: true, effortLevel: "high" },
+			runShowResolutionMode:
+				runShowResolutionMode as unknown as RunSeherDeps["runShowResolutionMode"],
+		});
+		await runSeher([], deps);
+		const callArgs = runShowResolutionMode.mock.calls[0] as unknown as [
+			{ effortLevel?: string },
+		];
+		expect(callArgs[0].effortLevel).toBe("high");
+	});
+
+	test("--show-resolution without --effort leaves effortLevel unset", async () => {
+		const runShowResolutionMode = mock(async () => ({ exitCode: 0 }));
+		const { deps } = buildDeps({
+			parsed: { showResolution: true },
+			runShowResolutionMode:
+				runShowResolutionMode as unknown as RunSeherDeps["runShowResolutionMode"],
+		});
+		await runSeher([], deps);
+		const callArgs = runShowResolutionMode.mock.calls[0] as unknown as [
+			{ effortLevel?: string },
+		];
+		expect(callArgs[0].effortLevel).toBeUndefined();
+	});
+
 	test("empty prompt returns 1 with stderr message", async () => {
 		const { deps, stderr } = buildDeps({
 			resolvePrompt: mock(async () => null),

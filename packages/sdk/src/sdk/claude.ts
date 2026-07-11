@@ -61,8 +61,9 @@ export interface ClaudeSDKConfig {
 	baseURL?: string;
 	defaultModel?: string;
 	/**
-	 * Default value for `Options.effort`. A `:level` suffix on the model ID
-	 * (e.g. `claude-opus-4-5:high`) takes precedence over this if specified.
+	 * Default value for `Options.effort`. Takes precedence over a `:level`
+	 * suffix on the model ID (e.g. `claude-opus-4-5:high`), which is only used
+	 * as a fallback when this is unset.
 	 */
 	effortLevel?: EffortLevel;
 	/** Permission mode for the Claude agent. `"auto"` uses a model classifier. */
@@ -142,7 +143,9 @@ export class ClaudeSDK implements SeherSDKInstance {
 			options.model = base;
 			suffixEffort = effort;
 		}
-		const effectiveEffort = suffixEffort ?? this.config.effortLevel;
+		// config.effortLevel (explicit / config-resolved) takes precedence over
+		// a model-id suffix, which is only a fallback.
+		const effectiveEffort = this.config.effortLevel ?? suffixEffort;
 		if (effectiveEffort !== undefined) options.effort = effectiveEffort;
 		if (opts.systemPrompt !== undefined) {
 			options.systemPrompt = opts.systemPrompt;

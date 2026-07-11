@@ -74,6 +74,36 @@ describe("CodexSDK", () => {
 		expect(threadOpts.model).toBeUndefined();
 	});
 
+	test("effortLevel is forwarded as modelReasoningEffort", async () => {
+		runResult = { finalResponse: "x", items: [] };
+		const sdk = new CodexSDK({ effortLevel: "high" });
+		await sdk.run({ prompt: "p" });
+		const threadOpts = startThreadCalls[0] as {
+			modelReasoningEffort?: string;
+		};
+		expect(threadOpts.modelReasoningEffort).toBe("high");
+	});
+
+	test("effortLevel max rounds down to xhigh (Codex has no max tier)", async () => {
+		runResult = { finalResponse: "x", items: [] };
+		const sdk = new CodexSDK({ effortLevel: "max" });
+		await sdk.run({ prompt: "p" });
+		const threadOpts = startThreadCalls[0] as {
+			modelReasoningEffort?: string;
+		};
+		expect(threadOpts.modelReasoningEffort).toBe("xhigh");
+	});
+
+	test("no modelReasoningEffort is set when effortLevel is unset", async () => {
+		runResult = { finalResponse: "x", items: [] };
+		const sdk = new CodexSDK();
+		await sdk.run({ prompt: "p" });
+		const threadOpts = startThreadCalls[0] as {
+			modelReasoningEffort?: string;
+		};
+		expect(threadOpts.modelReasoningEffort).toBeUndefined();
+	});
+
 	test("systemPrompt is prepended to the prompt input", async () => {
 		runResult = { finalResponse: "x", items: [] };
 		const sdk = new CodexSDK();
@@ -125,6 +155,38 @@ describe("CodexSDK", () => {
 		expect(constructorCalls.length).toBe(1);
 		const opts = constructorCalls[0] as { apiKey?: string };
 		expect(opts.apiKey).toBe("secret");
+	});
+
+	test("config.env is merged with process.env before being passed to the Codex constructor", async () => {
+		runResult = { finalResponse: "x", items: [] };
+		const previous = process.env.SEHER_CODEX_ENV_TEST;
+		process.env.SEHER_CODEX_ENV_TEST = "from-process";
+		try {
+			const sdk = new CodexSDK({ env: { FOO: "bar" } });
+			await sdk.run({ prompt: "p" });
+			const opts = constructorCalls[0] as { env?: Record<string, string> };
+			expect(opts.env?.FOO).toBe("bar");
+			expect(opts.env?.SEHER_CODEX_ENV_TEST).toBe("from-process");
+		} finally {
+			if (previous === undefined) {
+				delete process.env.SEHER_CODEX_ENV_TEST;
+			} else {
+				process.env.SEHER_CODEX_ENV_TEST = previous;
+			}
+		}
+	});
+
+	test("no env key is set on Codex options when config.env is empty/unset", async () => {
+		runResult = { finalResponse: "x", items: [] };
+		const sdk = new CodexSDK();
+		await sdk.run({ prompt: "p" });
+		const opts = constructorCalls[0] as { env?: Record<string, string> };
+		expect(opts.env).toBeUndefined();
+
+		const sdkWithEmptyEnv = new CodexSDK({ env: {} });
+		await sdkWithEmptyEnv.run({ prompt: "p" });
+		const opts2 = constructorCalls[1] as { env?: Record<string, string> };
+		expect(opts2.env).toBeUndefined();
 	});
 
 	test("run() converts rate-limit error message into LimitError", async () => {

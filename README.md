@@ -88,11 +88,11 @@ seher [plan|build] [options] [prompt...]
 | `-m, --model <key>` | Use this model key (e.g. `low`) instead of the default plan/build key. Only providers that define the key are eligible. |
 | `-c, --config <path>` | Path to YAML config (defaults to `$SEHER_CONFIG` or `~/.config/seher/config.yaml`). |
 | `-t, --timeout <ms>` | Per-run timeout in milliseconds. Default is the SDK default — usually none, except Copilot (60_000). On timeout the CLI exits 1 with a `TimeoutError` message; in-flight provider work is **not** aborted. |
-| `--effort <level>` | Reasoning effort level (`low`/`medium`/`high`/`xhigh`/`max`) forwarded to Claude-family SDKs (`claude`, `claude-headless`, `claude-terminal`). Ignored by other SDKs. A `:level` suffix on the resolved model id takes precedence over this flag. |
+| `--effort <level>` | Reasoning effort level (`low`/`medium`/`high`/`xhigh`/`max`) forwarded to `claude`/`claude-headless`/`claude-terminal` (as `--effort`), `pi` (mapped to a thinking level), and `codex`/`copilot` (via their native reasoning-effort fields). Ignored by `kimi`/`cursor`/`opencode`. Takes precedence over any `effort` resolved from `config.yaml` (`model` > `provider` > root), which in turn takes precedence over a `:level` suffix on the model id. |
 | `--cwd <dir>` | Working directory for the agent. Canonicalized on receipt (must exist); multi-turn sessions are bound to it so the same `--cwd` must be passed when resuming. |
 | `-r, --resume <id>` | Resume a prior session by id (printed as `session: <id>` on a previous run). Pass the same `--cwd` used to create it. |
 | `-q, --quiet` | Suppress informational output. |
-| `--show-resolution` | Show which provider/model/SDK would be selected and exit (no prompt required). Candidates are listed on stderr (with `[LIMITED until ...]` / `[probe error]` tags from codexbar); the winner is printed as a single-line JSON object on stdout. Combine with `-p` to filter candidates or `-m` to override the mode key. |
+| `--show-resolution` | Show which provider/model/SDK would be selected and exit (no prompt required). Candidates are listed on stderr (with `[LIMITED until ...]` / `[probe error]` tags from codexbar and, when set, `effort=<level>`); the winner (including resolved `effort`, with `--effort` taking precedence when given) is printed as a single-line JSON object on stdout. Combine with `-p` to filter candidates or `-m` to override the mode key. |
 | `-h, --help` / `-v, --version` | Print help / version and exit. |
 
 ### Multi-turn sessions
@@ -129,7 +129,7 @@ seher --show-resolution -m plan
 seher --show-resolution -p codex
 ```
 
-The winner JSON has the shape `{"provider": "...", "model": "...", "sdk": "...", "mode": "..."}`. When all candidates are rate-limited (`AllAgentsLimitedError`) or no providers match (`NoMatchingAgentError`) the CLI exits 1 with the error message on stderr.
+The winner JSON has the shape `{"provider": "...", "model": "...", "sdk": "...", "mode": "...", "effort"?: "..."}` (`effort` is omitted when neither `--effort` nor `config.yaml` resolve one). When all candidates are rate-limited (`AllAgentsLimitedError`) or no providers match (`NoMatchingAgentError`) the CLI exits 1 with the error message on stderr.
 
 ## Configuration
 
@@ -182,7 +182,9 @@ and the JSON Schema at
 | `api.endpoint` | string | Mapped to the SDK's native base URL field (e.g. `ANTHROPIC_BASE_URL`, OpenCode `baseURL`, …). |
 | `skills.includeClaude` | boolean | Per-provider override of the top-level `skills.includeClaude`. |
 | `retry` | object | Per-provider retry policy override. Replaces the root `retry` block as a whole — fields are **not** merged individually. Missing fields fall back to the hard-coded defaults. See [Retry policy](#retry-policy). |
-| `models` | map | Mode key (`plan` / `build` / custom) → `{ model: string, priority?: number }`. A bare string is shorthand for `{ model: <string> }`. |
+| `effort` | string | Provider-level reasoning effort default: `low`, `medium`, `high`, `xhigh`, or `max`. Overridden by a model entry's own `effort`; falls back to the top-level `effort` when unset. See [Model entries](#model-entries). |
+| `env` | map (`string → string`) | Extra environment variables injected when this provider executes. Merged with the top-level `env` on a per-key basis, with these values taking precedence. See [Environment variables](#environment-variables). |
+| `models` | map | Mode key (`plan` / `build` / custom) → `{ model: string, priority?: number, effort?: string }`. A bare string is shorthand for `{ model: <string> }`. |
 
 ### Top-level options
 
@@ -190,6 +192,8 @@ and the JSON Schema at
 |---|---|---|
 | `skills.includeClaude` | boolean | When true (default), auto-inject `~/.claude/skills` and `<cwd>/.claude/skills` into the underlying agent's skill paths for SDK kinds that do not natively read Claude-style skills (currently `pi`). |
 | `retry` | object | Default retry policy applied to every provider that does not specify its own `retry` block. See the [Retry policy](#retry-policy) section below. |
+| `effort` | string | Default reasoning effort (`low` / `medium` / `high` / `xhigh` / `max`) used as the final fallback when neither the provider nor the model entry specifies one. See [Model entries](#model-entries). |
+| `env` | map (`string → string`) | Extra environment variables applied to every provider as the base layer, overridden per-key by a provider's own `env`. See [Environment variables](#environment-variables). |
 
 ### Retry policy
 
@@ -240,6 +244,52 @@ providers:
       build: glm-5.1
 ```
 
+### Environment variables
+
+Extra environment variables can be set at the root and/or per-provider.
+Unlike `retry`, this **is** merged per-key: the root `env` is applied
+first, then the provider's own `env` overrides matching keys on top of
+it (a provider that sets no `env` still gets the root's).
+
+```yaml
+env:                          # applied to every provider (optional)
+  HTTP_PROXY: http://corp-proxy:8080
+
+providers:
+  zai:
+    sdk: claude
+    api: { key: sk-za-xxxxx, endpoint: https://api.zai.example.com }
+    env:
+      # Keeps HTTP_PROXY from the root above; NO_PROXY is added on top,
+      # and any key also present in the root would be overridden here.
+      NO_PROXY: internal.zai.example.com
+    models:
+      build: glm-5.1
+```
+
+Per-SDK behavior:
+
+- **claude / claude-headless / claude-terminal / codex / copilot / kimi**:
+  forwarded to the spawned/underlying process's environment. For `codex`,
+  since `CodexOptions.env` (when set) does **not** inherit `process.env`,
+  seher-ts always merges `{ ...process.env, ...env }` before passing it
+  through, so the rest of the environment (`PATH`, etc.) is preserved.
+- **pi**: pi runs in-process (no subprocess), so there is no per-call env
+  to pass — instead, seher-ts temporarily mutates `process.env` for the
+  duration of the `run()` / `stream()` call and restores the prior values
+  (or removes the key if it was previously unset) once it completes,
+  whether it succeeds or throws. Concurrent `pi` calls across the process
+  are serialized around this window so their env mutations never
+  interleave.
+- **cursor / opencode**: **not supported** — neither SDK exposes an env
+  injection point for its default (local) execution mode in the current
+  version. An `env` set at any level is dropped with a warning (same
+  handling as an unsupported `effort`/`tools`).
+
+Env keys containing `=` or a NUL byte are rejected at config-load time
+(these would corrupt the `KEY=VALUE` serialization used when handing
+environment variables to a child process).
+
 ### Model entries
 
 A `models` value is either a bare model-id string or an object
@@ -249,8 +299,8 @@ A `models` value is either a bare model-id string or an object
 models:
   build: anthropic/claude-sonnet-4-5          # bare string
   plan: { model: anthropic/claude-opus-4-5, priority: 10 }   # full form
-  high: anthropic/claude-opus-4-5:high        # with a thinking/effort level suffix
-  low: { model: anthropic/claude-haiku-4-5, effort: low }    # explicit effort (claude SDKs only)
+  high: { model: anthropic/claude-opus-4-5, effort: xhigh }  # explicit effort
+  fast: anthropic/claude-opus-4-5:high        # with a thinking-suffix effort
 ```
 
 The **model id** uses a `provider/model` shape. The segment before the
@@ -258,28 +308,52 @@ first `/` is passed to the SDK as the provider (e.g. `anthropic`,
 `openai`); the rest is the model name. A model id without a `/` is
 passed through with no explicit provider.
 
-A trailing `:` suffix on the model name selects a reasoning-intensity
-level, interpreted differently depending on the resolved SDK:
+**Reasoning effort** can be set explicitly, via CLI, or inferred from
+the model id, in this precedence order (highest wins):
 
-- **pi**: selects pi's **thinking level** -- `model:thinking` (e.g.
-  `anthropic/claude-opus-4-5:high`, `opus-4.7:medium`). Recognized
-  levels are `off`, `minimal`, `low`, `medium`, `high`, and `xhigh`
-  (plus the aliases pi accepts: `none` / `0`, `min`, `1`, `med` / `2`,
-  `3`, `4`).
-- **claude / claude-headless / claude-terminal**: selects the
-  **effort level** -- `model:effort` (e.g. `anthropic/claude-opus-4-5:high`).
-  Recognized levels are exactly `low`, `medium`, `high`, `xhigh`, and
-  `max` (no aliases -- the same vocabulary as the `--effort` CLI flag
-  and `models.<mode>.effort` in the YAML config), forwarded to the
-  `claude` CLI as `--effort <level>` / to the Claude Agent SDK as
-  `Options.effort`.
+1. `--effort <level>` on the CLI (or the SDK's `effortLevel` /
+   `RunForResolvedOptions.effort` at the API level).
+2. The model entry's own `effort` field.
+3. The provider-level `effort`.
+4. The root-level `effort`.
+5. A trailing `:level` suffix on the model id (e.g.
+   `anthropic/claude-opus-4-5:high`, `opus-4.7:medium`) -- recognized
+   for **every** `sdk` (`pi`, `claude`, `claude-headless`,
+   `claude-terminal`), not just `pi`. The suffix accepts pi's broader
+   thinking-level vocabulary: `off`, `minimal`, `low`, `medium`,
+   `high`, `xhigh`, `max`, plus the aliases `none` / `0`, `min` / `1`,
+   `med` / `2`, `3`, `4`.
 
-A suffix that is not a recognized level for the resolved SDK stays
-part of the model name, so OpenRouter-style variants like
+All five forms accept the same `low` / `medium` / `high` / `xhigh` /
+`max` vocabulary once resolved to an `EffortLevel` (the suffix form
+additionally recognizes pi's `off`/aliases, which then map as
+described below). A suffix that doesn't parse as any of the above
+stays part of the model name, so OpenRouter-style variants like
 `openrouter/meta-llama/llama-3.1-8b-instruct:free` keep working.
-Without a suffix, `models.<mode>.effort` (if set) is used as the
-default for Claude-family SDKs; otherwise the SDK's own default is
-used.
+
+Once resolved, the effort level is forwarded differently per SDK:
+
+- **claude / claude-headless / claude-terminal**: forwarded as
+  `claude --effort <level>` / the Claude Agent SDK's `Options.effort`.
+  `off` / `none` / `0` have no equivalent (the `claude` CLI's
+  `--effort` flag has no "off" tier), so no override is applied and
+  the SDK's own default is used, though the suffix is still stripped
+  from the model id either way.
+- **pi**: mapped to pi's native thinking level via `effortToThinking`
+  (`low`/`medium`/`high`/`xhigh` map 1:1; `max` rounds down to pi's
+  highest tier, `xhigh`, since pi has no `max` tier).
+- **codex**: forwarded to `ThreadOptions.modelReasoningEffort`
+  (`low`/`medium`/`high`/`xhigh` map 1:1; `max` rounds down to `xhigh`.
+  Codex's own type also has a `minimal` tier, but nothing here ever
+  produces it since `EffortLevel` has no equivalent).
+- **copilot**: forwarded to `SessionConfig.reasoningEffort`
+  (`low`/`medium`/`high`/`xhigh`; `max` rounds down to `xhigh`). Only
+  effective for models where `capabilities.supports.reasoningEffort`
+  is true per the copilot-sdk docs.
+- **kimi / cursor / opencode**: **not wired** -- no reliable native
+  reasoning-effort hook is exposed for these SDKs. An `effort` set at any
+  level is ignored with a `console.warn` (same handling as an
+  unsupported `env`/`tools`).
 
 ### Selection logic
 

@@ -7,6 +7,8 @@ import {
 	NoMatchingAgentError,
 	pollForAgent,
 	resolveAgent,
+	resolveEffort,
+	resolveEnv,
 	resolveRetry,
 } from "./resolve.ts";
 
@@ -91,6 +93,67 @@ describe("resolveAgent", () => {
 			provider: "codex",
 		});
 		expect(codexAgent.effort).toBeUndefined();
+	});
+
+	test("provider-level effort is used when the model entry has none", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			effort: "medium",
+			models: { build: { model: "sonnet" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.effort).toBe("medium");
+	});
+
+	test("model-level effort overrides provider-level effort", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			effort: "medium",
+			models: { build: { model: "sonnet", effort: "high" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.effort).toBe("high");
+	});
+
+	test("root-level effort applies when neither provider nor model specify one", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "sonnet" } },
+		});
+		config.effort = "low";
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.effort).toBe("low");
+	});
+
+	test("provider-level effort overrides root-level effort", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			effort: "high",
+			models: { build: { model: "sonnet" } },
+		});
+		config.effort = "low";
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.effort).toBe("high");
 	});
 
 	test("excludes providers that do not define the requested mode", async () => {
@@ -804,6 +867,93 @@ describe("resolveRetry", () => {
 		expect(
 			resolveRetry({ retryClientErrors: true }, undefined).retryClientErrors,
 		).toBe(true);
+	});
+});
+
+describe("resolveEffort", () => {
+	test("returns undefined when none of the three specify one", () => {
+		expect(resolveEffort(undefined, undefined, undefined)).toBeUndefined();
+	});
+
+	test("model effort wins when set", () => {
+		expect(resolveEffort("high", "medium", "low")).toBe("high");
+	});
+
+	test("provider effort is used when model is unset", () => {
+		expect(resolveEffort(undefined, "medium", "low")).toBe("medium");
+	});
+
+	test("root effort is used when both model and provider are unset", () => {
+		expect(resolveEffort(undefined, undefined, "low")).toBe("low");
+	});
+});
+
+describe("resolveEnv", () => {
+	test("returns an empty object when neither root nor provider is set", () => {
+		expect(resolveEnv(undefined, undefined)).toEqual({});
+	});
+
+	test("merges root and provider, provider wins per-key", () => {
+		const resolved = resolveEnv(
+			{ B: "provider", C: "provider" },
+			{ A: "root", B: "root" },
+		);
+		expect(resolved).toEqual({ A: "root", B: "provider", C: "provider" });
+	});
+
+	test("root-only when provider has none", () => {
+		expect(resolveEnv(undefined, { X: "root" })).toEqual({ X: "root" });
+	});
+});
+
+describe("resolveAgent env integration", () => {
+	test("env defaults to an empty object when neither root nor provider set it", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "sonnet" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.env).toEqual({});
+	});
+
+	test("root env flows through to the resolved agent", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			models: { build: { model: "sonnet" } },
+		});
+		config.env = { ROOT_VAR: "root" };
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.env).toEqual({ ROOT_VAR: "root" });
+	});
+
+	test("provider env merges over root env, per-key", async () => {
+		const config = mkConfig({
+			key: "claude",
+			order: 0,
+			sdk: "claude",
+			env: { SHARED: "provider", ONLY_PROVIDER: "provider" },
+			models: { build: { model: "sonnet" } },
+		});
+		config.env = { SHARED: "root", ONLY_ROOT: "root" };
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.env).toEqual({
+			SHARED: "provider",
+			ONLY_PROVIDER: "provider",
+			ONLY_ROOT: "root",
+		});
 	});
 });
 

@@ -18,6 +18,11 @@ retry:
   multiplier: 2.0
   retryClientErrors: false  # set to true to also retry HTTP 401/404
 
+# Top-level env vars are applied to every provider; provider-level `env`
+# entries override these on a per-key basis (see `env` under `zai` below).
+env:
+  HTTP_PROXY: http://corp-proxy:8080
+
 
 providers:
   codex:
@@ -27,10 +32,18 @@ providers:
 
   claude:
     priority: 3
+    # Provider-level reasoning effort default (overridden by a model entry's
+    # own `effort`; a root-level `effort:` would be the final fallback).
+    effort: medium
     models:
       plan: opus-4.7
       build: sonnet-4.6
       low: haiku-4.5
+      # Model-level `effort` overrides the provider-level default above.
+      high: { model: opus-4.7, effort: xhigh }
+      # A `:level` suffix on the model id is only used when no `effort` is
+      # resolved at the model/provider/root level.
+      fast: opus-4.7:low
 
   zai:
     sdk: claude
@@ -47,6 +60,10 @@ providers:
       initialDelaySecs: 1
       maxDelaySecs: 10
       multiplier: 2.0
+    # Provider-level env vars merge over the root `env` above per-key: zai
+    # keeps HTTP_PROXY from the root but overrides NO_PROXY for itself.
+    env:
+      NO_PROXY: internal.zai.example.com
     models:
       plan: glm-5.1
       build: glm-5.1

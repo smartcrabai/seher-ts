@@ -6,6 +6,7 @@ import {
 	type Config,
 	checkLimit as checkLimitImpl,
 	codexbarProviderName,
+	type EffortLevel,
 	loadConfig as loadConfigImpl,
 	NoMatchingAgentError,
 	resolveAgent as resolveAgentImpl,
@@ -19,6 +20,12 @@ export interface ShowResolutionOptions {
 	provider?: string;
 	/** YAML path specified via `-c`. */
 	configPath?: string;
+	/**
+	 * `--effort` CLI flag, if given. Takes precedence over the resolved
+	 * agent's `effort` in the displayed winner, mirroring the precedence a
+	 * real run would apply (matches the Rust side's `args.effort.or(agent.effort)`).
+	 */
+	effortLevel?: EffortLevel;
 	logger: Logger;
 	stderr: (text: string) => void;
 	stdout: (text: string) => void;
@@ -151,7 +158,10 @@ export async function runShowResolutionMode(
 			sdk: agent.kind,
 			mode: agent.modeKey,
 		};
-		if (agent.effort !== undefined) winner.effort = agent.effort;
+		// `--effort` CLI flag wins over the resolved agent's effort, matching
+		// the precedence a real run would apply.
+		const effort = opts.effortLevel ?? agent.effort;
+		if (effort !== undefined) winner.effort = effort;
 		opts.stdout(`${JSON.stringify(winner)}\n`);
 		return { exitCode: 0 };
 	} catch (err) {
