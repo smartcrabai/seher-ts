@@ -27,6 +27,7 @@ import type {
 	ClaudeTranscriptReader,
 	TerminalBackend,
 	TerminalSession,
+	TerminalStartOptions,
 } from "./types.ts";
 import {
 	ClaudeTerminalError,
@@ -93,11 +94,18 @@ export interface ClaudeTerminalSDKConfig {
 	 */
 	permissionMode?: PermissionMode;
 	/**
-	 * Default reasoning effort forwarded to `claude --effort <level>`.
-	 * A `:level` suffix on the model ID (e.g. `claude-opus-4-5:high`) takes
-	 * precedence when present.
+	 * Default reasoning effort forwarded to `claude --effort <level>`. Takes
+	 * precedence over a `:level` suffix on the model ID (e.g.
+	 * `claude-opus-4-5:high`), which is only used as a fallback when this is unset.
 	 */
 	effortLevel?: EffortLevel;
+	/**
+	 * Extra environment variables forwarded to the spawned tmux/Claude process
+	 * via `TerminalBackend.start()`'s `TerminalStartOptions.env`. Only passed
+	 * through when non-empty; an empty/unset config leaves the child process
+	 * to inherit `process.env` as before.
+	 */
+	env?: Record<string, string>;
 	backendImpl?: TerminalBackend;
 	transcriptReader?: ClaudeTranscriptReader;
 	now?: () => Date;
@@ -246,7 +254,14 @@ export class ClaudeTerminalSDK implements SeherSDKInstance {
 					})
 				: new Set<string>();
 		const startedAt = this.now();
-		const session = await this.backend.start({ cwd, command });
+		const startOpts: TerminalStartOptions = { cwd, command };
+		if (
+			this.config.env !== undefined &&
+			Object.keys(this.config.env).length > 0
+		) {
+			startOpts.env = this.config.env;
+		}
+		const session = await this.backend.start(startOpts);
 		try {
 			await this.waitForReady(session, {
 				indicator: readyIndicator,

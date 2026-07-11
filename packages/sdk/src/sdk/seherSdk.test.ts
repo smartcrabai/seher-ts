@@ -644,6 +644,117 @@ describe("SeherSDK class", () => {
 		}
 	});
 
+	test("effort: models.<mode>.effort is forwarded to pi as effortLevel", async () => {
+		const { applyResolvedAgent } = await import("./seherSdk.ts");
+		const config = mkConfig({
+			key: "mypi",
+			order: 0,
+			sdk: "pi",
+			api: { key: "sk" },
+			models: { build: { model: "openai/gpt-5", effort: "xhigh" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			resolveOverrides: { config, checkLimit },
+		});
+		const { kind, agent } = await sdk.resolved();
+		expect(kind).toBe("pi");
+		expect(agent?.effort).toBe("xhigh");
+		if (agent !== null) {
+			const merged = applyResolvedAgent(kind, {}, agent);
+			expect(merged.effortLevel).toBe("xhigh");
+		}
+	});
+
+	test("effort: models.<mode>.effort is forwarded to codex as effortLevel", async () => {
+		const { applyResolvedAgent } = await import("./seherSdk.ts");
+		const config = mkConfig({
+			key: "codex",
+			order: 0,
+			sdk: "codex",
+			models: { build: { model: "gpt-5.5", effort: "medium" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			resolveOverrides: { config, checkLimit },
+		});
+		const { kind, agent } = await sdk.resolved();
+		expect(kind).toBe("codex");
+		expect(agent?.effort).toBe("medium");
+		if (agent !== null) {
+			const merged = applyResolvedAgent(kind, {}, agent);
+			expect(merged.effortLevel).toBe("medium");
+		}
+	});
+
+	test("effort: models.<mode>.effort is forwarded to copilot as effortLevel", async () => {
+		const { applyResolvedAgent } = await import("./seherSdk.ts");
+		const config = mkConfig({
+			key: "copilot",
+			order: 0,
+			sdk: "copilot",
+			models: { build: { model: "gpt-5", effort: "low" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			resolveOverrides: { config, checkLimit },
+		});
+		const { kind, agent } = await sdk.resolved();
+		expect(kind).toBe("copilot");
+		expect(agent?.effort).toBe("low");
+		if (agent !== null) {
+			const merged = applyResolvedAgent(kind, {}, agent);
+			expect(merged.effortLevel).toBe("low");
+		}
+	});
+
+	test("effort: kimi/cursor/opencode ignore agent.effort (not wired)", async () => {
+		const { applyResolvedAgent } = await import("./seherSdk.ts");
+		const config = mkConfig(
+			{
+				key: "kimi",
+				order: 0,
+				sdk: "kimi",
+				models: { build: { model: "kimi-k2", effort: "high" } },
+			},
+			{
+				key: "cursor",
+				order: 1,
+				sdk: "cursor",
+				models: { build: { model: "gpt-5", effort: "high" } },
+			},
+			{
+				key: "opencode",
+				order: 2,
+				sdk: "opencode",
+				models: { build: { model: "anthropic/sonnet", effort: "high" } },
+			},
+		);
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		for (const key of ["kimi", "cursor", "opencode"]) {
+			const sdk = new SeherSDK({
+				provider: key,
+				resolveOverrides: { config, checkLimit },
+			});
+			const { kind, agent } = await sdk.resolved();
+			expect(agent?.effort).toBe("high");
+			if (agent !== null) {
+				const merged = applyResolvedAgent(kind, {}, agent);
+				expect(
+					(merged as { effortLevel?: unknown }).effortLevel,
+				).toBeUndefined();
+			}
+		}
+	});
+
 	test("effort: caller-supplied effortLevel wins over resolved agent's effort", async () => {
 		const { applyResolvedAgent } = await import("./seherSdk.ts");
 		const config = mkConfig({
@@ -665,6 +776,76 @@ describe("SeherSDK class", () => {
 			const merged = applyResolvedAgent(kind, { effortLevel: "medium" }, agent);
 			expect(merged.effortLevel).toBe("medium");
 		}
+	});
+
+	test("env: root + provider env are merged (provider wins per-key) into the resolved agent", async () => {
+		const config = mkConfig({
+			key: "codex",
+			order: 0,
+			sdk: "codex",
+			env: { SHARED: "provider", ONLY_PROVIDER: "provider" },
+			models: { build: { model: "gpt-5.5" } },
+		});
+		config.env = { SHARED: "root", ONLY_ROOT: "root" };
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			resolveOverrides: { config, checkLimit },
+		});
+		const { agent } = await sdk.resolved();
+		expect(agent?.env).toEqual({
+			SHARED: "provider",
+			ONLY_PROVIDER: "provider",
+			ONLY_ROOT: "root",
+		});
+	});
+
+	test("env: resolved agent.env flows through applyResolvedAgent's common tail to out.env", async () => {
+		const { applyResolvedAgent } = await import("./seherSdk.ts");
+		const config = mkConfig({
+			key: "codex",
+			order: 0,
+			sdk: "codex",
+			env: { FOO: "from-config" },
+			models: { build: { model: "gpt-5.5" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			resolveOverrides: { config, checkLimit },
+		});
+		const { kind, agent } = await sdk.resolved();
+		expect(agent).not.toBeNull();
+		if (agent !== null) {
+			// Caller-supplied env for the same key wins over the resolved agent's.
+			const merged = applyResolvedAgent(
+				kind,
+				{ env: { FOO: "caller" } },
+				agent,
+			);
+			expect(merged.env?.FOO).toBe("caller");
+		}
+	});
+
+	test("env: auto-resolved codex forwards resolved env (merged with process.env) to the Codex constructor", async () => {
+		const config = mkConfig({
+			key: "codex",
+			order: 0,
+			sdk: "codex",
+			env: { FOO: "bar" },
+			models: { build: { model: "gpt-5.5" } },
+		});
+		const checkLimit = mock(
+			async (): Promise<AgentLimit> => ({ kind: "not_limited" }),
+		);
+		const sdk = new SeherSDK({
+			resolveOverrides: { config, checkLimit },
+		});
+		await sdk.run({ prompt: "hi" });
+		const opts = codexConstructorOpts[0] as { env?: Record<string, string> };
+		expect(opts.env?.FOO).toBe("bar");
 	});
 
 	test("auto-resolution pins the run model to the resolved modelId", async () => {
@@ -746,6 +927,128 @@ describe("SeherSDK class", () => {
 			expect(codexConstructorOpts[0]).not.toHaveProperty("tools");
 		} finally {
 			console.warn = origWarn;
+		}
+	});
+
+	test("buildInstance no longer strips env for claude-terminal / codex / copilot / pi", async () => {
+		const { buildInstance } = await import("./seherSdk.ts");
+		const warnSpy = mock((): void => {});
+		const origWarn = console.warn;
+		console.warn = warnSpy;
+		try {
+			for (const kind of [
+				"claude-terminal",
+				"codex",
+				"copilot",
+				"pi",
+			] as const) {
+				buildInstance(kind, { env: { FOO: "bar" } });
+			}
+			expect(warnSpy.mock.calls.length).toBe(0);
+		} finally {
+			console.warn = origWarn;
+		}
+	});
+
+	test("buildInstance still strips env (with a warning) for cursor / opencode", async () => {
+		const { buildInstance } = await import("./seherSdk.ts");
+		const warnSpy = mock((): void => {});
+		const origWarn = console.warn;
+		console.warn = warnSpy;
+		try {
+			buildInstance("cursor", { env: { FOO: "bar" } });
+			buildInstance("opencode", { env: { FOO: "bar" } });
+			expect(warnSpy.mock.calls.length).toBe(2);
+			expect(String(warnSpy.mock.calls[0]?.[0])).toContain("cursor");
+			expect(String(warnSpy.mock.calls[0]?.[0])).toContain("not supported");
+			expect(String(warnSpy.mock.calls[1]?.[0])).toContain("opencode");
+		} finally {
+			console.warn = origWarn;
+		}
+	});
+
+	test("buildInstance no longer strips effortLevel for claude / claude-terminal / claude-headless / pi / codex / copilot", async () => {
+		const { buildInstance } = await import("./seherSdk.ts");
+		const warnSpy = mock((): void => {});
+		const origWarn = console.warn;
+		console.warn = warnSpy;
+		try {
+			for (const kind of [
+				"claude",
+				"claude-terminal",
+				"claude-headless",
+				"pi",
+				"codex",
+				"copilot",
+			] as const) {
+				buildInstance(kind, { effortLevel: "high" });
+			}
+			expect(warnSpy.mock.calls.length).toBe(0);
+		} finally {
+			console.warn = origWarn;
+		}
+	});
+
+	test("buildInstance strips effortLevel (with a warning) for kimi / cursor / opencode", async () => {
+		const { buildInstance } = await import("./seherSdk.ts");
+		const warnSpy = mock((): void => {});
+		const origWarn = console.warn;
+		console.warn = warnSpy;
+		try {
+			buildInstance("kimi", { effortLevel: "high" });
+			buildInstance("cursor", { effortLevel: "high" });
+			buildInstance("opencode", { effortLevel: "high" });
+			expect(warnSpy.mock.calls.length).toBe(3);
+			expect(String(warnSpy.mock.calls[0]?.[0])).toContain("kimi");
+			expect(String(warnSpy.mock.calls[0]?.[0])).toContain("not supported");
+			expect(String(warnSpy.mock.calls[1]?.[0])).toContain("cursor");
+			expect(String(warnSpy.mock.calls[2]?.[0])).toContain("opencode");
+		} finally {
+			console.warn = origWarn;
+		}
+	});
+
+	test("kind=codex with env forwards it (merged with process.env) to the Codex constructor", async () => {
+		const previous = process.env.SEHER_SDK_TEST_ENV_KEY;
+		process.env.SEHER_SDK_TEST_ENV_KEY = "from-process";
+		try {
+			const sdk = new SeherSDK({ kind: "codex", env: { FOO: "bar" } });
+			await sdk.run({ prompt: "hi" });
+			const opts = codexConstructorOpts[0] as {
+				env?: Record<string, string>;
+			};
+			expect(opts.env?.FOO).toBe("bar");
+			expect(opts.env?.SEHER_SDK_TEST_ENV_KEY).toBe("from-process");
+		} finally {
+			if (previous === undefined) {
+				delete process.env.SEHER_SDK_TEST_ENV_KEY;
+			} else {
+				process.env.SEHER_SDK_TEST_ENV_KEY = previous;
+			}
+		}
+	});
+
+	test("kind=copilot with env forwards it (merged with process.env) to the CopilotClient constructor", async () => {
+		const previous = process.env.SEHER_SDK_TEST_ENV_KEY;
+		process.env.SEHER_SDK_TEST_ENV_KEY = "from-process";
+		try {
+			const sdk = new SeherSDK({
+				kind: "copilot",
+				gitHubToken: "tok",
+				env: { FOO: "bar" },
+			});
+			await sdk.run({ prompt: "hi" });
+			const opts = copilotConstructorOpts[0] as {
+				env?: Record<string, string>;
+			};
+			expect(opts.env?.FOO).toBe("bar");
+			expect(opts.env?.SEHER_SDK_TEST_ENV_KEY).toBe("from-process");
+		} finally {
+			if (previous === undefined) {
+				delete process.env.SEHER_SDK_TEST_ENV_KEY;
+			} else {
+				process.env.SEHER_SDK_TEST_ENV_KEY = previous;
+			}
 		}
 	});
 

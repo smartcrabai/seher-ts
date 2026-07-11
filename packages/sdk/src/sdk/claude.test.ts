@@ -368,9 +368,21 @@ describe("ClaudeSDK effort level", () => {
 		expect(lastCall().options.effort).toBe("medium");
 	});
 
-	test("a `:level` suffix on the model ID takes precedence over config.effortLevel", async () => {
+	test("config.effortLevel takes precedence over a `:level` suffix on the model ID", async () => {
+		// Matches the Rust `choose_backend`/resolve precedence: an
+		// explicit/config-resolved effort always wins over a model-id suffix.
 		queryMessages = [successResult("ok")];
 		const sdk = new ClaudeSDK({ effortLevel: "medium" });
+		await sdk.run({ prompt: "p", model: "claude-opus-4-5:high" });
+
+		const opts = lastCall().options;
+		expect(opts.model).toBe("claude-opus-4-5");
+		expect(opts.effort).toBe("medium");
+	});
+
+	test("a `:level` suffix is used as a fallback when config.effortLevel is unset", async () => {
+		queryMessages = [successResult("ok")];
+		const sdk = new ClaudeSDK();
 		await sdk.run({ prompt: "p", model: "claude-opus-4-5:high" });
 
 		expect(lastCall().options.effort).toBe("high");
@@ -402,6 +414,26 @@ describe("ClaudeSDK effort level", () => {
 
 		const opts = lastCall().options;
 		expect(opts.model).toBe("openrouter/meta-llama/llama-3.1-8b-instruct:free");
+		expect(opts.effort).toBeUndefined();
+	});
+
+	test("a suffix alias (e.g. `:med`) maps to its closest EffortLevel as a fallback", async () => {
+		queryMessages = [successResult("ok")];
+		const sdk = new ClaudeSDK();
+		await sdk.run({ prompt: "p", model: "claude-opus-4-5:med" });
+
+		const opts = lastCall().options;
+		expect(opts.model).toBe("claude-opus-4-5");
+		expect(opts.effort).toBe("medium");
+	});
+
+	test("a `:off` suffix strips the model but has no effort equivalent", async () => {
+		queryMessages = [successResult("ok")];
+		const sdk = new ClaudeSDK();
+		await sdk.run({ prompt: "p", model: "claude-opus-4-5:off" });
+
+		const opts = lastCall().options;
+		expect(opts.model).toBe("claude-opus-4-5");
 		expect(opts.effort).toBeUndefined();
 	});
 });

@@ -634,6 +634,53 @@ describe("ClaudeTerminalSDK.run", () => {
 			"default",
 		]);
 	});
+
+	test("forwards config.env to backend.start() when non-empty", async () => {
+		const rb = recordingBackend();
+		const rr = recordingReader({
+			sessionId: "x",
+			assistantMessages: [],
+			lastResultMessage: asMsg({
+				type: "result",
+				subtype: "success",
+				result: "ok",
+			}),
+		});
+		const sdk = new ClaudeTerminalSDK({
+			backendImpl: rb.backend,
+			transcriptReader: rr.reader,
+			env: { FOO: "bar" },
+		});
+		await sdk.run({ prompt: "hi" });
+		expect(rb.startCalls[0]?.options.env).toEqual({ FOO: "bar" });
+	});
+
+	test("does not set an env key on backend.start() when config.env is empty/unset", async () => {
+		const rb = recordingBackend();
+		const rr = recordingReader({
+			sessionId: "x",
+			assistantMessages: [],
+			lastResultMessage: asMsg({
+				type: "result",
+				subtype: "success",
+				result: "ok",
+			}),
+		});
+		const sdk = new ClaudeTerminalSDK({
+			backendImpl: rb.backend,
+			transcriptReader: rr.reader,
+		});
+		await sdk.run({ prompt: "hi" });
+		expect(rb.startCalls[0]?.options.env).toBeUndefined();
+
+		const sdkWithEmptyEnv = new ClaudeTerminalSDK({
+			backendImpl: rb.backend,
+			transcriptReader: rr.reader,
+			env: {},
+		});
+		await sdkWithEmptyEnv.run({ prompt: "hi" });
+		expect(rb.startCalls[1]?.options.env).toBeUndefined();
+	});
 });
 
 describe("detectSessionLimit", () => {

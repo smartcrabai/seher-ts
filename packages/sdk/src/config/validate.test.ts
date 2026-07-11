@@ -163,6 +163,150 @@ describe("validateConfig", () => {
 		expect(claude?.models.build).toEqual({ model: "x" });
 	});
 
+	test("provider-level effort is parsed", () => {
+		const cfg = validateConfig({
+			providers: {
+				claude: {
+					effort: "high",
+					models: { build: "sonnet" },
+				},
+			},
+		});
+		expect(cfg.providers[0]?.effort).toBe("high");
+	});
+
+	test("invalid provider-level effort value rejected", () => {
+		expect(() =>
+			validateConfig({
+				providers: {
+					claude: { effort: "ultra", models: { build: "sonnet" } },
+				},
+			}),
+		).toThrow(/effort must be one of/);
+	});
+
+	test("root-level effort is parsed and preserved separately from provider effort", () => {
+		const cfg = validateConfig({
+			effort: "low",
+			providers: {
+				claude: {
+					effort: "high",
+					models: { build: "sonnet" },
+				},
+			},
+		});
+		expect(cfg.effort).toBe("low");
+		expect(cfg.providers[0]?.effort).toBe("high");
+	});
+
+	test("invalid root-level effort value rejected", () => {
+		expect(() =>
+			validateConfig({
+				effort: "ultra",
+				providers: { claude: { models: { build: "sonnet" } } },
+			}),
+		).toThrow(/effort must be one of/);
+	});
+
+	test("effort omitted at every level yields undefined effort", () => {
+		const cfg = validateConfig({
+			providers: { claude: { models: { build: "sonnet" } } },
+		});
+		expect(cfg.effort).toBeUndefined();
+		expect(cfg.providers[0]?.effort).toBeUndefined();
+	});
+
+	test("provider-level env is parsed", () => {
+		const cfg = validateConfig({
+			providers: {
+				claude: {
+					env: { FOO: "bar", BAZ: "qux" },
+					models: { build: "sonnet" },
+				},
+			},
+		});
+		expect(cfg.providers[0]?.env).toEqual({ FOO: "bar", BAZ: "qux" });
+	});
+
+	test("root-level env is parsed and preserved separately from provider env", () => {
+		const cfg = validateConfig({
+			env: { ROOT_VAR: "root_val" },
+			providers: {
+				claude: {
+					env: { PROVIDER_VAR: "provider_val" },
+					models: { build: "sonnet" },
+				},
+			},
+		});
+		expect(cfg.env).toEqual({ ROOT_VAR: "root_val" });
+		expect(cfg.providers[0]?.env).toEqual({ PROVIDER_VAR: "provider_val" });
+	});
+
+	test("env omitted at every level yields undefined env", () => {
+		const cfg = validateConfig({
+			providers: { claude: { models: { build: "sonnet" } } },
+		});
+		expect(cfg.env).toBeUndefined();
+		expect(cfg.providers[0]?.env).toBeUndefined();
+	});
+
+	test("provider-level env with a non-string value is rejected", () => {
+		expect(() =>
+			validateConfig({
+				providers: {
+					claude: {
+						env: { FOO: 123 },
+						models: { build: "sonnet" },
+					},
+				},
+			}),
+		).toThrow(/env\.FOO must be a string/);
+	});
+
+	test("root-level env with a non-string value is rejected", () => {
+		expect(() =>
+			validateConfig({
+				env: { FOO: true },
+				providers: { claude: { models: { build: "sonnet" } } },
+			}),
+		).toThrow(ConfigValidationError);
+	});
+
+	test("provider-level env key containing '=' is rejected", () => {
+		expect(() =>
+			validateConfig({
+				providers: {
+					claude: {
+						env: { "FOO=BAR": "baz" },
+						models: { build: "sonnet" },
+					},
+				},
+			}),
+		).toThrow(/not a valid env key/);
+	});
+
+	test("provider-level env key containing a NUL byte is rejected", () => {
+		expect(() =>
+			validateConfig({
+				providers: {
+					claude: {
+						env: { "FOO\0BAR": "baz" },
+						models: { build: "sonnet" },
+					},
+				},
+			}),
+		).toThrow(/not a valid env key/);
+	});
+
+	test("root-level env key containing '=' is rejected", () => {
+		expect(() =>
+			validateConfig({
+				env: { "FOO=BAR": "baz" },
+				providers: { claude: { models: { build: "sonnet" } } },
+			}),
+		).toThrow(/not a valid env key/);
+	});
+
 	test("opencodego maps to opencode SDK", () => {
 		const cfg = validateConfig({
 			providers: { opencodego: { models: { build: "anthropic/sonnet" } } },

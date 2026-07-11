@@ -145,6 +145,36 @@ describe("CopilotSDK", () => {
 		expect(sessionConfig.model).toBe("gpt-5");
 	});
 
+	test("effortLevel is forwarded as sessionConfig.reasoningEffort", async () => {
+		sendAndWaitResult = { data: { content: "x" } };
+		const sdk = new CopilotSDK({ effortLevel: "high" });
+		await sdk.run({ prompt: "p" });
+		const sessionConfig = createSessionCalls[0] as {
+			reasoningEffort?: string;
+		};
+		expect(sessionConfig.reasoningEffort).toBe("high");
+	});
+
+	test("effortLevel max rounds down to xhigh (Copilot has no max tier)", async () => {
+		sendAndWaitResult = { data: { content: "x" } };
+		const sdk = new CopilotSDK({ effortLevel: "max" });
+		await sdk.run({ prompt: "p" });
+		const sessionConfig = createSessionCalls[0] as {
+			reasoningEffort?: string;
+		};
+		expect(sessionConfig.reasoningEffort).toBe("xhigh");
+	});
+
+	test("no reasoningEffort is set when effortLevel is unset", async () => {
+		sendAndWaitResult = { data: { content: "x" } };
+		const sdk = new CopilotSDK();
+		await sdk.run({ prompt: "p" });
+		const sessionConfig = createSessionCalls[0] as {
+			reasoningEffort?: string;
+		};
+		expect(sessionConfig.reasoningEffort).toBeUndefined();
+	});
+
 	test("systemPrompt is forwarded as systemMessage.append", async () => {
 		sendAndWaitResult = { data: { content: "x" } };
 		const sdk = new CopilotSDK();
@@ -223,6 +253,41 @@ describe("CopilotSDK", () => {
 			cliPath: "/bin/copilot",
 			cliUrl: "localhost:8080",
 		});
+	});
+
+	test("config.env is forwarded to the CopilotClient constructor, merged with process.env", async () => {
+		sendAndWaitResult = { data: { content: "x" } };
+		const previous = process.env.SEHER_COPILOT_ENV_TEST;
+		process.env.SEHER_COPILOT_ENV_TEST = "from-process";
+		try {
+			const sdk = new CopilotSDK({ gitHubToken: "tok", env: { FOO: "bar" } });
+			await sdk.run({ prompt: "p" });
+			const opts = constructorCalls[0] as { env?: Record<string, string> };
+			expect(opts.env?.FOO).toBe("bar");
+			expect(opts.env?.SEHER_COPILOT_ENV_TEST).toBe("from-process");
+		} finally {
+			if (previous === undefined) {
+				delete process.env.SEHER_COPILOT_ENV_TEST;
+			} else {
+				process.env.SEHER_COPILOT_ENV_TEST = previous;
+			}
+		}
+	});
+
+	test("no env key is set on CopilotClient constructor opts when config.env is empty/unset", async () => {
+		sendAndWaitResult = { data: { content: "x" } };
+		const sdk = new CopilotSDK({ gitHubToken: "tok" });
+		await sdk.run({ prompt: "p" });
+		const opts = constructorCalls[0] as { env?: Record<string, string> };
+		expect(opts.env).toBeUndefined();
+
+		const sdkWithEmptyEnv = new CopilotSDK({
+			gitHubToken: "tok",
+			env: {},
+		});
+		await sdkWithEmptyEnv.run({ prompt: "p" });
+		const opts2 = constructorCalls[1] as { env?: Record<string, string> };
+		expect(opts2.env).toBeUndefined();
 	});
 
 	test("stream yields delta chunks for assistant.message_delta events", async () => {

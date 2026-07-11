@@ -81,6 +81,39 @@ function parseApi(raw: unknown, label: string): ProviderApi {
 	return api;
 }
 
+/**
+ * Matches an env key containing `=` or a NUL byte, both of which corrupt the
+ * `KEY=VALUE` serialization used when environment variables are handed to a
+ * child process (or, for `pi`, to `process.env` directly). Rejected at
+ * config-load time so every backend gets the same guarantee up front (the
+ * Rust reference only checks this in the `pi` runner immediately before
+ * mutating the process environment; `pi.ts` re-checks the same condition at
+ * that point too, since `PiSDKConfig.env` can also be set directly via the
+ * programmatic API, bypassing this parse step).
+ */
+function isValidEnvKey(key: string): boolean {
+	return !key.includes("=") && !key.includes("\0");
+}
+
+function parseEnvMap(raw: unknown, label: string): Record<string, string> {
+	if (!isPlainObject(raw)) {
+		fail(`${label} must be an object`);
+	}
+	const out: Record<string, string> = {};
+	for (const [key, value] of Object.entries(raw)) {
+		if (typeof value !== "string") {
+			fail(`${label}.${key} must be a string`);
+		}
+		if (!isValidEnvKey(key)) {
+			fail(
+				`${label}.${key} is not a valid env key (must not contain '=' or NUL)`,
+			);
+		}
+		out[key] = value;
+	}
+	return out;
+}
+
 function _parseRetry(raw: unknown, label: string): RetryConfig {
 	if (!isPlainObject(raw)) {
 		fail(`${label} must be an object`);
@@ -142,6 +175,27 @@ function _parseRetry(raw: unknown, label: string): RetryConfig {
 		out.retryClientErrors = raw.retryClientErrors;
 	}
 	return out;
+}
+
+/**
+ * Parses an optional `effort` field off `container` (a model entry, provider
+ * entry, or config root). Shared by all three levels so the accepted
+ * vocabulary and error message stay in sync (see `EFFORT_LEVELS`).
+ */
+function parseEffortField(
+	container: Record<string, unknown>,
+	label: string,
+): EffortLevel | undefined {
+	if (!("effort" in container) || container.effort === undefined) {
+		return undefined;
+	}
+	if (
+		typeof container.effort !== "string" ||
+		!EFFORT_LEVELS.includes(container.effort as EffortLevel)
+	) {
+		fail(`${label} must be one of ${EFFORT_LEVELS.join(", ")}`);
+	}
+	return container.effort as EffortLevel;
 }
 
 function parseSkills(raw: unknown, label: string): SkillsConfig {
@@ -233,15 +287,8 @@ function parseModelEntry(raw: unknown, label: string): ModelEntry {
 		}
 		out.priority = raw.priority;
 	}
-	if ("effort" in raw && raw.effort !== undefined) {
-		if (
-			typeof raw.effort !== "string" ||
-			!EFFORT_LEVELS.includes(raw.effort as EffortLevel)
-		) {
-			fail(`${label}.effort must be one of ${EFFORT_LEVELS.join(", ")}`);
-		}
-		out.effort = raw.effort as EffortLevel;
-	}
+	const effort = parseEffortField(raw, `${label}.effort`);
+	if (effort !== undefined) out.effort = effort;
 	return out;
 }
 
@@ -314,6 +361,13 @@ function parseProvider(
 		retry = parseRetry(raw.retry, `${label}.retry`);
 	}
 
+	const effort = parseEffortField(raw, `${label}.effort`);
+
+	let env: Record<string, string> | undefined;
+	if ("env" in raw && raw.env !== undefined) {
+		env = parseEnvMap(raw.env, `${label}.env`);
+	}
+
 	if (!("models" in raw) || raw.models === undefined) {
 		fail(`${label}.models is required`);
 	}
@@ -324,6 +378,8 @@ function parseProvider(
 	if (api !== undefined) entry.api = api;
 	if (skills !== undefined) entry.skills = skills;
 	if (retry !== undefined) entry.retry = retry;
+	if (effort !== undefined) entry.effort = effort;
+	if (env !== undefined) entry.env = env;
 	return entry;
 }
 
@@ -339,10 +395,17 @@ export function validateConfig(input: unknown): Config {
 	if ("retry" in input && input.retry !== undefined) {
 		retry = parseRetry(input.retry, "retry");
 	}
+	const effort = parseEffortField(input, "effort");
+	let env: Record<string, string> | undefined;
+	if ("env" in input && input.env !== undefined) {
+		env = parseEnvMap(input.env, "env");
+	}
 	if (!("providers" in input) || input.providers === undefined) {
 		const out: Config = { providers: [] };
 		if (skills !== undefined) out.skills = skills;
 		if (retry !== undefined) out.retry = retry;
+		if (effort !== undefined) out.effort = effort;
+		if (env !== undefined) out.env = env;
 		return out;
 	}
 	if (!isPlainObject(input.providers)) {
@@ -357,5 +420,7 @@ export function validateConfig(input: unknown): Config {
 	const out: Config = { providers };
 	if (skills !== undefined) out.skills = skills;
 	if (retry !== undefined) out.retry = retry;
+	if (effort !== undefined) out.effort = effort;
+	if (env !== undefined) out.env = env;
 	return out;
 }

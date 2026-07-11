@@ -12,7 +12,10 @@ export interface BuildClaudeCommandOptions {
 	 * same project (cwd) directory.
 	 */
 	resume?: string;
-	/** Reasoning effort fallback when `model` carries no recognized `:level` suffix. */
+	/**
+	 * Reasoning effort. Takes precedence over a recognized `:level` suffix on
+	 * `model`, which is only used as a fallback when this is unset.
+	 */
 	effortLevel?: EffortLevel;
 }
 
@@ -27,7 +30,9 @@ export function buildClaudeCommand(opts: BuildClaudeCommandOptions): string[] {
 		args.push("--model", base);
 		suffixEffort = effort;
 	}
-	const effectiveEffort = suffixEffort ?? opts.effortLevel;
+	// opts.effortLevel (explicit / config-resolved) takes precedence over a
+	// model-id suffix, which is only a fallback.
+	const effectiveEffort = opts.effortLevel ?? suffixEffort;
 	if (effectiveEffort !== undefined) {
 		args.push("--effort", effectiveEffort);
 	}

@@ -149,12 +149,32 @@ describe("buildClaudeCommand", () => {
 		]);
 	});
 
-	test("model effort suffix takes precedence over effortLevel", () => {
+	test("effortLevel takes precedence over a model effort suffix", () => {
+		// Matches the Rust precedence: explicit/config-resolved effort wins
+		// over a model-id suffix.
 		expect(
 			buildClaudeCommand({
 				claudeBin: "claude",
 				model: "claude-opus-4-5:high",
 				effortLevel: "medium",
+				permissionMode: "bypassPermissions",
+			}),
+		).toEqual([
+			"claude",
+			"--model",
+			"claude-opus-4-5",
+			"--effort",
+			"medium",
+			"--permission-mode",
+			"bypassPermissions",
+		]);
+	});
+
+	test("model effort suffix is used as a fallback when effortLevel is unset", () => {
+		expect(
+			buildClaudeCommand({
+				claudeBin: "claude",
+				model: "claude-opus-4-5:high",
 				permissionMode: "bypassPermissions",
 			}),
 		).toEqual([

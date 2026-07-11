@@ -25,10 +25,12 @@ export interface ModelEntry {
 	model: string;
 	priority?: number;
 	/**
-	 * Reasoning effort to forward to Claude-family SDKs (`claude` /
-	 * `claude-headless` / `claude-terminal`) as `--effort` / `Options.effort`.
-	 * Ignored by other SDK kinds. A `:level` suffix on `model` (e.g.
-	 * `anthropic/claude-opus-4-5:high`) takes precedence over this field.
+	 * Reasoning effort for this model entry. Resolved with `model > provider >
+	 * root` precedence (see `ProviderEntry.effort` / `Config.effort` and
+	 * `resolveEffort` in `sdk/resolve.ts`, matching the Rust side's
+	 * `Config::resolve_effort`). The resolved value takes precedence over a
+	 * `:level` suffix on `model` (e.g. `anthropic/claude-opus-4-5:high`), which
+	 * is only used as a fallback when no effort is configured at any level.
 	 */
 	effort?: EffortLevel;
 }
@@ -125,6 +127,17 @@ export interface ProviderEntry {
 	 * root setting entirely (no per-field merging).
 	 */
 	retry?: RetryConfig;
+	/**
+	 * Provider-level reasoning effort default. Overridden by a model entry's
+	 * own `effort` when present (see `resolveEffort` in `sdk/resolve.ts`).
+	 */
+	effort?: EffortLevel;
+	/**
+	 * Provider-level extra environment variables. Merged with the root-level
+	 * `env` on a per-key basis, with this taking precedence (see `resolveEnv`
+	 * in `sdk/resolve.ts`, matching the Rust side's `Config::resolve_env`).
+	 */
+	env?: Record<string, string>;
 	/** Mode -> model entry. Keys include `plan`, `build`, plus user-defined keys. */
 	models: Record<string, ModelEntry>;
 }
@@ -139,6 +152,17 @@ export interface Config {
 	 * is defined (no per-field merging).
 	 */
 	retry?: RetryConfig;
+	/**
+	 * Root-level reasoning effort default, applied when neither the provider
+	 * nor the model entry specifies one (see `resolveEffort` in `sdk/resolve.ts`).
+	 */
+	effort?: EffortLevel;
+	/**
+	 * Root-level extra environment variables applied to every provider.
+	 * Provider-level `env` keys override these on a per-key basis (see
+	 * `resolveEnv` in `sdk/resolve.ts`).
+	 */
+	env?: Record<string, string>;
 }
 
 /**
@@ -168,6 +192,11 @@ export interface ResolvedAgent {
 	skills: ResolvedSkillsConfig;
 	/** Resolved retry policy (per-provider > root > defaults). */
 	retry: ResolvedRetryConfig;
-	/** Reasoning effort resolved from `models.<mode>.effort`, if set. */
+	/**
+	 * Reasoning effort resolved with `model > provider > root` precedence
+	 * (see `resolveEffort` in `sdk/resolve.ts`). `undefined` when none of the
+	 * three specify one. Backends fall further back to a `:level` suffix on
+	 * the model id when this is unset.
+	 */
 	effort?: EffortLevel;
 }

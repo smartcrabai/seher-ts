@@ -145,11 +145,31 @@ describe("buildClaudeArgs", () => {
 		]);
 	});
 
-	test("model :level suffix takes priority over effortLevel config", () => {
+	test("effortLevel config takes priority over a model :level suffix", () => {
+		// Matches the Rust precedence: explicit/config-resolved effort wins
+		// over a model-id suffix.
 		const args = buildClaudeArgs({
 			prompt: "hello",
 			model: "claude-opus-4-5:high",
 			effortLevel: "medium",
+			permissionMode: "bypassPermissions",
+		});
+		expect(args).toEqual([
+			"-p",
+			"hello",
+			"--model",
+			"claude-opus-4-5",
+			"--effort",
+			"medium",
+			"--permission-mode",
+			"bypassPermissions",
+		]);
+	});
+
+	test("model :level suffix is used as a fallback when effortLevel is unset", () => {
+		const args = buildClaudeArgs({
+			prompt: "hello",
+			model: "claude-opus-4-5:high",
 			permissionMode: "bypassPermissions",
 		});
 		expect(args).toEqual([

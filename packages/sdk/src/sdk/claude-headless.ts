@@ -22,9 +22,9 @@ export interface ClaudeHeadlessSDKConfig {
 	/** Model ID. `SeherRunOptions.model` takes precedence over this. */
 	model?: string;
 	/**
-	 * Default reasoning effort passed to `claude --effort <level>`.
-	 * A `:level` suffix on the model ID (e.g. `claude-opus-4-5:high`) takes
-	 * precedence over this if present.
+	 * Default reasoning effort passed to `claude --effort <level>`. Takes
+	 * precedence over a `:level` suffix on the model ID (e.g.
+	 * `claude-opus-4-5:high`), which is only used as a fallback when this is unset.
 	 */
 	effortLevel?: EffortLevel;
 	/**
@@ -60,7 +60,10 @@ export interface BuildClaudeHeadlessArgsOptions {
 	systemPrompt?: string;
 	permissionMode: PermissionMode;
 	resume?: string;
-	/** Reasoning effort fallback when `model` carries no recognized `:level` suffix. */
+	/**
+	 * Reasoning effort. Takes precedence over a recognized `:level` suffix on
+	 * `model`, which is only used as a fallback when this is unset.
+	 */
 	effortLevel?: EffortLevel;
 }
 
@@ -78,7 +81,9 @@ export function buildClaudeArgs(
 		args.push("--model", base);
 		suffixEffort = effort;
 	}
-	const effectiveEffort = suffixEffort ?? opts.effortLevel;
+	// opts.effortLevel (explicit / config-resolved) takes precedence over a
+	// model-id suffix, which is only a fallback.
+	const effectiveEffort = opts.effortLevel ?? suffixEffort;
 	if (effectiveEffort !== undefined) {
 		args.push("--effort", effectiveEffort);
 	}

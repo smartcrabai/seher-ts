@@ -29,6 +29,21 @@ let modelFindShouldReturnUndefined = false;
 let modelRegistryErrorMessage: string | undefined;
 let disposeImpl: () => unknown = () => Promise.resolve();
 
+/**
+ * Snapshot of `process.env[ENV_GUARD_TEST_KEY]` taken each time the mocked
+ * `session.prompt()` is invoked -- lets env-guard tests assert the guarded
+ * env value was actually in place *during* the pi interaction.
+ */
+const promptEnvSnapshots: Array<string | undefined> = [];
+/** Test key read by the snapshot above. Distinct name to avoid clashing with real env vars. */
+const ENV_GUARD_TEST_KEY = "SEHER_PI_ENV_GUARD_TEST_KEY";
+/**
+ * FIFO queue of one-shot async gates consumed by `session.prompt()`, one per
+ * call. Lets concurrency tests pause a specific `prompt()` invocation until
+ * the test explicitly releases it.
+ */
+const promptGates: Array<() => Promise<void>> = [];
+
 const listeners: Array<(event: unknown) => void> = [];
 
 mock.module("@earendil-works/pi-coding-agent", () => ({
@@ -38,6 +53,9 @@ mock.module("@earendil-works/pi-coding-agent", () => ({
 			session: {
 				prompt: async (text: string) => {
 					promptCalls.push(text);
+					promptEnvSnapshots.push(process.env[ENV_GUARD_TEST_KEY]);
+					const gate = promptGates.shift();
+					if (gate !== undefined) await gate();
 					if (promptShouldThrow !== null) throw promptShouldThrow;
 					for (const listener of listeners) {
 						for (const event of emittedEvents) {
@@ -130,6 +148,9 @@ describe("PiSDK", () => {
 		listeners.length = 0;
 		sessionMessages = [];
 		emittedEvents = [];
+		promptEnvSnapshots.length = 0;
+		promptGates.length = 0;
+		delete process.env[ENV_GUARD_TEST_KEY];
 		promptShouldThrow = null;
 		modelFindShouldReturnUndefined = false;
 		modelRegistryErrorMessage = undefined;
@@ -637,6 +658,159 @@ describe("PiSDK", () => {
 	});
 });
 
+/** Polls `predicate` until it's true, yielding to the macrotask queue between tries. */
+async function waitUntil(
+	predicate: () => boolean,
+	maxTries = 50,
+): Promise<void> {
+	for (let i = 0; i < maxTries; i++) {
+		if (predicate()) return;
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	}
+	throw new Error("waitUntil: predicate never became true");
+}
+
+describe("PiSDK env guard", () => {
+	beforeEach(() => {
+		createSessionCalls.length = 0;
+		promptCalls.length = 0;
+		listeners.length = 0;
+		sessionMessages = [];
+		emittedEvents = [
+			{
+				type: "agent_end",
+				messages: [
+					{ role: "assistant", content: [{ type: "text", text: "ok" }] },
+				],
+			},
+		];
+		promptShouldThrow = null;
+		promptEnvSnapshots.length = 0;
+		promptGates.length = 0;
+		delete process.env[ENV_GUARD_TEST_KEY];
+	});
+
+	test("config.env is applied to process.env only during the run and restored on success", async () => {
+		const sdk = new PiSDK({
+			defaultModel: "anthropic/claude-sonnet-4-5",
+			env: { [ENV_GUARD_TEST_KEY]: "during-run" },
+		});
+		expect(process.env[ENV_GUARD_TEST_KEY]).toBeUndefined();
+		await sdk.run({ prompt: "p" });
+		expect(promptEnvSnapshots).toEqual(["during-run"]);
+		expect(process.env[ENV_GUARD_TEST_KEY]).toBeUndefined();
+	});
+
+	test("config.env is restored to its prior value (not deleted) when it was already set", async () => {
+		process.env[ENV_GUARD_TEST_KEY] = "original";
+		const sdk = new PiSDK({
+			defaultModel: "anthropic/claude-sonnet-4-5",
+			env: { [ENV_GUARD_TEST_KEY]: "during-run" },
+		});
+		await sdk.run({ prompt: "p" });
+		expect(promptEnvSnapshots).toEqual(["during-run"]);
+		expect(process.env[ENV_GUARD_TEST_KEY]).toBe("original");
+	});
+
+	test("config.env is restored even when the run throws", async () => {
+		promptShouldThrow = new Error("boom");
+		process.env[ENV_GUARD_TEST_KEY] = "original";
+		const sdk = new PiSDK({
+			defaultModel: "anthropic/claude-sonnet-4-5",
+			env: { [ENV_GUARD_TEST_KEY]: "during-run" },
+		});
+		await expect(sdk.run({ prompt: "p" })).rejects.toThrow("boom");
+		expect(promptEnvSnapshots).toEqual(["during-run"]);
+		expect(process.env[ENV_GUARD_TEST_KEY]).toBe("original");
+	});
+
+	test("stream() applies and restores config.env the same way as run()", async () => {
+		const sdk = new PiSDK({
+			defaultModel: "anthropic/claude-sonnet-4-5",
+			env: { [ENV_GUARD_TEST_KEY]: "during-stream" },
+		});
+		const chunks: string[] = [];
+		for await (const chunk of sdk.stream({ prompt: "p" })) {
+			chunks.push(chunk.delta);
+		}
+		expect(promptEnvSnapshots).toEqual(["during-stream"]);
+		expect(process.env[ENV_GUARD_TEST_KEY]).toBeUndefined();
+	});
+
+	test("an env key containing '=' throws before touching process.env or running", async () => {
+		process.env[ENV_GUARD_TEST_KEY] = "untouched";
+		const sdk = new PiSDK({
+			defaultModel: "anthropic/claude-sonnet-4-5",
+			env: { "FOO=BAR": "x" },
+		});
+		await expect(sdk.run({ prompt: "p" })).rejects.toThrow(/invalid env key/);
+		expect(createSessionCalls.length).toBe(0);
+		expect(process.env[ENV_GUARD_TEST_KEY]).toBe("untouched");
+	});
+
+	test("an env key containing a NUL byte throws before touching process.env or running", async () => {
+		const sdk = new PiSDK({
+			defaultModel: "anthropic/claude-sonnet-4-5",
+			env: { "FOO\0BAR": "x" },
+		});
+		await expect(sdk.run({ prompt: "p" })).rejects.toThrow(/invalid env key/);
+		expect(createSessionCalls.length).toBe(0);
+	});
+
+	test("no env mutation/locking happens when config.env is empty/unset", async () => {
+		const sdk = new PiSDK({ defaultModel: "anthropic/claude-sonnet-4-5" });
+		await sdk.run({ prompt: "p" });
+		expect(promptEnvSnapshots).toEqual([undefined]);
+
+		const sdkWithEmptyEnv = new PiSDK({
+			defaultModel: "anthropic/claude-sonnet-4-5",
+			env: {},
+		});
+		await sdkWithEmptyEnv.run({ prompt: "p" });
+		expect(promptEnvSnapshots).toEqual([undefined, undefined]);
+	});
+
+	test("serializes concurrent run() calls across PiSDK instances so env mutations never interleave", async () => {
+		let releaseFirst: () => void = () => {};
+		const firstGate = new Promise<void>((resolve) => {
+			releaseFirst = resolve;
+		});
+		promptGates.push(() => firstGate);
+
+		const sdk1 = new PiSDK({
+			defaultModel: "anthropic/claude-sonnet-4-5",
+			env: { [ENV_GUARD_TEST_KEY]: "one" },
+		});
+		const sdk2 = new PiSDK({
+			defaultModel: "anthropic/claude-sonnet-4-5",
+			env: { [ENV_GUARD_TEST_KEY]: "two" },
+		});
+
+		const run1 = sdk1.run({ prompt: "p1" });
+		// Wait until run1 has entered its guarded region and is blocked inside
+		// the mocked prompt() on firstGate.
+		await waitUntil(() => promptCalls.length === 1);
+		expect(process.env[ENV_GUARD_TEST_KEY]).toBe("one");
+
+		const run2 = sdk2.run({ prompt: "p2" });
+		// run2 must remain blocked on the module-level lock: it can't even
+		// reach ensureSession/prompt() until run1's guard fully releases
+		// (mutation + restore), so prompt() should not have been called a
+		// second time yet, and the env value must still be run1's.
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(promptCalls.length).toBe(1);
+		expect(process.env[ENV_GUARD_TEST_KEY]).toBe("one");
+
+		releaseFirst();
+		await run1;
+		await run2;
+
+		expect(promptCalls).toEqual(["p1", "p2"]);
+		expect(promptEnvSnapshots).toEqual(["one", "two"]);
+		expect(process.env[ENV_GUARD_TEST_KEY]).toBeUndefined();
+	});
+});
+
 describe("buildAdditionalSkillPaths", () => {
 	test("includes ~/.agents/skills, ~/.claude/skills, and cwd/.claude/skills by default (in order)", () => {
 		const paths = buildAdditionalSkillPaths({
@@ -814,5 +988,86 @@ describe("PiSDK :thinking suffix", () => {
 
 		const sessionOpts = createSessionCalls.at(-1);
 		expect(sessionOpts?.thinkingLevel).toBe("minimal");
+	});
+
+	test("`:max` suffix is recognized, stripped, and passed through as the literal thinkingLevel", async () => {
+		// pi's ThinkingLevel has no "max" tier, so the raw string is passed
+		// through unmapped -- this test only verifies the model id is not
+		// corrupted (regression test for the split_thinking_suffix bug); pi's
+		// own runtime validation is expected to surface a clear error for the
+		// literal "max" value if this path is ever reached without an
+		// effortLevel taking precedence.
+		emittedEvents = [
+			{
+				type: "agent_end",
+				messages: [
+					{ role: "assistant", content: [{ type: "text", text: "ok" }] },
+				],
+			},
+		];
+		const sdk = new PiSDK();
+		await sdk.run({ prompt: "p", model: "anthropic/claude-opus-4-5:max" });
+
+		expect(modelFindCalls[0]).toEqual({
+			provider: "anthropic",
+			modelId: "claude-opus-4-5",
+		});
+		const sessionOpts = createSessionCalls.at(-1);
+		expect(sessionOpts?.thinkingLevel).toBe("max");
+	});
+
+	test("config.effortLevel takes priority over a model suffix", async () => {
+		emittedEvents = [
+			{
+				type: "agent_end",
+				messages: [
+					{ role: "assistant", content: [{ type: "text", text: "ok" }] },
+				],
+			},
+		];
+		const sdk = new PiSDK({ effortLevel: "high" });
+		await sdk.run({ prompt: "p", model: "anthropic/claude-opus-4-5:low" });
+
+		const sessionOpts = createSessionCalls.at(-1);
+		expect(sessionOpts?.thinkingLevel).toBe("high");
+	});
+
+	test("config.effortLevel max maps to pi's xhigh tier", async () => {
+		emittedEvents = [
+			{
+				type: "agent_end",
+				messages: [
+					{ role: "assistant", content: [{ type: "text", text: "ok" }] },
+				],
+			},
+		];
+		const sdk = new PiSDK({
+			defaultModel: "anthropic/claude-opus-4-5",
+			effortLevel: "max",
+		});
+		await sdk.run({ prompt: "p" });
+
+		const sessionOpts = createSessionCalls.at(-1);
+		expect(sessionOpts?.thinkingLevel).toBe("xhigh");
+	});
+
+	test("config.effortLevel takes priority over config.thinkingLevel when there's no suffix", async () => {
+		emittedEvents = [
+			{
+				type: "agent_end",
+				messages: [
+					{ role: "assistant", content: [{ type: "text", text: "ok" }] },
+				],
+			},
+		];
+		const sdk = new PiSDK({
+			defaultModel: "anthropic/claude-opus-4-5",
+			effortLevel: "high",
+			thinkingLevel: "minimal",
+		});
+		await sdk.run({ prompt: "p" });
+
+		const sessionOpts = createSessionCalls.at(-1);
+		expect(sessionOpts?.thinkingLevel).toBe("high");
 	});
 });

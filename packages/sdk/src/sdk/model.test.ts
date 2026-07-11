@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	EFFORT_LEVELS,
 	type EffortLevel,
+	effortToThinking,
 	splitEffortSuffix,
 	splitThinkingSuffix,
 	type ThinkingLevel,
@@ -105,6 +106,17 @@ describe("splitThinkingSuffix", () => {
 		});
 	});
 
+	test("`:max` is recognized and stripped even though pi's ThinkingLevel has no max tier (regression test for model-id corruption)", () => {
+		expect(splitThinkingSuffix("claude-opus-4-5:max")).toEqual({
+			base: "claude-opus-4-5",
+			thinking: "max",
+		});
+		expect(splitThinkingSuffix("anthropic/claude-opus-4-5:MAX")).toEqual({
+			base: "anthropic/claude-opus-4-5",
+			thinking: "max",
+		});
+	});
+
 	test("when there are multiple `:`, only the **last** one is considered", () => {
 		// `:free:low` -> base=`llama-3.1:free`, thinking=low
 		expect(splitThinkingSuffix("llama-3.1:free:low")).toEqual({
@@ -194,9 +206,50 @@ describe("splitEffortSuffix", () => {
 		});
 	});
 
-	test("no aliases: med is not recognized as an effort level (kept consistent with CLI --effort / YAML vocabulary)", () => {
+	test("aliases: med -> medium, 1 -> low, min -> low, minimal -> low (kept in sync with the Rust `effort_from_suffix` vocabulary)", () => {
 		expect(splitEffortSuffix("claude-opus-4-5:med")).toEqual({
-			base: "claude-opus-4-5:med",
+			base: "claude-opus-4-5",
+			effort: "medium",
+		});
+		expect(splitEffortSuffix("claude-opus-4-5:1")).toEqual({
+			base: "claude-opus-4-5",
+			effort: "low",
+		});
+		expect(splitEffortSuffix("claude-opus-4-5:min")).toEqual({
+			base: "claude-opus-4-5",
+			effort: "low",
+		});
+		expect(splitEffortSuffix("claude-opus-4-5:minimal")).toEqual({
+			base: "claude-opus-4-5",
+			effort: "low",
+		});
+		expect(splitEffortSuffix("claude-opus-4-5:2")).toEqual({
+			base: "claude-opus-4-5",
+			effort: "medium",
+		});
+		expect(splitEffortSuffix("claude-opus-4-5:3")).toEqual({
+			base: "claude-opus-4-5",
+			effort: "high",
+		});
+		expect(splitEffortSuffix("claude-opus-4-5:4")).toEqual({
+			base: "claude-opus-4-5",
+			effort: "xhigh",
+		});
+	});
+
+	test("`off`/`none`/`0` are recognized and stripped but have no EffortLevel equivalent", () => {
+		// pi's "no extra thinking" tier has no matching `claude --effort` value,
+		// so the suffix is still stripped from the model id (matching the Rust
+		// `effort_from_suffix` split) but `effort` stays unset -- no `--effort`
+		// flag should be emitted rather than guessing a tier.
+		expect(splitEffortSuffix("claude-opus-4-5:off")).toEqual({
+			base: "claude-opus-4-5",
+		});
+		expect(splitEffortSuffix("claude-opus-4-5:none")).toEqual({
+			base: "claude-opus-4-5",
+		});
+		expect(splitEffortSuffix("claude-opus-4-5:0")).toEqual({
+			base: "claude-opus-4-5",
 		});
 	});
 
@@ -259,5 +312,18 @@ describe("splitEffortSuffix", () => {
 		expect(levels).toHaveLength(5);
 		expect(EFFORT_LEVELS).toHaveLength(5);
 		expect(EFFORT_LEVELS).toEqual(["low", "medium", "high", "xhigh", "max"]);
+	});
+});
+
+describe("effortToThinking", () => {
+	test("maps low/medium/high/xhigh to the identically named pi thinking level", () => {
+		expect(effortToThinking("low")).toBe("low");
+		expect(effortToThinking("medium")).toBe("medium");
+		expect(effortToThinking("high")).toBe("high");
+		expect(effortToThinking("xhigh")).toBe("xhigh");
+	});
+
+	test("maps max to pi's highest tier, xhigh (pi has no max tier)", () => {
+		expect(effortToThinking("max")).toBe("xhigh");
 	});
 });
