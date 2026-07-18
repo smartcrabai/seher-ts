@@ -27,13 +27,18 @@ The `claude-terminal` SDK drives the Claude Code CLI as an interactive
 tmux session and captures responses by polling its JSONL transcript
 under `~/.claude/projects/`. It shares the same CodexBar account quota
 as `claude` (i.e. `claude-terminal` candidates are checked against the
-`claude` usage entry).
+`claude` usage entry) *unless* the entry's resolved `env` sets
+`ANTHROPIC_BASE_URL` to a non-empty (post-trim) value — that points the
+`claude` CLI at a third-party Anthropic-compatible endpoint (e.g. kimi,
+zai), so the entry is checked under its own provider's CodexBar quota
+instead.
 
 The `claude-headless` SDK is a lightweight alternative: it runs
 `claude -p "<prompt>"` as a one-shot subprocess and returns the captured
 stdout. There is no tmux pane and no transcript polling — useful when
 you just want a single-shot completion from the Claude CLI. It also
-shares the `claude` CodexBar account quota.
+shares the `claude` CodexBar account quota, with the same
+`ANTHROPIC_BASE_URL` override exception as `claude-terminal`.
 
 Paste-detection (the step that waits for the pasted prompt to appear
 in the TUI before submitting Enter) is robust against long Japanese /
@@ -366,8 +371,11 @@ Once resolved, the effort level is forwarded differently per SDK:
    is the tiebreaker.
 5. For each candidate (in order), CodexBar is queried by provider key.
    If usage is < 100% the candidate wins. If 100% the next candidate is
-   tried. If CodexBar has no entry for the key (or the binary is missing
-   or fails to spawn), the candidate is treated as always available.
+   tried — unless that 100% window's `resetsAt` has already passed, in
+   which case it's treated as a stale snapshot of an already-reset window
+   (not an active limit) and the candidate still wins. If CodexBar has no
+   entry for the key (or the binary is missing or fails to spawn), the
+   candidate is treated as always available.
 6. If every candidate is at 100%, the resolver sleeps until the earliest
    reset and rescans once.
 

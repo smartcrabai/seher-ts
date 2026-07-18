@@ -258,4 +258,37 @@ describe("KimiSDK", () => {
 		const sdk = new KimiSDK();
 		await expect(sdk.run({ prompt: "p" })).rejects.toBe(err);
 	});
+
+	test("run() passes through a bare '429' with no HTTP context or limit phrase unchanged", async () => {
+		// A standalone "429" (a request id, a byte count, ...) with no "HTTP"
+		// context and no rate/usage-limit phrase must not be misclassified as
+		// a rate limit.
+		const err = new MockCliError(
+			"CHAT_PROVIDER_ERROR",
+			"request 429 of 1000 completed",
+		);
+		promptShouldThrow = err;
+		const sdk = new KimiSDK();
+		await expect(sdk.run({ prompt: "p" })).rejects.toBe(err);
+	});
+
+	test("run() converts an 'HTTP 429' CliError with no other limit phrase to LimitError", async () => {
+		promptShouldThrow = new MockCliError(
+			"CHAT_PROVIDER_ERROR",
+			"Kimi API error (HTTP 429): server busy",
+		);
+		const sdk = new KimiSDK();
+		await expect(sdk.run({ prompt: "p" })).rejects.toBeInstanceOf(LimitError);
+	});
+
+	test("run() passes through 'HTTP 4290' (trailing digit) CliError unchanged", async () => {
+		// "HTTP 4290" is a different status code and must not match "HTTP 429".
+		const err = new MockCliError(
+			"CHAT_PROVIDER_ERROR",
+			"Kimi API error (HTTP 4290): oversized",
+		);
+		promptShouldThrow = err;
+		const sdk = new KimiSDK();
+		await expect(sdk.run({ prompt: "p" })).rejects.toBe(err);
+	});
 });

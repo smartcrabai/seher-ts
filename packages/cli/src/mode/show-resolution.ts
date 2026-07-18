@@ -79,6 +79,7 @@ async function probeLimitTag(
 	const codexbarName = codexbarProviderName(
 		candidate.resolved.kind,
 		candidate.provider,
+		candidate.resolved.env,
 	);
 	try {
 		const limit = await checkLimit(codexbarName);

@@ -1,6 +1,7 @@
 import { createExternalTool, createSession } from "@moonshot-ai/kimi-agent-sdk";
 import type { z } from "zod";
 import { rethrowAsLimit } from "./errors.ts";
+import { containsHttpStatus } from "./retry.ts";
 import { joinSystemPrompt } from "./text.ts";
 import { withStreamTimeout, withTimeout } from "./timeout.ts";
 import type { SeherTool } from "./tools.ts";
@@ -13,16 +14,26 @@ import type {
 } from "./types.ts";
 
 const KIMI_LIMIT_PATTERN =
-	/rate.?limit|usage.?limit|429|quota|too many requests|exceeded/i;
+	/rate.?limit|usage.?limit|quota|too many requests|exceeded/i;
+
+/**
+ * A bare `"429"` token is intentionally *not* included in `KIMI_LIMIT_PATTERN`:
+ * a real 429 is caught by `containsHttpStatus` below, which requires the
+ * `"HTTP 429"` context. A standalone `429` elsewhere in a message (a request
+ * id, a byte count, ...) is not evidence of a rate limit.
+ */
+function matchesKimiLimitText(text: string): boolean {
+	return containsHttpStatus(text, 429) || KIMI_LIMIT_PATTERN.test(text);
+}
 
 function isKimiLimit(err: unknown): boolean {
 	if (err === null || typeof err !== "object") return false;
 	const code = (err as { code?: unknown }).code;
 	if (code !== "CHAT_PROVIDER_ERROR") return false;
 	const raw = (err as { rawResponse?: unknown }).rawResponse;
-	if (typeof raw === "string" && KIMI_LIMIT_PATTERN.test(raw)) return true;
+	if (typeof raw === "string" && matchesKimiLimitText(raw)) return true;
 	const message = (err as { message?: unknown }).message;
-	return typeof message === "string" && KIMI_LIMIT_PATTERN.test(message);
+	return typeof message === "string" && matchesKimiLimitText(message);
 }
 
 export interface KimiSDKConfig {

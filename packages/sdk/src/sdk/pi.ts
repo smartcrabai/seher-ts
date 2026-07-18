@@ -19,6 +19,7 @@ import {
 	splitThinkingSuffix,
 	type ThinkingLevel,
 } from "./model.ts";
+import { containsHttpStatus } from "./retry.ts";
 import { extractTextBlocks, joinSystemPrompt } from "./text.ts";
 import { withStreamTimeout, withTimeout } from "./timeout.ts";
 import type {
@@ -29,11 +30,20 @@ import type {
 	SeherStreamChunk,
 } from "./types.ts";
 
-const PI_LIMIT_PATTERN =
-	/rate.?limit|usage.?limit|429|quota|too many requests/i;
+const PI_LIMIT_PATTERN = /rate.?limit|usage.?limit|quota|too many requests/i;
 
+/**
+ * A bare `"429"` token is intentionally *not* included in `PI_LIMIT_PATTERN`:
+ * pi provider errors are commonly formatted with an `"HTTP 429"` (or similar)
+ * status context, so a real 429 is caught by `containsHttpStatus` below. A
+ * standalone `429` elsewhere in a message (a request id, a byte count, ...)
+ * is not evidence of a rate limit.
+ */
 function isPiLimit(err: unknown): boolean {
-	return err instanceof Error && PI_LIMIT_PATTERN.test(err.message);
+	if (!(err instanceof Error)) return false;
+	return (
+		containsHttpStatus(err.message, 429) || PI_LIMIT_PATTERN.test(err.message)
+	);
 }
 
 export interface PiSDKConfig {
