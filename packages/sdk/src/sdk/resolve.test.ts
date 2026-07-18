@@ -739,6 +739,65 @@ describe("codexbar provider name alias", () => {
 		expect(seen).toEqual(["claude"]);
 	});
 
+	test("resolveAgent queries checkLimit with the entry's own provider when ANTHROPIC_BASE_URL is overridden", async () => {
+		// An entry that drives the claude CLI (claude-terminal) but points it
+		// at a third-party Anthropic-compatible endpoint (e.g. kimi) via
+		// ANTHROPIC_BASE_URL must not be probed under the shared `claude`
+		// codexbar account -- its own account usage is what matters.
+		const config = mkConfig({
+			key: "kimi-via-claude-terminal",
+			order: 0,
+			sdk: "claude-terminal",
+			env: { ANTHROPIC_BASE_URL: "https://api.kimi.com/coding/" },
+			models: { build: { model: "claude-opus-4-7" } },
+		});
+		const seen: string[] = [];
+		const checkLimit = mock(async (provider: string): Promise<AgentLimit> => {
+			seen.push(provider);
+			return { kind: "not_limited" };
+		});
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.provider).toBe("kimi-via-claude-terminal");
+		expect(seen).toEqual(["kimi-via-claude-terminal"]);
+	});
+
+	test("resolveAgent still aliases to 'claude' when ANTHROPIC_BASE_URL is blank", async () => {
+		// An empty or whitespace-only override is not a real override.
+		const config = mkConfig({
+			key: "claude-terminal",
+			order: 0,
+			sdk: "claude-terminal",
+			env: { ANTHROPIC_BASE_URL: "   " },
+			models: { build: { model: "claude-opus-4-7" } },
+		});
+		const seen: string[] = [];
+		const checkLimit = mock(async (provider: string): Promise<AgentLimit> => {
+			seen.push(provider);
+			return { kind: "not_limited" };
+		});
+		const agent = await resolveAgent({ config, checkLimit });
+		expect(agent.provider).toBe("claude-terminal");
+		expect(seen).toEqual(["claude"]);
+	});
+
+	test("pollForAgent queries checkLimit with the entry's own provider when ANTHROPIC_BASE_URL is overridden", async () => {
+		const config = mkConfig({
+			key: "kimi-via-claude-headless",
+			order: 0,
+			sdk: "claude-headless",
+			env: { ANTHROPIC_BASE_URL: "https://api.kimi.com/coding/" },
+			models: { build: { model: "claude-opus-4-7" } },
+		});
+		const seen: string[] = [];
+		const checkLimit = mock(async (provider: string): Promise<AgentLimit> => {
+			seen.push(provider);
+			return { kind: "not_limited" };
+		});
+		const agent = await pollForAgent({ config, checkLimit });
+		expect(agent.provider).toBe("kimi-via-claude-headless");
+		expect(seen).toEqual(["kimi-via-claude-headless"]);
+	});
+
 	test("skills defaults to includeClaude=true when no config given", async () => {
 		const config = mkConfig({
 			key: "mypi",

@@ -321,6 +321,32 @@ describe("PiSDK", () => {
 		await expect(sdk.run({ prompt: "p" })).rejects.toBe(err);
 	});
 
+	test("run passes through a bare '429' with no HTTP context or limit phrase unchanged", async () => {
+		// A standalone "429" (a request id, a byte count, ...) with no "HTTP"
+		// context and no rate/usage-limit phrase must not be misclassified as
+		// a rate limit.
+		const err = new Error("request 429 of 1000 completed");
+		promptShouldThrow = err;
+		const sdk = new PiSDK({ defaultModel: "anthropic/claude-sonnet-4-5" });
+		await expect(sdk.run({ prompt: "p" })).rejects.toBe(err);
+	});
+
+	test("run converts an 'HTTP 429' error with no other limit phrase to LimitError", async () => {
+		promptShouldThrow = new Error(
+			"Anthropic API error (HTTP 429): server busy",
+		);
+		const sdk = new PiSDK({ defaultModel: "anthropic/claude-sonnet-4-5" });
+		await expect(sdk.run({ prompt: "p" })).rejects.toBeInstanceOf(LimitError);
+	});
+
+	test("run passes through 'HTTP 4290' (trailing digit) unchanged", async () => {
+		// "HTTP 4290" is a different status code and must not match "HTTP 429".
+		const err = new Error("Anthropic API error (HTTP 4290): oversized");
+		promptShouldThrow = err;
+		const sdk = new PiSDK({ defaultModel: "anthropic/claude-sonnet-4-5" });
+		await expect(sdk.run({ prompt: "p" })).rejects.toBe(err);
+	});
+
 	test("run throws LimitError when the last assistant message ends with stopReason=error and a limit-shaped errorMessage", async () => {
 		// pi doesn't throw on provider errors (e.g. 429) -- it records the
 		// failure as a normal assistant message with stopReason "error" and

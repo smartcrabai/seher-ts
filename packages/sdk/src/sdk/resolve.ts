@@ -293,7 +293,10 @@ export async function resolveAgent(
 	let rescans = 0;
 	while (true) {
 		const scan = await scanCandidates(candidates, async (c) =>
-			probe(checkLimit, codexbarProviderName(c.resolved.kind, c.provider)),
+			probe(
+				checkLimit,
+				codexbarProviderName(c.resolved.kind, c.provider, c.resolved.env),
+			),
 		);
 
 		if (scan.kind === "available") {
@@ -363,7 +366,10 @@ export async function pollForAgent(
 		attempt += 1;
 		opts.onTick?.(attempt);
 		const scan = await scanCandidates(candidates, async (c) =>
-			probe(checkLimit, codexbarProviderName(c.resolved.kind, c.provider)),
+			probe(
+				checkLimit,
+				codexbarProviderName(c.resolved.kind, c.provider, c.resolved.env),
+			),
 		);
 		if (scan.kind === "available") {
 			const c = candidates[scan.index];

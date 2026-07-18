@@ -287,6 +287,56 @@ describe("runShowResolutionMode", () => {
 		expect(h.stdout.join("")).toBe("");
 	});
 
+	test("probes a claude-terminal candidate under its own provider name when ANTHROPIC_BASE_URL is overridden", async () => {
+		// claude-terminal normally shares the `claude` codexbar account, but an
+		// entry pointing the claude CLI at a third-party endpoint via
+		// ANTHROPIC_BASE_URL must be probed under its own provider name instead.
+		const config: Config = mkConfig({
+			key: "kimi-via-claude-terminal",
+			order: 0,
+			sdk: "claude-terminal",
+			env: { ANTHROPIC_BASE_URL: "https://api.kimi.com/coding/" },
+			models: { build: { model: "claude-opus-4-7" } },
+		});
+		const h = newHarness();
+		const seenProviders: string[] = [];
+		const checkLimit = mock(async (provider: string): Promise<AgentLimit> => {
+			seenProviders.push(provider);
+			return { kind: "not_limited" };
+		});
+		const resolveAgent = mock(
+			async (): Promise<ResolvedAgent> => ({
+				provider: "kimi-via-claude-terminal",
+				kind: "claude-terminal",
+				modelId: "claude-opus-4-7",
+				modeKey: "build",
+				env: { ANTHROPIC_BASE_URL: "https://api.kimi.com/coding/" },
+				skills: { includeClaude: true },
+				retry: {
+					enabled: true,
+					maxAttempts: 1,
+					initialDelaySecs: 1,
+					maxDelaySecs: 1,
+					multiplier: 1,
+					retryClientErrors: false,
+				},
+			}),
+		);
+		const loadConfig = mock(async (): Promise<Config> => config);
+
+		await runShowResolutionMode({
+			mode: "build",
+			logger: h.logger,
+			stderr: h.push.stderr,
+			stdout: h.push.stdout,
+			loadConfig,
+			checkLimit,
+			resolveAgent,
+		});
+
+		expect(seenProviders).toEqual(["kimi-via-claude-terminal"]);
+	});
+
 	test("a probe error adds a [probe error] tag but the winner is still printed", async () => {
 		const config: Config = mkConfig({
 			key: "codex",

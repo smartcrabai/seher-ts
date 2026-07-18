@@ -6,6 +6,7 @@ import {
 } from "@openai/codex-sdk";
 import { rethrowAsLimit } from "./errors.ts";
 import type { EffortLevel } from "./model.ts";
+import { containsHttpStatus } from "./retry.ts";
 import { joinSystemPrompt } from "./text.ts";
 import { withTimeout } from "./timeout.ts";
 import type {
@@ -16,11 +17,20 @@ import type {
 	SeherStreamChunk,
 } from "./types.ts";
 
-const CODEX_LIMIT_PATTERN =
-	/rate.?limit|usage.?limit|429|quota|too many requests/i;
+const CODEX_LIMIT_PATTERN = /rate.?limit|usage.?limit|quota|too many requests/i;
 
+/**
+ * A bare `"429"` token is intentionally *not* included in
+ * `CODEX_LIMIT_PATTERN`: a real 429 is caught by `containsHttpStatus` below,
+ * which requires the `"HTTP 429"` context. A standalone `429` elsewhere in a
+ * message (a request id, a byte count, ...) is not evidence of a rate limit.
+ */
 function isCodexLimit(err: unknown): boolean {
-	return err instanceof Error && CODEX_LIMIT_PATTERN.test(err.message);
+	if (!(err instanceof Error)) return false;
+	return (
+		containsHttpStatus(err.message, 429) ||
+		CODEX_LIMIT_PATTERN.test(err.message)
+	);
 }
 
 /**

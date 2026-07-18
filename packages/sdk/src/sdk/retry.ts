@@ -13,9 +13,13 @@ import type { ResolvedRetryConfig } from "../types.ts";
  * right after it is not a digit (i.e. end of string or a non-digit).
  *
  * This guards against false positives like `HTTP 5002` and is equivalent
- * to `contains_http_status` on the Rust side.
+ * to `contains_http_status` on the Rust side. Exported so provider-specific
+ * limit classifiers (`pi.ts`, `codex.ts`, `kimi.ts`) can require this same
+ * `"HTTP 429"` context instead of matching a bare `"429"` token, which would
+ * false-positive on any coincidental "429" substring (a request id, a byte
+ * count, ...) in an error message.
  */
-function containsHttpStatus(message: string, status: number): boolean {
+export function containsHttpStatus(message: string, status: number): boolean {
 	const needle = `HTTP ${status}`;
 	let from = 0;
 	while (true) {
