@@ -2,12 +2,11 @@ import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
-	AuthStorage,
 	type CreateAgentSessionResult,
 	createAgentSession,
 	DefaultResourceLoader,
 	getAgentDir,
-	ModelRegistry,
+	ModelRuntime,
 	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
@@ -423,31 +422,29 @@ export class PiSDK implements SeherSDKInstance {
 			// even without an apiKey (matching how the Rust seher reference defers
 			// to pi_agent_rust's own default resolution). Only override at runtime
 			// when apiKey is explicitly provided.
-			const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
+			const runtime = await ModelRuntime.create({
+				authPath: join(agentDir, "auth.json"),
+				modelsPath: join(agentDir, "models.json"),
+			});
 
 			if (this.config.apiKey !== undefined) {
-				authStorage.setRuntimeApiKey(providerID, this.config.apiKey);
+				await runtime.setRuntimeApiKey(providerID, this.config.apiKey);
 			}
 
-			const registry = ModelRegistry.create(
-				authStorage,
-				join(agentDir, "models.json"),
-			);
-
 			if (this.config.baseURL !== undefined) {
-				registry.registerProvider(providerID, {
+				runtime.registerProvider(providerID, {
 					baseUrl: this.config.baseURL,
 					apiKey: this.config.apiKey,
 				});
 			}
 
-			const model = registry.find(providerID, modelID);
+			const model = runtime.getModel(providerID, modelID);
 			if (model === undefined) {
-				// If models.json is malformed, ModelRegistry doesn't throw and instead
-				// continues with only the built-in models. Since a missing `find()`
-				// result alone doesn't reveal the cause, append the registry's load
+				// If models.json is malformed, ModelRuntime doesn't throw and instead
+				// continues with only the built-in models. Since a missing `getModel()`
+				// result alone doesn't reveal the cause, append the runtime's load
 				// error as the likely reason when one exists.
-				const modelsJsonError = registry.getError();
+				const modelsJsonError = runtime.getError();
 				throw new Error(
 					`pi: model not found for provider "${providerID}" / model "${modelID}"` +
 						(modelsJsonError !== undefined
@@ -458,8 +455,7 @@ export class PiSDK implements SeherSDKInstance {
 
 			const sessionOpts: Record<string, unknown> = {
 				model,
-				authStorage,
-				modelRegistry: registry,
+				modelRuntime: runtime,
 				cwd,
 				agentDir,
 			};

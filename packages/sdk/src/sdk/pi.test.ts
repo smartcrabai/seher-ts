@@ -11,10 +11,9 @@ const registerProviderCalls: Array<{
 const setApiKeyCalls: Array<{ provider: string; apiKey: string }> = [];
 const resourceLoaderCtorCalls: Array<Record<string, unknown>> = [];
 const resourceLoaderReloadCalls: number[] = [];
-const authStorageCreateCalls: Array<string | undefined> = [];
-const modelRegistryCreateCalls: Array<{
-	authStorage: unknown;
-	modelsJsonPath: string | undefined;
+const modelRuntimeCreateCalls: Array<{
+	authPath: string | undefined;
+	modelsPath: string | null | undefined;
 }> = [];
 
 let sessionMessages: Array<{
@@ -26,7 +25,7 @@ let sessionMessages: Array<{
 let emittedEvents: Array<Record<string, unknown>> = [];
 let promptShouldThrow: Error | null = null;
 let modelFindShouldReturnUndefined = false;
-let modelRegistryErrorMessage: string | undefined;
+let modelRuntimeErrorMessage: string | undefined;
 let disposeImpl: () => unknown = () => Promise.resolve();
 
 /**
@@ -82,29 +81,25 @@ mock.module("@earendil-works/pi-coding-agent", () => ({
 			},
 		};
 	},
-	AuthStorage: {
-		create: (authPath?: string) => {
-			authStorageCreateCalls.push(authPath);
+	ModelRuntime: {
+		create: async (options?: {
+			authPath?: string;
+			modelsPath?: string | null;
+		}) => {
+			modelRuntimeCreateCalls.push(options ?? {});
 			return {
-				setRuntimeApiKey: (provider: string, apiKey: string) => {
+				setRuntimeApiKey: async (provider: string, apiKey: string) => {
 					setApiKeyCalls.push({ provider, apiKey });
-				},
-			};
-		},
-	},
-	ModelRegistry: {
-		create: (authStorage: unknown, modelsJsonPath?: string) => {
-			modelRegistryCreateCalls.push({ authStorage, modelsJsonPath });
-			return {
-				find: (provider: string, modelId: string) => {
-					modelFindCalls.push({ provider, modelId });
-					if (modelFindShouldReturnUndefined) return undefined;
-					return { provider, modelId };
 				},
 				registerProvider: (name: string, opts: Record<string, unknown>) => {
 					registerProviderCalls.push({ provider: name, opts });
 				},
-				getError: () => modelRegistryErrorMessage,
+				getModel: (provider: string, modelId: string) => {
+					modelFindCalls.push({ provider, modelId });
+					if (modelFindShouldReturnUndefined) return undefined;
+					return { provider, modelId };
+				},
+				getError: () => modelRuntimeErrorMessage,
 			};
 		},
 	},
@@ -143,8 +138,7 @@ describe("PiSDK", () => {
 		modelFindCalls.length = 0;
 		registerProviderCalls.length = 0;
 		setApiKeyCalls.length = 0;
-		authStorageCreateCalls.length = 0;
-		modelRegistryCreateCalls.length = 0;
+		modelRuntimeCreateCalls.length = 0;
 		listeners.length = 0;
 		sessionMessages = [];
 		emittedEvents = [];
@@ -153,7 +147,7 @@ describe("PiSDK", () => {
 		delete process.env[ENV_GUARD_TEST_KEY];
 		promptShouldThrow = null;
 		modelFindShouldReturnUndefined = false;
-		modelRegistryErrorMessage = undefined;
+		modelRuntimeErrorMessage = undefined;
 		disposeImpl = () => Promise.resolve();
 	});
 
@@ -202,7 +196,7 @@ describe("PiSDK", () => {
 		expect(promptCalls[0]).toBe("you are helpful\n\ndo it");
 	});
 
-	test("run parses model as providerID/modelID via registry.find", async () => {
+	test("run parses model as providerID/modelID via runtime.getModel", async () => {
 		emittedEvents = [
 			{
 				type: "agent_end",
@@ -262,7 +256,7 @@ describe("PiSDK", () => {
 
 	test("model not found error includes the models.json load error alongside it", async () => {
 		modelFindShouldReturnUndefined = true;
-		modelRegistryErrorMessage = "Invalid models.json schema: ...";
+		modelRuntimeErrorMessage = "Invalid models.json schema: ...";
 		const sdk = new PiSDK({ defaultModel: "anthropic/claude-sonnet-4-5" });
 		await expect(sdk.run({ prompt: "p" })).rejects.toThrow(
 			/model not found.*models\.json load error: Invalid models\.json schema/,
@@ -421,7 +415,7 @@ describe("PiSDK", () => {
 		expect(disposeCalls.length).toBe(0);
 	});
 
-	test("apiKey is passed to AuthStorage.setRuntimeApiKey", async () => {
+	test("apiKey is passed to ModelRuntime.setRuntimeApiKey", async () => {
 		emittedEvents = [
 			{
 				type: "agent_end",
@@ -455,16 +449,17 @@ describe("PiSDK", () => {
 		const sdk = new PiSDK({ defaultModel: "anthropic/claude-sonnet-4-5" });
 		await sdk.run({ prompt: "p" });
 
-		expect(authStorageCreateCalls).toEqual(["/tmp/mock-agent-dir/auth.json"]);
-		expect(modelRegistryCreateCalls.length).toBe(1);
-		expect(modelRegistryCreateCalls[0]?.modelsJsonPath).toBe(
-			"/tmp/mock-agent-dir/models.json",
-		);
+		expect(modelRuntimeCreateCalls).toEqual([
+			{
+				authPath: "/tmp/mock-agent-dir/auth.json",
+				modelsPath: "/tmp/mock-agent-dir/models.json",
+			},
+		]);
 		// No apiKey was passed, so no runtime override is set.
 		expect(setApiKeyCalls.length).toBe(0);
 	});
 
-	test("baseURL is registered via ModelRegistry.registerProvider", async () => {
+	test("baseURL is registered via ModelRuntime.registerProvider", async () => {
 		emittedEvents = [
 			{
 				type: "agent_end",
@@ -901,14 +896,13 @@ describe("PiSDK :thinking suffix", () => {
 		modelFindCalls.length = 0;
 		registerProviderCalls.length = 0;
 		setApiKeyCalls.length = 0;
-		authStorageCreateCalls.length = 0;
-		modelRegistryCreateCalls.length = 0;
+		modelRuntimeCreateCalls.length = 0;
 		listeners.length = 0;
 		sessionMessages = [];
 		emittedEvents = [];
 		promptShouldThrow = null;
 		modelFindShouldReturnUndefined = false;
-		modelRegistryErrorMessage = undefined;
+		modelRuntimeErrorMessage = undefined;
 		disposeImpl = () => Promise.resolve();
 	});
 
