@@ -300,14 +300,10 @@ mock.module("@earendil-works/pi-coding-agent", () => ({
 			},
 		};
 	},
-	AuthStorage: {
-		create: () => ({
-			setRuntimeApiKey: () => {},
-		}),
-	},
-	ModelRegistry: {
-		create: () => ({
-			find: () => ({ provider: "stub" }),
+	ModelRuntime: {
+		create: async () => ({
+			setRuntimeApiKey: async () => {},
+			getModel: () => ({ provider: "stub" }),
 			registerProvider: () => {},
 		}),
 	},
